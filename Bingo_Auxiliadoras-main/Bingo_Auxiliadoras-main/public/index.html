@@ -123,7 +123,7 @@
 </main>
 
 <script type="module">
-  import { upload } from 'https://cdn.jsdelivr.net/npm/@vercel/blob@2.8.2/dist/client.js';
+  import { upload } from 'https://cdn.jsdelivr.net/npm/@vercel/blob@2.8.2/dist/client.js/+esm';
   const EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'application/pdf': 'pdf' };
   window.subirComprobante = file => upload(
     `comprobantes/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${EXT[file.type]}`,
@@ -343,6 +343,7 @@ $('form').addEventListener('submit', async e => {
       if (file.size > 10 * 1024 * 1024) throw new Error(`"${file.name}" supera 10 MB.`);
       if (!/^(image\/(png|jpeg|gif|webp)|application\/pdf)$/.test(file.type)) throw new Error(`"${file.name}" debe ser imagen o PDF.`);
       $('msg').textContent = `Subiendo comprobante ${i + 1} de ${archivos.length}…`;
+      if (typeof window.subirComprobante !== 'function') throw new Error('No se pudo cargar el módulo de subida. Recarga la página e inténtalo de nuevo.');
       const blob = await window.subirComprobante(file);
       comprobantes.push({ ruta: blob.pathname, nombre: file.name, tipo: file.type });
     }
