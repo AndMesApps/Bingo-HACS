@@ -2,6 +2,8 @@ const { desdePool } = require('./db');
 const { crearServicios } = require('./servicios');
 const { crearWhatsApp } = require('./whatsapp');
 const { crearStorage } = require('./storage');
+const { crearCorreo } = require('./correo');
+const { crearImagenes } = require('./imagenes');
 
 // Vercel reutiliza la instancia entre peticiones cercanas: se crea una sola vez por función.
 let ctx;
@@ -14,11 +16,13 @@ function obtenerContexto(env = process.env) {
     token: env.WHATSAPP_TOKEN,
     phoneId: env.WHATSAPP_PHONE_ID,
     plantilla: env.WHATSAPP_PLANTILLA,
-    codigoPais: env.CODIGO_PAIS || '58',
+    codigoPais: env.CODIGO_PAIS || '57',
   });
+  const correo = crearCorreo({ apiKey: env.RESEND_API_KEY, desde: env.EMAIL_FROM });
+  const imagenes = crearImagenes({ url: env.SUPABASE_URL, clave: env.SUPABASE_SERVICE_ROLE_KEY, bucket: env.SUPABASE_BUCKET || 'tablas' });
   const storage = crearStorage();
-  const servicios = crearServicios({ db, whatsapp });
-  ctx = { db, whatsapp, storage, servicios, env };
+  const servicios = crearServicios({ db, whatsapp, correo });
+  ctx = { db, whatsapp, correo, imagenes, storage, servicios, env };
   return ctx;
 }
 

@@ -9,12 +9,13 @@ const { crearWhatsApp } = require('../src/whatsapp');
 
 const ESQUEMA = fs.readFileSync(path.join(__dirname, '..', 'src', 'esquema.sql'), 'utf8');
 
-async function nuevo({ whatsapp } = {}) {
+async function nuevo({ whatsapp, correo } = {}) {
   const pg = new PGlite();
   const db = desdePglite(pg);
   await db.exec(ESQUEMA);
-  const s = crearServicios({ db, whatsapp: whatsapp || crearWhatsApp({}) });
+  const s = crearServicios({ db, whatsapp: whatsapp || crearWhatsApp({}), ...(correo ? { correo } : {}) });
   await s.actualizarEvento({ nombre: 'Prueba', precioTabla: 10, moneda: 'USD' });
+  s.db = db;
   return s;
 }
 
@@ -22,8 +23,9 @@ const ruta = () => `comprobantes/${require('node:crypto').randomBytes(16).toStri
 const comprobante = () => [{ ruta: ruta(), nombre: 'pago.png', tipo: 'image/png' }];
 
 const datos = (n, extra = {}) => ({
-  nombre: 'Ana Pérez', cedula: 'V-1', telefono: '04121234567', correo: 'a@x.com',
-  cantidad: n, metodo: 'Pago móvil', referencia: 'REF' + Math.random(), ...extra,
+  nombre: 'Ana Pérez', telefono: '04121234567', correo: 'a@x.com', ciudad: 'Medellín', referidoPor: 'Hna. María',
+  cantidad: n, montoPagado: n * 10, fechaPago: new Date().toISOString().slice(0, 10),
+  metodo: 'Consignación', referencia: 'REF' + Math.random(), ...extra,
 });
 
 async function tablas(s, n) {
@@ -215,7 +217,173 @@ test('si WhatsApp falla la compra queda enviada y se reintenta con las mismas ta
   const e1 = await s.enviarTablas(c.id);
   assert.equal(e1.estado, 'enviada');
   assert.equal(e1.whatsappEstado, 'fallido');
-  const e2 = await s.reenviarWhatsapp(c.id);
+  const e2 = await s.reenviar(c.id, { canales: { whatsapp: true } });
   assert.equal(e2.whatsappEstado, 'enviado');
   assert.deepEqual(e2.tablas, e1.tablas);
+});
+
+
+// ---------- v3: monto → tablas, control estricto, canales de entrega ----------
+
+test('el sistema sugiere tablas según lo pagado y el verificador no puede enviar más de lo pagado', async () => {
+  const s = await nuevo();
+  await tablas(s, 10);
+  const r = await s.crearCompra(datos(3, { montoPagado: 25 }), comprobante());
+  assert.equal(r.tablasSugeridas, 2);
+  await verificarTodo(s, r.id, 25);
+  const antes = await s.detalleCompra(r.id);
+  assert.equal(antes.tablasSugeridas, 2);
+  await assert.rejects(s.enviarTablas(r.id, { cantidad: 3 }), /cubre solo 2/);
+  assert.equal(await s.tablasDisponibles(), 10, 'el intento fallido no asigna nada');
+  const e = await s.enviarTablas(r.id); // por defecto, lo que cubre el pago
+  assert.equal(e.tablas.length, 2);
+  assert.equal(e.tablasAprobadas, 2);
+  assert.equal(e.total, 20);
+});
+
+test('el verificador puede enviar menos tablas de las pedidas', async () => {
+  const s = await nuevo();
+  await tablas(s, 10);
+  const r = await comprar(s, 5);
+  await verificarTodo(s, r.id);
+  const e = await s.enviarTablas(r.id, { cantidad: 2 });
+  assert.equal(e.tablas.length, 2);
+  assert.equal(await s.tablasDisponibles(), 8);
+});
+
+test('sin exigir pago completo se pueden enviar tablas a deber', async () => {
+  const s = await nuevo();
+  await s.actualizarEvento({ exigirPagoCompleto: false });
+  await tablas(s, 5);
+  const r = await comprar(s, 3, { montoPagado: 10 });
+  await verificarTodo(s, r.id, 10);
+  const e = await s.enviarTablas(r.id, { cantidad: 3 });
+  assert.equal(e.tablas.length, 3);
+  assert.equal(e.saldo, 20);
+});
+
+test('efectivo: no exige comprobante; la consignación sí', async () => {
+  const s = await nuevo();
+  await tablas(s, 2);
+  const c = await s.crearCompra(datos(1, { metodo: 'Efectivo', fechaPago: undefined }), []);
+  assert.equal((await s.detalleCompra(c.id)).pagos[0].metodo, 'Efectivo');
+  await assert.rejects(s.crearCompra(datos(1), []), /comprobante/);
+});
+
+test('el formulario valida ciudad, referido, fecha y correo; cédula y correo son opcionales', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  await assert.rejects(s.crearCompra(datos(1, { ciudad: '' }), comprobante()), /ciudad/i);
+  await assert.rejects(s.crearCompra(datos(1, { referidoPor: ' ' }), comprobante()), /bingo/i);
+  await assert.rejects(s.crearCompra(datos(1, { fechaPago: '' }), comprobante()), /fecha/i);
+  await assert.rejects(s.crearCompra(datos(1, { fechaPago: '2999-01-01' }), comprobante()), /futura/);
+  await assert.rejects(s.crearCompra(datos(1, { correo: 'no-es-correo' }), comprobante()), /correo/i);
+  await assert.rejects(s.crearCompra(datos(1, { montoPagado: 0 }), comprobante()), /mayor que 0/);
+  const c = await s.crearCompra(datos(1, { correo: '', cedula: undefined }), comprobante());
+  const d = await s.detalleCompra(c.id);
+  assert.equal(d.correo, '');
+  assert.equal(d.ciudad, 'Medellín');
+  assert.equal(d.referidoPor, 'Hna. María');
+});
+
+test('control estricto: la base rechaza reasignar, liberar o borrar una tabla vendida', async () => {
+  const s = await nuevo();
+  await tablas(s, 4);
+  const a = await comprar(s, 1);
+  const b = await comprar(s, 1);
+  await verificarTodo(s, a.id);
+  await verificarTodo(s, b.id);
+  const ea = await s.enviarTablas(a.id);
+  await s.enviarTablas(b.id);
+  const serial = ea.tablas[0];
+  await assert.rejects(s.db.query('UPDATE tablas SET compra_id = $1 WHERE serial = $2', [b.id, serial]), /no se puede reasignar/);
+  await assert.rejects(s.db.query("UPDATE tablas SET estado = 'disponible', compra_id = NULL WHERE serial = $1", [serial]), /no se puede reasignar/);
+  await assert.rejects(s.db.query('DELETE FROM tablas WHERE serial = $1', [serial]), /no se puede borrar/);
+  // Estado incoherente: vendida sin compra, o disponible con compra.
+  await assert.rejects(s.db.query("UPDATE tablas SET estado = 'vendida' WHERE estado = 'disponible'"), /coherente/);
+  await assert.rejects(s.db.query('UPDATE tablas SET compra_id = $1 WHERE estado = \'disponible\'', [a.id]), /coherente/);
+  const dueño = await s.db.query('SELECT compra_id FROM tablas WHERE serial = $1', [serial]);
+  assert.equal(dueño[0].compra_id, a.id);
+});
+
+test('control estricto: muchos envíos simultáneos nunca repiten una tabla', async () => {
+  const s = await nuevo();
+  await tablas(s, 90);
+  const ids = [];
+  for (let i = 0; i < 30; i++) {
+    const c = await comprar(s, 3);
+    await verificarTodo(s, c.id);
+    ids.push(c.id);
+  }
+  const resultados = await Promise.all(ids.map(id => s.enviarTablas(id)));
+  const todas = resultados.flatMap(r => r.tablas);
+  assert.equal(todas.length, 90);
+  assert.equal(new Set(todas).size, 90, 'ninguna tabla se asignó dos veces');
+  const huerfanas = await s.db.query("SELECT COUNT(*)::int AS n FROM tablas WHERE estado = 'vendida' AND compra_id IS NULL");
+  assert.equal(huerfanas[0].n, 0);
+});
+
+test('una compra no se envía dos veces aunque se pida a la vez', async () => {
+  const s = await nuevo();
+  await tablas(s, 6);
+  const c = await comprar(s, 2);
+  await verificarTodo(s, c.id);
+  const r = await Promise.allSettled([s.enviarTablas(c.id), s.enviarTablas(c.id)]);
+  assert.equal(r.filter(x => x.status === 'fulfilled').length, 1);
+  assert.equal((await s.listarTablas()).filter(t => t.estado === 'vendida').length, 2);
+});
+
+test('si no alcanzan las tablas, el envío falla completo y no asigna nada', async () => {
+  const s = await nuevo();
+  await s.actualizarEvento({ exigirPagoCompleto: false });
+  await tablas(s, 2);
+  const c = await comprar(s, 2);
+  await verificarTodo(s, c.id);
+  await assert.rejects(s.enviarTablas(c.id, { cantidad: 5 }), /Faltan tablas/);
+  assert.equal(await s.tablasDisponibles(), 2);
+  assert.equal((await s.detalleCompra(c.id)).estado, 'verificada');
+});
+
+test('canales: correo exige correo registrado, entrega física queda pendiente y se marca entregada', async () => {
+  const enviados = [];
+  const correo = {
+    enviarTablas: async x => { enviados.push(x); return { estado: 'enviado' }; },
+    enlaceManual: () => 'mailto:x',
+  };
+  const s = await nuevo({ correo });
+  await tablas(s, 5);
+  const sin = await s.crearCompra(datos(1, { correo: '' }), comprobante());
+  await verificarTodo(s, sin.id);
+  await assert.rejects(s.enviarTablas(sin.id, { canales: { correo: true } }), /correo registrado/);
+  await assert.rejects(s.enviarTablas(sin.id, { canales: { whatsapp: false } }), /al menos un canal/);
+
+  const c = await comprar(s, 2);
+  await verificarTodo(s, c.id);
+  const e = await s.enviarTablas(c.id, { canales: { correo: true, fisica: true }, baseUrl: 'https://bingo.test' });
+  assert.equal(e.correoEstado, 'enviado');
+  assert.equal(e.whatsappEstado, 'no_enviado');
+  assert.equal(e.fisicaEstado, 'pendiente');
+  assert.match(enviados[0].enlace, /^https:\/\/bingo\.test\/tablas\.html\?t=[a-f0-9]{32}$/);
+  const f = await s.entregaFisica(c.id, { estado: 'entregada', nota: 'Recibió en la parroquia' });
+  assert.equal(f.fisicaEstado, 'entregada');
+  assert.equal(f.fisicaNota, 'Recibió en la parroquia');
+  await assert.rejects(s.entregaFisica(c.id, { estado: 'otra' }), /no válido/);
+});
+
+test('enlace privado: solo muestra las tablas de esa compra y rechaza tokens falsos', async () => {
+  const s = await nuevo();
+  await tablas(s, 6);
+  const a = await comprar(s, 2);
+  const b = await comprar(s, 1, { nombre: 'Luis' });
+  await verificarTodo(s, a.id);
+  await verificarTodo(s, b.id);
+  const ea = await s.enviarTablas(a.id);
+  const eb = await s.enviarTablas(b.id);
+  assert.notEqual(ea.tokenEntrega, eb.tokenEntrega);
+  const va = await s.entregaPublica(ea.tokenEntrega);
+  assert.deepEqual(va.tablas, ea.tablas);
+  assert.equal(va.nombre, 'Ana Pérez');
+  assert.equal((await s.entregaPublica(eb.tokenEntrega)).tablas.length, 1);
+  await assert.rejects(s.entregaPublica('0'.repeat(32)), /no válido/);
+  await assert.rejects(s.entregaPublica("' OR 1=1 --"), /no válido/);
 });

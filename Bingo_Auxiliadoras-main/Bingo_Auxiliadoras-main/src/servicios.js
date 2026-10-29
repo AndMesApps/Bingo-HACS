@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const { crearCorreo } = require('./correo');
 
 const ALFABETO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const MAX_TABLAS_POR_COMPRA = 50;
@@ -38,10 +39,17 @@ const texto = (v, nombre, max = 120) => {
 const SQL_COMPRAS = `
   SELECT c.*,
     COALESCE((SELECT SUM(p.monto_verificado) FROM pagos p WHERE p.compra_id = c.id AND p.estado = 'verificado'), 0) AS pagado,
+    COALESCE((SELECT SUM(p.monto_reportado) FROM pagos p WHERE p.compra_id = c.id AND p.estado <> 'rechazado'), 0) AS reportado,
     COALESCE((SELECT array_agg(t.serial ORDER BY t.serial) FROM tablas t WHERE t.compra_id = c.id), '{}') AS tablas
   FROM compras c`;
 
-function crearServicios({ db, whatsapp }) {
+// Cuántas tablas cubre un monto al precio dado (siempre hacia abajo: nunca se regala una tabla).
+const tablasPorMonto = (monto, precio) => (precio > 0 ? Math.floor(redondear(monto) / precio + 1e-9) : 0);
+const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+const CORREO_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CANALES = ['whatsapp', 'correo', 'fisica'];
+
+function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
   const q = (sql, params) => db.query(sql, params);
   const uno = async (sql, params) => (await q(sql, params))[0];
 
@@ -169,6 +177,7 @@ function crearServicios({ db, whatsapp }) {
   function compraDTO(c) {
     const pagado = redondear(num(c.pagado));
     const total = num(c.total);
+    const precio = num(c.precio_unitario);
     return {
       id: c.id,
       codigo: c.codigo,
@@ -176,14 +185,26 @@ function crearServicios({ db, whatsapp }) {
       cedula: c.cedula,
       telefono: c.telefono,
       correo: c.correo,
+      ciudad: c.ciudad,
+      referidoPor: c.referido_por,
       cantidad: c.cantidad,
-      precioUnitario: num(c.precio_unitario),
+      tablasAprobadas: c.tablas_aprobadas,
+      // Lo que cubre el dinero ya verificado y lo que cubre lo reportado por el comprador.
+      tablasSugeridas: tablasPorMonto(pagado, precio),
+      tablasReportadas: tablasPorMonto(num(c.reportado), precio),
+      precioUnitario: precio,
       total,
       pagado,
       saldo: redondear(Math.max(0, total - pagado)),
       estado: c.estado,
       whatsappEstado: c.whatsapp_estado,
       whatsappError: c.whatsapp_error,
+      correoEstado: c.correo_estado,
+      correoError: c.correo_error,
+      fisicaEstado: c.fisica_estado,
+      fisicaNota: c.fisica_nota,
+      fisicaEn: c.fisica_en,
+      tokenEntrega: c.token_entrega,
       creadaEn: c.creada_en,
       verificadaEn: c.verificada_en,
       enviadaEn: c.enviada_en,
@@ -199,6 +220,7 @@ function crearServicios({ db, whatsapp }) {
       montoVerificado: p.monto_verificado == null ? null : num(p.monto_verificado),
       metodo: p.metodo,
       referencia: p.referencia,
+      fechaPago: p.fecha_pago,
       estado: p.estado,
       comprobantes: comprobantes || [],
       creadoEn: p.creado_en,
@@ -226,21 +248,31 @@ function crearServicios({ db, whatsapp }) {
     const e = await evento();
     if (!(e.precioTabla > 0)) throw new ErrorApp('Las compras están cerradas: el precio aún no está configurado.', 409);
 
-    const cantidad = enteroPositivo(datos.cantidad, 'La cantidad');
+    // Campos del formulario del bingo: nombre, celular, ciudad, quién lo refirió, valor y fecha de la consignación,
+    // número de tablas y soporte. Cédula y correo son opcionales; el efectivo no lleva comprobante.
+    const cantidad = enteroPositivo(datos.cantidad, 'El número de tablas');
     if (cantidad > MAX_TABLAS_POR_COMPRA) throw new ErrorApp(`Máximo ${MAX_TABLAS_POR_COMPRA} tablas por compra.`);
-    if (!comprobantes.length) throw new ErrorApp('Adjunta al menos un comprobante de pago.');
+    const metodo = texto(datos.metodo, 'Método de pago', 40);
+    const esEfectivo = /efectivo/i.test(metodo);
+    if (!esEfectivo && !comprobantes.length) throw new ErrorApp('Adjunta el comprobante de la consignación.');
+    const correoComprador = String(datos.correo ?? '').trim().slice(0, 120);
+    if (correoComprador && !CORREO_VALIDO.test(correoComprador)) throw new ErrorApp('El correo no es válido.');
+    const hoy = ahora().slice(0, 10);
+    const fechaPago = String(datos.fechaPago || (esEfectivo ? hoy : '')).trim();
+    if (!FECHA_ISO.test(fechaPago)) throw new ErrorApp('Indica la fecha de la consignación.');
+    if (fechaPago > new Date(Date.now() + 86400000).toISOString().slice(0, 10)) throw new ErrorApp('La fecha del pago no puede ser futura.');
     const d = {
       nombre: texto(datos.nombre, 'Nombre'),
-      cedula: texto(datos.cedula, 'Cédula', 20),
+      cedula: String(datos.cedula ?? '').trim().slice(0, 20),
       telefono: normalizarTelefono(datos.telefono),
-      correo: texto(datos.correo, 'Correo', 120),
-      metodo: texto(datos.metodo, 'Método de pago', 40),
-      referencia: texto(datos.referencia, 'Referencia', 60),
+      correo: correoComprador,
+      ciudad: texto(datos.ciudad, 'Ciudad', 80),
+      referidoPor: texto(datos.referidoPor, 'Quién le habló del bingo', 120),
+      metodo,
+      referencia: String(datos.referencia ?? '').trim().slice(0, 60) || (esEfectivo ? 'Efectivo' : 'Sin referencia'),
     };
     const total = redondear(cantidad * e.precioTabla);
-    const montoPagado = datos.montoPagado === undefined || datos.montoPagado === ''
-      ? total
-      : montoPositivo(datos.montoPagado, 'El monto pagado');
+    const montoPagado = montoPositivo(datos.montoPagado, 'El valor pagado');
 
     return db.tx(async t => {
       await t('SELECT pg_advisory_xact_lock($1)', [LOCK_VENTAS]);
@@ -249,21 +281,21 @@ function crearServicios({ db, whatsapp }) {
       }
       const codigo = await codigoCompra(t);
       const [{ id }] = await t(
-        `INSERT INTO compras (codigo, nombre, cedula, telefono, correo, cantidad, precio_unitario, total, estado, creada_en)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'por_verificar', $9) RETURNING id`,
-        [codigo, d.nombre, d.cedula, d.telefono, d.correo, cantidad, e.precioTabla, total, ahora()],
+        `INSERT INTO compras (codigo, nombre, cedula, telefono, correo, ciudad, referido_por, cantidad, precio_unitario, total, estado, creada_en)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'por_verificar', $11) RETURNING id`,
+        [codigo, d.nombre, d.cedula, d.telefono, d.correo, d.ciudad, d.referidoPor, cantidad, e.precioTabla, total, ahora()],
       );
       const [{ id: pagoId }] = await t(
-        `INSERT INTO pagos (compra_id, monto_reportado, metodo, referencia, estado, creado_en)
-         VALUES ($1, $2, $3, $4, 'por_verificar', $5) RETURNING id`,
-        [id, montoPagado, d.metodo, d.referencia, ahora()],
+        `INSERT INTO pagos (compra_id, monto_reportado, metodo, referencia, fecha_pago, estado, creado_en)
+         VALUES ($1, $2, $3, $4, $5, 'por_verificar', $6) RETURNING id`,
+        [id, montoPagado, d.metodo, d.referencia, fechaPago, ahora()],
       );
       for (const c of comprobantes) {
         await t('INSERT INTO comprobantes (pago_id, ruta, nombre, tipo) VALUES ($1, $2, $3, $4)',
           [pagoId, c.ruta, String(c.nombre).slice(0, 120), c.tipo]);
       }
-      await bitacora('compra registrada', `${codigo} · ${d.nombre} · ${cantidad} tabla(s)`, t);
-      return { id: Number(id), codigo, total };
+      await bitacora('compra registrada', `${codigo} · ${d.nombre} · ${cantidad} tabla(s) · pagó ${montoPagado}`, t);
+      return { id: Number(id), codigo, total, tablasSugeridas: tablasPorMonto(montoPagado, e.precioTabla) };
     });
   }
 
@@ -272,9 +304,9 @@ function crearServicios({ db, whatsapp }) {
   }
 
   async function estadoPublico(codigo) {
-    const c = await uno('SELECT codigo, cantidad, total, estado FROM compras WHERE codigo = $1', [String(codigo || '').trim().toUpperCase()]);
+    const c = await uno('SELECT codigo, cantidad, tablas_aprobadas, total, estado FROM compras WHERE codigo = $1', [String(codigo || '').trim().toUpperCase()]);
     if (!c) throw new ErrorApp('No encontramos una compra con ese código.', 404);
-    return { codigo: c.codigo, cantidad: c.cantidad, total: num(c.total), estado: c.estado };
+    return { codigo: c.codigo, cantidad: c.tablas_aprobadas ?? c.cantidad, total: num(c.total), estado: c.estado };
   }
 
   async function registrarPagoManual(compraId, datos) {
@@ -286,9 +318,9 @@ function crearServicios({ db, whatsapp }) {
     const referencia = String(datos.referencia ?? '').trim().slice(0, 60) || 'Manual';
     await db.tx(async t => {
       await t(
-        `INSERT INTO pagos (compra_id, monto_reportado, monto_verificado, metodo, referencia, estado, creado_en, verificado_en)
-         VALUES ($1, $2, $2, $3, $4, 'verificado', $5, $5)`,
-        [compraId, monto, metodo, referencia, ahora()],
+        `INSERT INTO pagos (compra_id, monto_reportado, monto_verificado, metodo, referencia, fecha_pago, estado, creado_en, verificado_en)
+         VALUES ($1, $2, $2, $3, $4, $5, 'verificado', $6, $6)`,
+        [compraId, monto, metodo, referencia, FECHA_ISO.test(String(datos.fechaPago || '')) ? datos.fechaPago : ahora().slice(0, 10), ahora()],
       );
       if (c.estado === 'por_verificar') {
         await t("UPDATE compras SET estado = 'verificada', verificada_en = $1 WHERE id = $2", [ahora(), compraId]);
@@ -334,57 +366,103 @@ function crearServicios({ db, whatsapp }) {
     ))[0].n));
   }
 
-  // "Enviar Tablas": asigna tablas libres a la compra sin duplicados y envía el mensaje.
-  async function enviarTablas(compraId) {
-    const c = await uno('SELECT * FROM compras WHERE id = $1', [compraId]);
-    if (!c) throw new ErrorApp('Compra no encontrada.', 404);
-    if (c.estado !== 'verificada') throw new ErrorApp('Solo se pueden enviar tablas de compras verificadas.', 409);
-    const pagado = await pagadoDe(compraId);
-    if (!(pagado > 0)) throw new ErrorApp('La compra no tiene pagos verificados.', 409);
-    if ((await evento()).exigirPagoCompleto && pagado < num(c.total)) {
-      throw new ErrorApp('Falta pagar el total para enviar las tablas.', 409);
-    }
+  // Canales elegidos por quien envía. Sin indicar ninguno se usa WhatsApp, como antes.
+  function canalesDe(entrada) {
+    if (entrada == null) return { whatsapp: true, correo: false, fisica: false };
+    const c = {};
+    for (const k of CANALES) c[k] = Boolean(entrada[k]);
+    if (!CANALES.some(k => c[k])) throw new ErrorApp('Elige al menos un canal de entrega: WhatsApp, correo o entrega física.');
+    return c;
+  }
 
-    const seriales = await db.tx(async t => {
+  const enlaceEntrega = (baseUrl, token) => (baseUrl && token ? `${String(baseUrl).replace(/\/$/, '')}/tablas.html?t=${token}` : null);
+
+  // "Enviar Tablas": quien verificó el pago define cuántas tablas se entregan; se asignan sin duplicados y se envían.
+  // opciones: { cantidad, canales: { whatsapp, correo, fisica }, baseUrl }
+  async function enviarTablas(compraId, opciones = {}) {
+    const canales = canalesDe(opciones.canales);
+    const previa = await uno('SELECT * FROM compras WHERE id = $1', [compraId]);
+    if (!previa) throw new ErrorApp('Compra no encontrada.', 404);
+    if (previa.estado !== 'verificada') throw new ErrorApp('Solo se pueden enviar tablas de compras verificadas.', 409);
+    if (canales.correo && !previa.correo) throw new ErrorApp('Esta compra no tiene correo registrado.', 409);
+    const exigir = (await evento()).exigirPagoCompleto;
+
+    // Todo ocurre en una sola transacción con el candado de ventas: la validación y la asignación no se pueden
+    // intercalar con otra venta. Si algo falla, no queda ninguna tabla asignada.
+    const { seriales, token } = await db.tx(async t => {
       await t('SELECT pg_advisory_xact_lock($1)', [LOCK_VENTAS]);
-      // Bloquea la compra y revalida: evita enviar dos veces en envíos simultáneos.
-      const [actual] = await t("SELECT estado FROM compras WHERE id = $1 FOR UPDATE", [compraId]);
-      if (actual.estado !== 'verificada') throw new ErrorApp('Esta compra ya fue procesada.', 409);
+      const [c] = await t('SELECT * FROM compras WHERE id = $1 FOR UPDATE', [compraId]);
+      if (c.estado !== 'verificada') throw new ErrorApp('Esta compra ya fue procesada.', 409);
+
+      const pagado = await pagadoDe(compraId, t);
+      if (!(pagado > 0)) throw new ErrorApp('La compra no tiene pagos verificados.', 409);
+      const precio = num(c.precio_unitario);
+      const cubiertas = tablasPorMonto(pagado, precio);
+      const cantidad = enteroPositivo(opciones.cantidad ?? cubiertas, 'La cantidad de tablas a enviar');
+      if (exigir && cantidad > cubiertas) {
+        throw new ErrorApp(`El pago verificado (${pagado}) cubre solo ${cubiertas} tabla(s) a ${precio}. No se pueden enviar ${cantidad}.`, 409);
+      }
+
       // SKIP LOCKED: si otra venta tiene una tabla bloqueada, se toma la siguiente libre.
       const asignadas = await t(
         `UPDATE tablas SET estado = 'vendida', compra_id = $1, vendida_en = $2
-         WHERE serial IN (
+         WHERE estado = 'disponible' AND serial IN (
            SELECT serial FROM tablas WHERE estado = 'disponible'
            ORDER BY random() LIMIT $3 FOR UPDATE SKIP LOCKED
          )
          RETURNING serial`,
-        [compraId, ahora(), c.cantidad],
+        [compraId, ahora(), cantidad],
       );
-      if (asignadas.length < c.cantidad) {
-        throw new ErrorApp(`Faltan tablas: hay ${asignadas.length} disponibles y se piden ${c.cantidad}. Agrega más tablas.`, 409);
+      if (asignadas.length !== cantidad) {
+        throw new ErrorApp(`Faltan tablas: hay ${asignadas.length} disponibles y se piden ${cantidad}. Agrega más tablas.`, 409);
       }
-      await t("UPDATE compras SET estado = 'enviada', enviada_en = $1 WHERE id = $2", [ahora(), compraId]);
+      // Verificación final: lo que la base dice que es de esta compra coincide exactamente con lo asignado.
+      const [{ n }] = await t('SELECT COUNT(*)::int AS n FROM tablas WHERE compra_id = $1', [compraId]);
+      if (n !== cantidad) throw new Error(`Control de tablas: la compra ${c.codigo} quedó con ${n} tabla(s), se esperaban ${cantidad}.`);
+
+      const token = crypto.randomBytes(16).toString('hex');
+      await t(
+        `UPDATE compras SET estado = 'enviada', enviada_en = $1, tablas_aprobadas = $2, total = $3,
+           token_entrega = $4, fisica_estado = $5 WHERE id = $6`,
+        [ahora(), cantidad, redondear(cantidad * precio), token, canales.fisica ? 'pendiente' : 'no', compraId],
+      );
       const lista = asignadas.map(r => r.serial).sort();
-      await bitacora('tablas asignadas', `${c.codigo}: ${lista.join(', ')}`, t);
-      return lista;
+      await bitacora('tablas asignadas', `${c.codigo}: ${lista.join(', ')} (pidió ${c.cantidad}, pagó ${pagado}, se aprobaron ${cantidad})`, t);
+      return { seriales: lista, token };
     });
 
-    await entregarWhatsApp(c, seriales);
+    const c = await uno('SELECT * FROM compras WHERE id = $1', [compraId]);
+    const enlace = enlaceEntrega(opciones.baseUrl, token);
+    if (canales.whatsapp) await entregarWhatsApp(c, seriales, enlace);
+    if (canales.correo) await entregarCorreo(c, seriales, enlace);
+    if (canales.fisica) await bitacora('entrega física pendiente', c.codigo);
     return detalleCompra(compraId);
   }
 
-  async function reenviarWhatsapp(compraId) {
+  async function datosEntrega(compraId) {
     const c = await uno('SELECT * FROM compras WHERE id = $1', [compraId]);
     if (!c) throw new ErrorApp('Compra no encontrada.', 404);
-    if (c.estado !== 'enviada') throw new ErrorApp('Esta compra aún no tiene tablas enviadas.', 409);
+    if (c.estado !== 'enviada') throw new ErrorApp('Esta compra aún no tiene tablas asignadas.', 409);
     const seriales = (await q('SELECT serial FROM tablas WHERE compra_id = $1 ORDER BY serial', [compraId])).map(r => r.serial);
-    await entregarWhatsApp(c, seriales);
+    return { c, seriales };
+  }
+
+  // Reintenta los canales indicados con las mismas tablas ya asignadas.
+  async function reenviar(compraId, { canales, baseUrl } = {}) {
+    const elegidos = canalesDe(canales);
+    const { c, seriales } = await datosEntrega(compraId);
+    const enlace = enlaceEntrega(baseUrl, c.token_entrega);
+    if (elegidos.whatsapp) await entregarWhatsApp(c, seriales, enlace);
+    if (elegidos.correo) {
+      if (!c.correo) throw new ErrorApp('Esta compra no tiene correo registrado.', 409);
+      await entregarCorreo(c, seriales, enlace);
+    }
     return detalleCompra(compraId);
   }
 
-  async function entregarWhatsApp(c, seriales) {
+  async function entregarWhatsApp(c, seriales, enlace) {
     try {
-      const r = await whatsapp.enviarTablas({ telefono: c.telefono, nombre: c.nombre, seriales });
+      const r = await whatsapp.enviarTablas({ telefono: c.telefono, nombre: c.nombre, seriales, enlace });
       if (r.estado === 'enviado') {
         await q("UPDATE compras SET whatsapp_estado = 'enviado', whatsapp_error = NULL WHERE id = $1", [c.id]);
         await bitacora('tablas enviadas', `${c.codigo} por WhatsApp`);
@@ -398,21 +476,65 @@ function crearServicios({ db, whatsapp }) {
     }
   }
 
-  async function enlaceWhatsapp(compraId) {
-    const c = await uno('SELECT * FROM compras WHERE id = $1', [compraId]);
-    if (!c) throw new ErrorApp('Compra no encontrada.', 404);
-    const seriales = (await q('SELECT serial FROM tablas WHERE compra_id = $1 ORDER BY serial', [compraId])).map(r => r.serial);
-    if (!seriales.length) throw new ErrorApp('Esta compra aún no tiene tablas asignadas.', 409);
-    return whatsapp.enlaceManual(c.telefono, c.nombre, seriales);
+  async function entregarCorreo(c, seriales, enlace) {
+    try {
+      const r = await correo.enviarTablas({ correo: c.correo, nombre: c.nombre, seriales, enlace });
+      if (r.estado === 'enviado') {
+        await q("UPDATE compras SET correo_estado = 'enviado', correo_error = NULL WHERE id = $1", [c.id]);
+        await bitacora('tablas enviadas', `${c.codigo} por correo`);
+      } else {
+        await q("UPDATE compras SET correo_estado = 'manual', correo_error = NULL WHERE id = $1", [c.id]);
+        await bitacora('envío manual pendiente', `${c.codigo}: correo no configurado`);
+      }
+    } catch (err) {
+      await q("UPDATE compras SET correo_estado = 'fallido', correo_error = $1 WHERE id = $2", [String(err.message).slice(0, 500), c.id]);
+      await bitacora('falló envío correo', `${c.codigo}: ${err.message}`);
+    }
   }
 
-  async function marcarEnviadoManual(compraId) {
-    const c = await uno('SELECT * FROM compras WHERE id = $1', [compraId]);
-    if (!c) throw new ErrorApp('Compra no encontrada.', 404);
-    if (c.estado !== 'enviada') throw new ErrorApp('Esta compra aún no tiene tablas asignadas.', 409);
-    await q("UPDATE compras SET whatsapp_estado = 'enviado', whatsapp_error = NULL WHERE id = $1", [compraId]);
-    await bitacora('envío confirmado a mano', c.codigo);
+  async function enlaceWhatsapp(compraId, baseUrl) {
+    const { c, seriales } = await datosEntrega(compraId);
+    return whatsapp.enlaceManual(c.telefono, c.nombre, seriales, enlaceEntrega(baseUrl, c.token_entrega));
+  }
+
+  async function enlaceCorreo(compraId, baseUrl) {
+    const { c, seriales } = await datosEntrega(compraId);
+    if (!c.correo) throw new ErrorApp('Esta compra no tiene correo registrado.', 409);
+    return correo.enlaceManual(c.correo, c.nombre, seriales, enlaceEntrega(baseUrl, c.token_entrega));
+  }
+
+  // Confirma a mano un envío que se hizo fuera del sistema (enlace wa.me / mailto).
+  async function marcarEnviadoManual(compraId, canal = 'whatsapp') {
+    const { c } = await datosEntrega(compraId);
+    if (canal === 'correo') {
+      await q("UPDATE compras SET correo_estado = 'enviado', correo_error = NULL WHERE id = $1", [compraId]);
+    } else if (canal === 'whatsapp') {
+      await q("UPDATE compras SET whatsapp_estado = 'enviado', whatsapp_error = NULL WHERE id = $1", [compraId]);
+    } else {
+      throw new ErrorApp('Canal no válido.');
+    }
+    await bitacora('envío confirmado a mano', `${c.codigo} (${canal})`);
     return detalleCompra(compraId);
+  }
+
+  // Entrega física: se marca pendiente (se va a entregar) o entregada (con una nota, ej. quién la recibió).
+  async function entregaFisica(compraId, { estado, nota } = {}) {
+    const { c } = await datosEntrega(compraId);
+    if (!['pendiente', 'entregada'].includes(estado)) throw new ErrorApp('Estado de entrega física no válido.');
+    const detalle = String(nota ?? '').trim().slice(0, 300) || null;
+    await q('UPDATE compras SET fisica_estado = $1, fisica_nota = $2, fisica_en = $3 WHERE id = $4',
+      [estado, detalle, estado === 'entregada' ? ahora() : null, compraId]);
+    await bitacora(estado === 'entregada' ? 'entrega física realizada' : 'entrega física pendiente', `${c.codigo}${detalle ? ': ' + detalle : ''}`);
+    return detalleCompra(compraId);
+  }
+
+  // Vista pública del comprador: solo se obtiene con el token privado y solo muestra SUS tablas.
+  async function entregaPublica(token) {
+    if (!/^[a-f0-9]{32}$/.test(String(token || ''))) throw new ErrorApp('Enlace no válido.', 404);
+    const c = await uno("SELECT id, nombre FROM compras WHERE token_entrega = $1 AND estado = 'enviada'", [token]);
+    if (!c) throw new ErrorApp('Enlace no válido.', 404);
+    const seriales = (await q('SELECT serial FROM tablas WHERE compra_id = $1 ORDER BY serial', [c.id])).map(r => r.serial);
+    return { nombre: c.nombre, evento: (await evento()).nombre, tablas: seriales };
   }
 
   async function rechazarCompra(compraId) {
@@ -549,7 +671,7 @@ function crearServicios({ db, whatsapp }) {
     const disponibles = await tablasDisponibles();
     const vendidas = num((await q("SELECT COUNT(*) AS n FROM tablas WHERE estado = 'vendida'"))[0].n);
     const cantidadEn = async estado => num((await q(
-      'SELECT COALESCE(SUM(cantidad), 0) AS n FROM compras WHERE estado = $1', [estado]))[0].n);
+      'SELECT COALESCE(SUM(COALESCE(tablas_aprobadas, cantidad)), 0) AS n FROM compras WHERE estado = $1', [estado]))[0].n);
 
     return {
       dinero: {
@@ -582,8 +704,8 @@ function crearServicios({ db, whatsapp }) {
     if (nombre === 'compras') {
       const filas = (await q(`${SQL_COMPRAS} ORDER BY c.id`)).map(compraDTO);
       return {
-        encabezados: ['Código', 'Fecha', 'Nombre', 'Cédula', 'Teléfono', 'Correo', 'Tablas', 'Total', 'Pagado', 'Saldo', 'Estado', 'WhatsApp', 'Seriales'],
-        filas: filas.map(c => [c.codigo, c.creadaEn.slice(0, 10), c.nombre, c.cedula, c.telefono, c.correo, c.cantidad, c.total, c.pagado, c.saldo, c.estado, c.whatsappEstado, c.tablas.join(' ')]),
+        encabezados: ['Código', 'Fecha', 'Nombre', 'Celular', 'Ciudad', 'Referido por', 'Cédula', 'Correo', 'Tablas pedidas', 'Tablas enviadas', 'Total', 'Pagado', 'Saldo', 'Estado', 'WhatsApp', 'Correo envío', 'Entrega física', 'Seriales'],
+        filas: filas.map(c => [c.codigo, c.creadaEn.slice(0, 10), c.nombre, c.telefono, c.ciudad, c.referidoPor, c.cedula, c.correo, c.cantidad, c.tablasAprobadas ?? '', c.total, c.pagado, c.saldo, c.estado, c.whatsappEstado, c.correoEstado, c.fisicaEstado, c.tablas.join(' ')]),
       };
     }
     if (nombre === 'deudas') {
@@ -628,7 +750,7 @@ function crearServicios({ db, whatsapp }) {
     tablasDisponibles, tablasLibresParaVender, generarTablas, importarTablas, listarTablas,
     crearCompra, estadoPublico, detalleCompra, listarCompras,
     registrarPagoManual, verificarPago, rechazarPago,
-    enviarTablas, reenviarWhatsapp, enlaceWhatsapp, marcarEnviadoManual, rechazarCompra,
+    enviarTablas, reenviar, enlaceWhatsapp, enlaceCorreo, marcarEnviadoManual, entregaFisica, entregaPublica, rechazarCompra,
     comprobanteDe,
     listarPremios, crearPremio, asignarGanador, quitarGanador, pagarPremio,
     listarGastos, crearGasto, eliminarGasto,

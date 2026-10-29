@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Mis tablas del bingo</title>
+<link rel="icon" href="img/logo-hacs.jpg">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="hero compacto">
+  <div class="hero-in">
+    <img class="logo" src="img/logo-hacs.jpg" alt="Hermanas Auxiliadoras de Cristo Sacerdote">
+    <h1 id="titulo">Mis tablas del bingo</h1>
+  </div>
+</header>
+<main class="wrap sube">
+  <section class="card" id="cabecera" hidden>
+    <p style="margin:0">Hola <strong id="nombre"></strong>, estas son tus tablas. ¡Mucha suerte!</p>
+    <div class="actions no-print"><button type="button" class="ghost" onclick="window.print()">Imprimir</button></div>
+  </section>
+  <div class="tablas-grid" id="lista"></div>
+  <p class="msg bad" id="error"></p>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+(async () => {
+  const token = new URLSearchParams(location.search).get('t') || '';
+  try {
+    const res = await fetch(`/api/publico/entrega/${encodeURIComponent(token)}`);
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'Enlace no válido.');
+    if (d.evento) $('titulo').textContent = d.evento;
+    $('nombre').textContent = d.nombre;
+    $('cabecera').hidden = false;
+    $('lista').innerHTML = d.tablas.map(s => {
+      const url = `/api/publico/entrega/${token}/imagen/${encodeURIComponent(s)}`;
+      return d.imagenes
+        ? `<figure class="tabla-item card" style="margin:0"><a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="Tabla ${esc(s)}" loading="lazy"></a>
+             <figcaption><strong>Tabla N° ${esc(s)}</strong><br><a class="btn ghost no-print" href="${url}" download="Tabla-${esc(s)}.jpg">Descargar</a></figcaption></figure>`
+        : `<div class="card"><strong>Tabla N° ${esc(s)}</strong></div>`;
+    }).join('');
+    if (!d.imagenes) $('error').textContent = 'Estos son los números de tus tablas. La organización te hará llegar las imágenes.';
+  } catch (err) {
+    $('error').textContent = err.message;
+  }
+})();
+</script>
+</body>
+</html>

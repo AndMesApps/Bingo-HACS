@@ -11,22 +11,24 @@ function crearWhatsApp({ token, phoneId, plantilla, idioma = 'es', codigoPais = 
     return numero;
   }
 
-  function mensajeTablas(nombre, seriales) {
+  function mensajeTablas(nombre, seriales, enlace) {
     const lista = seriales.map((s, i) => `${i + 1}. ${s}`).join('\n');
-    return `Hola ${nombre}, tu pago fue verificado. Estas son tus tablas de bingo:\n${lista}\n¡Gracias por tu compra!`;
+    const descarga = enlace ? `\nDescárgalas aquí: ${enlace}` : '';
+    return `Hola ${nombre}, tu pago fue verificado. Estas son tus tablas de bingo:\n${lista}${descarga}\n¡Gracias por tu compra!`;
   }
 
-  function enlaceManual(telefono, nombre, seriales) {
+  function enlaceManual(telefono, nombre, seriales, enlace) {
     const numero = normalizarTelefono(telefono);
-    return `https://wa.me/${numero}?text=${encodeURIComponent(mensajeTablas(nombre, seriales))}`;
+    return `https://wa.me/${numero}?text=${encodeURIComponent(mensajeTablas(nombre, seriales, enlace))}`;
   }
 
   // Devuelve { estado: 'enviado' | 'manual', enlace? } o lanza error si la API rechaza el envío.
-  async function enviarTablas({ telefono, nombre, seriales }) {
-    if (!configurado) return { estado: 'manual', enlace: enlaceManual(telefono, nombre, seriales) };
+  async function enviarTablas({ telefono, nombre, seriales, enlace }) {
+    if (!configurado) return { estado: 'manual', enlace: enlaceManual(telefono, nombre, seriales, enlace) };
 
     const to = normalizarTelefono(telefono);
-    const texto = seriales.join(', ');
+    // Las plantillas de Meta no admiten saltos de línea en los parámetros: el enlace va en la misma línea.
+    const texto = seriales.join(', ') + (enlace ? ` · ${enlace}` : '');
     const cuerpo = plantilla
       ? {
           type: 'template',
@@ -36,7 +38,7 @@ function crearWhatsApp({ token, phoneId, plantilla, idioma = 'es', codigoPais = 
             components: [{ type: 'body', parameters: [{ type: 'text', text: nombre }, { type: 'text', text: texto }] }],
           },
         }
-      : { type: 'text', text: { body: mensajeTablas(nombre, seriales) } };
+      : { type: 'text', text: { body: mensajeTablas(nombre, seriales, enlace) } };
 
     const res = await fetchFn(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
       method: 'POST',

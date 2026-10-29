@@ -35,6 +35,7 @@ async function accion(fn, ok) {
 
 function mostrarLogin() {
   $('panel').hidden = true;
+  $('salir').hidden = true;
   $('login').hidden = false;
 }
 
@@ -57,7 +58,6 @@ function dibujarTabs() {
 async function mostrar(nombre) {
   vistaActual = nombre;
   dibujarTabs();
-  msg('');
   try {
     await VISTAS[nombre].render();
   } catch (err) {
@@ -67,7 +67,7 @@ async function mostrar(nombre) {
 
 $('tabs').addEventListener('click', e => {
   const b = e.target.closest('button[data-vista]');
-  if (b) mostrar(b.dataset.vista);
+  if (b) { msg(''); mostrar(b.dataset.vista); }
 });
 
 $('form-login').addEventListener('submit', async e => {
@@ -93,6 +93,7 @@ async function entrar() {
   $('titulo').textContent = r.evento.nombre || 'Bingo';
   $('login').hidden = true;
   $('panel').hidden = false;
+  $('salir').hidden = false;
   mostrar(vistaActual);
 }
 
@@ -101,7 +102,33 @@ async function renderResumen() {
   const r = await api('GET', '/admin/resumen');
   const d = r.dinero;
   const t = r.tablas;
+  const enlace = location.origin + '/';
+  const invitacion = `Te invitamos a ${r.evento.nombre || 'nuestro bingo'} de las Hermanas Auxiliadoras de Cristo Sacerdote. Compra tus tablas aquí: ${enlace}`;
+  const pct = t.total ? Math.round((t.vendidas / t.total) * 100) : 0;
+  const pendientes = r.compras.porVerificar + r.compras.listasParaEnviar;
   $('vista').innerHTML = `
+    <div class="card">
+      <h2 style="margin-top:0">Enlace para los benefactores</h2>
+      <p class="muted" style="margin-top:-6px">Compártelo por WhatsApp, redes o correo: ahí compran sus tablas y suben el comprobante.</p>
+      <div class="row" style="flex-wrap:nowrap;gap:8px">
+        <input id="enlace-pub" readonly value="${esc(enlace)}" aria-label="Enlace de compra">
+        <button type="button" data-copiar="${esc(enlace)}">Copiar</button>
+      </div>
+      <div class="actions">
+        <a class="btn ghost" href="${esc(enlace)}" target="_blank" rel="noopener">Abrir formulario</a>
+        <a class="btn ghost" href="https://wa.me/?text=${encodeURIComponent(invitacion)}" target="_blank" rel="noopener">Compartir por WhatsApp</a>
+        <button type="button" class="ghost" data-copiar="${esc(invitacion)}">Copiar invitación</button>
+      </div>
+    </div>
+    ${pendientes ? `<div class="note"><strong>${pendientes}</strong> compra(s) esperan tu atención:
+      ${r.compras.porVerificar} por verificar y ${r.compras.listasParaEnviar} lista(s) para enviar.
+      <button type="button" class="ghost" data-vista-ir="compras" style="margin-left:8px">Ir a compras</button></div>` : ''}
+    <div class="card">
+      <div class="row"><strong>Tablas vendidas</strong><span>${t.vendidas} de ${t.total} (${pct}%)</span></div>
+      <div style="height:12px;border-radius:999px;background:var(--azul-claro);overflow:hidden;margin-top:8px" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100">
+        <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--azul-medio),var(--azul-oscuro))"></div>
+      </div>
+    </div>
     <h2>Dinero</h2>
     <div class="stats">
       <div class="card stat"><span class="muted">Cobrado (verificado)</span><strong>${dinero(d.cobrado)}</strong></div>
@@ -140,20 +167,28 @@ async function renderCompras() {
     <div class="tabs">${ESTADOS_COMPRA.map(([k, t]) =>
       `<button type="button" class="${filtroCompras === k ? '' : 'ghost'}" data-filtro="${k}">${t}</button>`).join('')}</div>
     <div id="lista">${compras.map(tarjetaCompra).join('') || '<p class="muted">No hay compras en esta lista.</p>'}</div>`;
+  // Los pagos por verificar se abren solos: es lo primero que necesita quien verifica.
+  $('vista').querySelectorAll('[data-compra][data-abrir] details').forEach(d => { d.open = true; });
 }
 
 function tarjetaCompra(c) {
   const saldo = c.saldo > 0 ? `<span class="neg">Debe ${dinero(c.saldo)}</span>` : '<span>Al día</span>';
+  const contacto = [c.codigo, c.telefono, c.correo, c.ciudad, c.cedula ? 'CC ' + c.cedula : ''].filter(Boolean).map(esc).join(' · ');
+  const resumenPago = c.estado === 'por_verificar'
+    ? `Pidió ${c.cantidad} tabla(s) · el pago reportado alcanza para ${c.tablasReportadas}`
+    : `Pidió ${c.cantidad} tabla(s)${c.tablasAprobadas ? ` · se enviaron ${c.tablasAprobadas}` : ''} · Total ${dinero(c.total)} · Pagado ${dinero(c.pagado)} · ${saldo}`;
   return `
-  <article class="card" data-compra="${c.id}">
+  <article class="card" data-compra="${c.id}" ${c.estado === 'por_verificar' ? 'data-abrir' : ''}>
     <div class="row">
       <strong>${esc(c.nombre)}</strong>
       <span class="pill ${esc(c.estado)}">${esc(c.estado.replace('_', ' '))}</span>
     </div>
-    <p class="muted">${esc(c.codigo)} · Cédula ${esc(c.cedula)} · ${esc(c.telefono)} · ${esc(c.correo)}</p>
-    <p>${c.cantidad} tabla(s) · Total ${dinero(c.total)} · Pagado ${dinero(c.pagado)} · ${saldo}</p>
+    <p class="muted">${contacto}</p>
+    ${c.referidoPor ? `<p class="muted">Se enteró por: ${esc(c.referidoPor)}</p>` : ''}
+    <p>${resumenPago}</p>
     ${c.tablas.length ? `<p class="mono">${c.tablas.map(esc).join(', ')}</p>` : ''}
-    ${c.estado === 'enviada' ? `<p class="muted">WhatsApp: <span class="pill ${esc(c.whatsappEstado === 'enviado' ? 'enviada' : c.whatsappEstado)}">${esc(c.whatsappEstado)}</span> ${c.whatsappError ? `<span class="neg">${esc(c.whatsappError)}</span>` : ''}</p>` : ''}
+    ${c.estado === 'verificada' ? panelEnvio(c) : ''}
+    ${c.estado === 'enviada' ? estadoEntrega(c) : ''}
     <div class="actions" data-acciones>
       ${botonesCompra(c)}
     </div>
@@ -163,14 +198,53 @@ function tarjetaCompra(c) {
   </article>`;
 }
 
+// Quien verifica define cuántas tablas se entregan y por cuáles canales.
+function panelEnvio(c) {
+  const sug = c.tablasSugeridas;
+  const descuadre = sug !== c.cantidad;
+  return `
+  <form class="envio" data-enviar="${c.id}" data-nombre="${esc(c.nombre)}">
+    <div class="calc ${descuadre ? 'alerta' : ''}">
+      <span class="num">${sug}</span>
+      <span class="txt">Con ${dinero(c.pagado)} verificados corresponden <strong>${sug}</strong> tabla(s) a ${dinero(c.precioUnitario)}.
+        El comprador pidió ${c.cantidad}.${sug < 1 ? ' El pago no alcanza para una tabla.' : ''}</span>
+    </div>
+    <div class="grid" style="margin-top:12px">
+      <label>Tablas a enviar <input name="cantidad" type="number" min="1" value="${sug || ''}" required></label>
+    </div>
+    <div class="checks">
+      <label><input type="checkbox" name="whatsapp" checked> WhatsApp</label>
+      <label class="${c.correo ? '' : 'off'}"><input type="checkbox" name="correo" ${c.correo ? 'checked' : 'disabled'}> Correo${c.correo ? '' : ' (sin correo)'}</label>
+      <label><input type="checkbox" name="fisica"> Entrega física</label>
+    </div>
+    <div class="actions"><button type="submit">Asignar y enviar tablas</button></div>
+  </form>`;
+}
+
+function estadoEntrega(c) {
+  const fila = (nombre, estado, error, botones) => `
+    <div class="kv" style="align-items:center">
+      <span>${nombre}: <span class="pill ${esc(estado)}">${esc(estado.replace('_', ' '))}</span> ${error ? `<span class="neg">${esc(error)}</span>` : ''}</span>
+      <span class="actions" style="margin:0">${botones}</span>
+    </div>`;
+  const b = (act, canal, texto, clase = 'ghost') => `<button type="button" class="${clase}" data-act="${act}" data-canal="${canal}" data-id="${c.id}">${texto}</button>`;
+  const wa = fila('WhatsApp', c.whatsappEstado, c.whatsappError,
+    b('reenviar', 'whatsapp', 'Reintentar') + b('enlace', 'whatsapp', 'WhatsApp manual')
+    + (c.whatsappEstado !== 'enviado' ? b('marcar', 'whatsapp', 'Marcar enviado') : ''));
+  const co = c.correo ? fila('Correo', c.correoEstado, c.correoError,
+    b('reenviar', 'correo', 'Reintentar') + b('enlace-correo', 'correo', 'Correo manual')
+    + (c.correoEstado !== 'enviado' ? b('marcar', 'correo', 'Marcar enviado') : '')) : '';
+  const fi = c.fisicaEstado === 'no'
+    ? fila('Entrega física', 'no', '', b('fisica-pendiente', '', 'Registrar entrega física'))
+    : fila('Entrega física', c.fisicaEstado, c.fisicaNota ? c.fisicaNota : '',
+      c.fisicaEstado === 'pendiente' ? b('fisica-entregada', '', 'Marcar entregada', '') : '');
+  const enlace = c.tokenEntrega ? `${location.origin}/tablas.html?t=${c.tokenEntrega}` : '';
+  return `<div class="envio">${wa}${co}${fi}
+    ${enlace ? `<div class="actions"><button type="button" class="ghost" data-copiar="${esc(enlace)}">Copiar enlace privado de sus tablas</button></div>` : ''}</div>`;
+}
+
 function botonesCompra(c) {
   const b = [];
-  if (c.estado === 'verificada') b.push(`<button type="button" data-act="enviar" data-id="${c.id}">Enviar Tablas</button>`);
-  if (c.estado === 'enviada') {
-    b.push(`<button type="button" class="ghost" data-act="reenviar" data-id="${c.id}">Reintentar WhatsApp</button>`);
-    b.push(`<button type="button" class="ghost" data-act="enlace" data-id="${c.id}">Abrir WhatsApp manual</button>`);
-    if (c.whatsappEstado !== 'enviado') b.push(`<button type="button" class="ghost" data-act="marcar" data-id="${c.id}">Marcar como enviado</button>`);
-  }
   if (c.estado === 'por_verificar' || c.estado === 'verificada') {
     b.push(`<button type="button" class="danger" data-act="rechazar" data-id="${c.id}">Rechazar compra</button>`);
   }
@@ -184,14 +258,18 @@ async function cargarPagos(card) {
   const pagosHtml = d.pagos.map(p => `
     <div class="kv" style="flex-direction:column;align-items:flex-start">
       <div class="row" style="width:100%">
-        <span>${esc(p.metodo)} · Ref. <span class="mono">${esc(p.referencia)}</span> · ${esc(fecha(p.creadoEn))}</span>
+        <span>${esc(p.metodo)} · Ref. <span class="mono">${esc(p.referencia)}</span> · Pagó el ${esc(p.fechaPago || fecha(p.creadoEn))}</span>
         <span class="pill ${esc(p.estado)}">${esc(p.estado.replace('_', ' '))}</span>
       </div>
       <span class="muted">Reportado ${dinero(p.montoReportado)}${p.montoVerificado != null ? ` · Verificado ${dinero(p.montoVerificado)}` : ''}</span>
       ${p.comprobantes.map(c => `<button type="button" class="ghost" data-act="ver-comprobante" data-id="${c.id}">Ver ${esc(c.nombre)}</button>`).join('')}
+      ${p.comprobantes.length === 0 && p.estado === 'por_verificar' ? '<span class="muted">Sin comprobante (pago en efectivo): confirma que recibiste el dinero.</span>' : ''}
       ${p.estado === 'por_verificar' ? `
         <div class="row" style="width:100%;margin-top:6px">
-          <label style="flex:1 1 160px">Monto recibido <input type="number" min="0.01" step="0.01" value="${p.montoReportado}" data-monto="${p.id}"></label>
+          <label style="flex:1 1 160px">Monto recibido
+            <input type="number" min="0.01" step="0.01" value="${p.montoReportado}" data-monto="${p.id}" data-precio="${d.precioUnitario}">
+            <span class="muted" data-calc="${p.id}">Equivale a ${Math.floor(p.montoReportado / d.precioUnitario + 1e-9)} tabla(s)</span>
+          </label>
           <div class="actions">
             <button type="button" data-act="verificar-pago" data-id="${p.id}">Verificar pago</button>
             <button type="button" class="danger" data-act="rechazar-pago" data-id="${p.id}">Rechazar</button>
@@ -203,7 +281,7 @@ async function cargarPagos(card) {
     <form class="row" data-pago-manual="${d.id}" style="margin-top:10px">
       <label style="flex:1 1 120px">Monto <input name="monto" type="number" min="0.01" step="0.01" required></label>
       <label style="flex:1 1 120px">Método
-        <select name="metodo"><option>Efectivo</option><option>Pago móvil</option><option>Transferencia</option><option>Zelle</option></select>
+        <select name="metodo"><option>Efectivo</option><option>Consignación</option><option>Transferencia</option></select>
       </label>
       <label style="flex:1 1 120px">Referencia <input name="referencia" maxlength="60"></label>
       <button type="submit" class="ghost">Registrar pago recibido</button>
@@ -211,45 +289,61 @@ async function cargarPagos(card) {
   card.querySelector('[data-pagos]').innerHTML = pagosHtml + manual;
 }
 
+// Equivalencia en tablas mientras se escribe el monto recibido.
+$('vista').addEventListener('input', e => {
+  const i = e.target.closest('input[data-monto]');
+  if (!i) return;
+  const n = Math.floor(Number(i.value) / Number(i.dataset.precio) + 1e-9);
+  const span = document.querySelector(`[data-calc="${i.dataset.monto}"]`);
+  if (span) span.textContent = `Equivale a ${Number.isFinite(n) ? n : 0} tabla(s)`;
+});
+
 $('vista').addEventListener('click', async e => {
+  const cp = e.target.closest('button[data-copiar]');
+  if (cp) {
+    try { await navigator.clipboard.writeText(cp.dataset.copiar); msg('Copiado.'); } catch { msg('No se pudo copiar. Selecciónalo y cópialo a mano.', true); }
+    return;
+  }
+  const ir = e.target.closest('button[data-vista-ir]');
+  if (ir) { filtroCompras = 'por_verificar'; return mostrar(ir.dataset.vistaIr); }
   const f = e.target.closest('button[data-filtro]');
   if (f) { filtroCompras = f.dataset.filtro; return mostrar('compras'); }
   const btn = e.target.closest('button[data-act]');
   if (!btn) return;
   const id = btn.dataset.id;
   const act = btn.dataset.act;
+  const canal = btn.dataset.canal;
   btn.disabled = true;
   try {
     if (act === 'ver-comprobante') {
       window.open(`/api/admin/comprobantes/${id}/archivo`, '_blank', 'noopener');
       return;
     }
-    if (act === 'enviar') {
-      if (!confirm('¿Asignar tablas y enviarlas por WhatsApp?')) return;
-      const r = await api('POST', `/admin/compras/${id}/enviar`);
-      if (r.whatsappEstado === 'manual') {
-        msg('Tablas asignadas. WhatsApp no está configurado: usa "Abrir WhatsApp manual".');
-      } else if (r.whatsappEstado === 'fallido') {
-        msg('Tablas asignadas, pero WhatsApp falló: ' + r.whatsappError, true);
-      } else {
-        msg('Tablas enviadas por WhatsApp.');
-      }
-      filtroCompras = 'enviada';
-      return mostrar('compras');
-    }
     if (act === 'reenviar') {
-      const r = await api('POST', `/admin/compras/${id}/reenviar`);
-      msg(r.whatsappEstado === 'enviado' ? 'Enviado por WhatsApp.' : 'Sigue sin enviarse. Revisa el error o usa el envío manual.', r.whatsappEstado !== 'enviado');
+      const r = await api('POST', `/admin/compras/${id}/reenviar`, { canales: { [canal]: true } });
+      const estado = canal === 'correo' ? r.correoEstado : r.whatsappEstado;
+      msg(estado === 'enviado' ? 'Enviado.' : 'No se pudo enviar automáticamente. Revisa el error o usa el envío manual.', estado !== 'enviado');
       return mostrar('compras');
     }
-    if (act === 'enlace') {
-      const { enlace } = await api('GET', `/admin/compras/${id}/enlace-whatsapp`);
+    if (act === 'enlace' || act === 'enlace-correo') {
+      const { enlace } = await api('GET', `/admin/compras/${id}/${act === 'enlace' ? 'enlace-whatsapp' : 'enlace-correo'}`);
       window.open(enlace, '_blank', 'noopener');
-      msg('Se abrió WhatsApp. Envía el mensaje y luego usa "Marcar como enviado".');
+      msg('Se abrió el mensaje. Envíalo y luego usa "Marcar enviado".');
     }
     if (act === 'marcar') {
-      await api('POST', `/admin/compras/${id}/envio-manual`);
-      msg('Marcada como enviada.');
+      await api('POST', `/admin/compras/${id}/envio-manual`, { canal });
+      msg('Marcado como enviado.');
+      return mostrar('compras');
+    }
+    if (act === 'fisica-pendiente') {
+      await api('POST', `/admin/compras/${id}/entrega-fisica`, { estado: 'pendiente' });
+      msg('Entrega física registrada como pendiente.');
+      return mostrar('compras');
+    }
+    if (act === 'fisica-entregada') {
+      const nota = prompt('¿Quién recibió las tablas y cuándo? (opcional)') ?? '';
+      await api('POST', `/admin/compras/${id}/entrega-fisica`, { estado: 'entregada', nota });
+      msg('Entrega física marcada como realizada.');
       return mostrar('compras');
     }
     if (act === 'rechazar') {
@@ -261,7 +355,7 @@ $('vista').addEventListener('click', async e => {
     if (act === 'verificar-pago') {
       const monto = Number(document.querySelector(`[data-monto="${id}"]`).value);
       await api('POST', `/admin/pagos/${id}/verificar`, { montoVerificado: monto });
-      msg('Pago verificado. Ya puedes usar "Enviar Tablas".');
+      msg('Pago verificado. Ahora define cuántas tablas enviar y por qué canal.');
       filtroCompras = 'verificada';
       return mostrar('compras');
     }
@@ -288,17 +382,42 @@ $('vista').addEventListener('toggle', e => {
 }, true);
 
 $('vista').addEventListener('submit', async e => {
-  const form = e.target.closest('form[data-pago-manual]');
-  if (!form) return;
+  const manual = e.target.closest('form[data-pago-manual]');
+  if (manual) {
+    e.preventDefault();
+    try {
+      await api('POST', `/admin/compras/${manual.dataset.pagoManual}/pagos`, {
+        monto: manual.monto.value, metodo: manual.metodo.value, referencia: manual.referencia.value,
+      });
+      msg('Pago registrado.');
+      mostrar('compras');
+    } catch (err) {
+      msg(err.message, true);
+    }
+    return;
+  }
+  const envio = e.target.closest('form[data-enviar]');
+  if (!envio) return;
   e.preventDefault();
+  const cantidad = Number(envio.cantidad.value);
+  const canales = { whatsapp: envio.whatsapp.checked, correo: envio.correo.checked, fisica: envio.fisica.checked };
+  if (!canales.whatsapp && !canales.correo && !canales.fisica) return msg('Elige al menos un canal de entrega.', true);
+  if (!confirm(`¿Asignar ${cantidad} tabla(s) a ${envio.dataset.nombre} y enviarlas? Esta acción no se puede deshacer.`)) return;
+  const boton = envio.querySelector('button[type="submit"]');
+  boton.disabled = true;
   try {
-    await api('POST', `/admin/compras/${form.dataset.pagoManual}/pagos`, {
-      monto: form.monto.value, metodo: form.metodo.value, referencia: form.referencia.value,
-    });
-    msg('Pago registrado.');
+    const r = await api('POST', `/admin/compras/${envio.dataset.enviar}/enviar`, { cantidad, canales });
+    const partes = [];
+    if (canales.whatsapp) partes.push(r.whatsappEstado === 'enviado' ? 'WhatsApp enviado' : r.whatsappEstado === 'manual' ? 'WhatsApp: usa "WhatsApp manual"' : 'WhatsApp falló');
+    if (canales.correo) partes.push(r.correoEstado === 'enviado' ? 'correo enviado' : r.correoEstado === 'manual' ? 'correo: usa "Correo manual"' : 'correo falló');
+    if (canales.fisica) partes.push('entrega física pendiente');
+    const malo = (canales.whatsapp && r.whatsappEstado === 'fallido') || (canales.correo && r.correoEstado === 'fallido');
+    msg(`Tablas asignadas: ${r.tablas.join(', ')}. ${partes.join(' · ')}.`, malo);
+    filtroCompras = 'enviada';
     mostrar('compras');
   } catch (err) {
     msg(err.message, true);
+    boton.disabled = false;
   }
 });
 
@@ -314,7 +433,7 @@ async function renderTablas() {
     <h2>Importar tablas existentes</h2>
     <form id="form-importar" class="card">
       <label>Seriales (uno por línea o separados por coma)
-        <textarea name="seriales" rows="6" placeholder="BNG-7K2P-X9WQ&#10;BNG-..."></textarea>
+        <textarea name="seriales" rows="6" placeholder="1&#10;2&#10;3&#10;..."></textarea>
       </label>
       <div class="actions"><button type="submit">Importar</button></div>
     </form>
@@ -452,7 +571,7 @@ async function renderConfig() {
         </label>
         <label class="full" style="flex-direction:row;align-items:center;gap:8px">
           <input type="checkbox" name="exigirPagoCompleto" style="width:auto" ${e.exigirPagoCompleto ? 'checked' : ''}>
-          Enviar tablas solo cuando la compra esté pagada completa
+          Exigir que el pago verificado cubra las tablas que se envían (recomendado: nunca se entregan tablas sin pagar)
         </label>
       </div>
       <div class="actions"><button type="submit">Guardar</button></div>

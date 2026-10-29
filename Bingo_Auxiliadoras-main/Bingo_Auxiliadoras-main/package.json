@@ -9,6 +9,7 @@
   "scripts": {
     "migrar": "node --env-file-if-exists=.env scripts/migrar.js",
     "importar-tablas": "node --env-file-if-exists=.env scripts/importar-tablas.js",
+    "subir-imagenes": "node --env-file-if-exists=.env scripts/subir-imagenes.js",
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
