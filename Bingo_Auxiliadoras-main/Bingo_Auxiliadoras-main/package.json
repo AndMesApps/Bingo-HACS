@@ -1,0 +1,21 @@
+{
+  "name": "bingo-auxiliadoras",
+  "version": "2.0.0",
+  "description": "Venta, verificación y control de tablas del bingo (Vercel + Neon + Blob)",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "migrar": "node --env-file-if-exists=.env scripts/migrar.js",
+    "importar-tablas": "node --env-file-if-exists=.env scripts/importar-tablas.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.8.2",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13"
+  }
+}
