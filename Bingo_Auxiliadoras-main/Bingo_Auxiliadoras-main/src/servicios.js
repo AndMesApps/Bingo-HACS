@@ -298,7 +298,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const d = {
       nombre: texto(datos.nombre, 'Nombre'),
       cedula: String(datos.cedula ?? '').trim().slice(0, 20),
-      telefono: normalizarTelefono(datos.telefono),
+      telefono: normalizarTelefono(datos.telefono, datos.paisCodigo),
       correo: correoComprador,
       ciudad: texto(datos.ciudad, 'Ciudad', 80),
       referidoPor: texto(datos.referidoPor, 'Quién le habló del bingo', 120),
@@ -352,8 +352,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     });
   }
 
-  function normalizarTelefono(texto) {
-    return whatsapp.normalizarTelefono(texto);
+  function normalizarTelefono(texto, pais) {
+    return whatsapp.normalizarTelefono(texto, pais);
   }
 
   async function estadoPublico(codigo) {

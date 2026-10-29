@@ -3,6 +3,7 @@ const { enrutar, responderError } = require('../../src/http');
 const { ErrorApp } = require('../../src/servicios');
 const { sellarTabla } = require('../../src/sello');
 const { armarPdf } = require('../../src/pdf');
+const { PAISES } = require('../../src/paises');
 
 const TABLAS_POR_PDF = 20;
 
@@ -22,7 +23,7 @@ async function conLimite(lista, limite, tarea) {
 // Rutas públicas: evento, subida de comprobantes, compra y consulta de estado.
 module.exports = async (req, res) => {
   try {
-    const { servicios, storage, imagenes } = obtenerContexto();
+    const { servicios, storage, imagenes, env } = obtenerContexto();
     const rutas = [
       {
         metodo: 'GET', patron: /^\/evento$/,
@@ -33,6 +34,7 @@ module.exports = async (req, res) => {
             fechaSorteo: e.fechaSorteo, cuentasPago: e.cuentasPago, abierto: e.precioTabla > 0,
             banco: e.banco, tipoCuenta: e.tipoCuenta, numeroCuenta: e.numeroCuenta,
             titularCuenta: e.titularCuenta, llavePago: e.llavePago, qrPago: e.qrPago,
+            paises: PAISES, paisPorDefecto: env.CODIGO_PAIS || '57',
           });
         },
       },

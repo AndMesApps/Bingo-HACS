@@ -3,6 +3,7 @@
 // toda la tabla. Si la reenvían o le toman una captura, siempre dice para quién es válida.
 const path = require('node:path');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+const { indicativoDe } = require('./paises');
 
 const FUENTES = path.join(__dirname, '..', 'assets', 'fuente');
 let fuentesListas = false;
@@ -17,14 +18,22 @@ const AZUL_OSCURO = '#0f3448';
 const AZUL = '#1f7a8c';
 const DORADO = '#c9a24b';
 
-// 573001234567 -> +57 300 123 4567; otros largos -> +dígitos agrupados de a 3.
+// 573001234567 -> +57 300 123 4567; 593991234567 -> +593 99 123 4567. Se separa el indicativo del país
+// (el más largo conocido) y el resto se agrupa de derecha a izquierda: 4, 3 y lo que quede.
 function formatearTelefono(telefono) {
   const d = String(telefono ?? '').replace(/\D/g, '');
-  // Indicativo de 2 dígitos + número de 10 (Colombia 57, Venezuela 58…).
-  if (d.length === 12) return `+${d.slice(0, 2)} ${d.slice(2, 5)} ${d.slice(5, 8)} ${d.slice(8)}`;
-  if (d.length === 10) return `${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6)}`;
   if (!d) return '';
-  return '+' + d.replace(/(\d{3})(?=\d)/g, '$1 ').trim();
+  const cc = indicativoDe(d);
+  const resto = cc ? d.slice(cc.length) : d;
+  if (cc === '34' && resto.length === 9) return `+34 ${resto.slice(0, 3)} ${resto.slice(3, 6)} ${resto.slice(6)}`; // España: 3-3-3
+  const grupos = [];
+  let fin = resto.length;
+  for (const largo of [4, 3]) {
+    if (fin - largo >= 2) { grupos.unshift(resto.slice(fin - largo, fin)); fin -= largo; }
+  }
+  grupos.unshift(resto.slice(0, fin));
+  const local = grupos.join(' ');
+  return cc ? `+${cc} ${local}` : local;
 }
 
 // Reduce el tamaño de la letra hasta que el texto cabe; si aun así no cabe, lo recorta con puntos suspensivos.

@@ -14,6 +14,9 @@ async function jpgBase(ancho = 500, alto = 710) {
 test('el teléfono se muestra legible', () => {
   assert.equal(formatearTelefono('573001234567'), '+57 300 123 4567');
   assert.equal(formatearTelefono('584121234567'), '+58 412 123 4567');
+  assert.equal(formatearTelefono('593991234567'), '+593 99 123 4567');
+  assert.equal(formatearTelefono('34612345678'), '+34 612 345 678');
+  assert.equal(formatearTelefono('12025550123'), '+1 202 555 0123');
   assert.equal(formatearTelefono('3001234567'), '300 123 4567');
   assert.equal(formatearTelefono(''), '');
 });

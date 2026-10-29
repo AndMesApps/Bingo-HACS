@@ -545,3 +545,30 @@ test('los datos del sello salen solo con el token de esa compra', async () => {
   await assert.rejects(s.datosSelloEntrega('1'.repeat(32)), /no válido/);
   await assert.rejects(s.datosSelloEntrega('abc'), /no válido/);
 });
+
+// ---------- Teléfonos de otros países ----------
+test('el indicativo se agrega según el país elegido y no se duplica', async () => {
+  const s = await nuevo();
+  await tablas(s, 8);
+  const tel = async (telefono, paisCodigo) => (await s.detalleCompra((await comprar(s, 1, { telefono, paisCodigo })).id)).telefono;
+  assert.equal(await tel('3001234567', '57'), '573001234567', 'Colombia');
+  assert.equal(await tel('0991234567', '593'), '593991234567', 'Ecuador: se quita el 0 inicial');
+  assert.equal(await tel('612 345 678', '34'), '34612345678', 'España');
+  assert.equal(await tel('(202) 555-0123', '1'), '12025550123', 'Estados Unidos');
+  assert.equal(await tel('573001234567', '57'), '573001234567', 'ya traía el indicativo: no se duplica');
+  assert.equal(await tel('+34 612 345 678', '57'), '34612345678', 'con + se respeta el indicativo escrito');
+  assert.equal(await tel('0034 612 345 678', '57'), '34612345678', 'con 00 también');
+  assert.equal(await tel('04121234567', undefined), '584121234567', 'sin país elegido usa el del evento');
+  await assert.rejects(comprar(s, 1, { telefono: '12', paisCodigo: '57' }), /no es válido/);
+  await assert.rejects(comprar(s, 1, { telefono: '1'.repeat(20), paisCodigo: '57' }), /no es válido/);
+});
+
+test('el enlace de WhatsApp usa el número internacional guardado, sin volver a agregar indicativo', async () => {
+  const s = await nuevo();
+  await tablas(s, 2);
+  const c = await comprar(s, 1, { telefono: '612 345 678', paisCodigo: '34' });
+  await verificarTodo(s, c.id);
+  const e = await s.enviarTablas(c.id, { baseUrl: 'https://bingo.test' });
+  assert.equal(e.telefono, '34612345678');
+  assert.match(await s.enlaceWhatsapp(c.id, 'https://bingo.test'), /^https:\/\/wa\.me\/34612345678\?text=/);
+});
