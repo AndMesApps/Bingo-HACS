@@ -17,6 +17,9 @@ module.exports = async (req, res) => {
     };
     const ip = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'desconocida').split(',')[0].trim();
     const id = ([v]) => Number(v);
+    // Dirección pública del sitio para armar el enlace privado que recibe el comprador.
+    const baseUrl = req => env.APP_URL
+      || `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers['x-forwarded-host'] || req.headers.host}`;
     const admin = fn => async (params, req, res) => { requerirSesion(); return fn(params, req, res); };
 
     const rutas = [
@@ -48,10 +51,14 @@ module.exports = async (req, res) => {
       { metodo: 'GET', patron: /^\/compras$/, handler: admin(async (_p, req, res) => res.json(await servicios.listarCompras({ estado: req.query.estado }))) },
       { metodo: 'GET', patron: /^\/compras\/(\d+)$/, handler: admin(async (p, req, res) => res.json(await servicios.detalleCompra(id(p)))) },
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/pagos$/, handler: admin(async (p, req, res) => res.json(await servicios.registrarPagoManual(id(p), req.body || {}))) },
-      { metodo: 'POST', patron: /^\/compras\/(\d+)\/enviar$/, handler: admin(async (p, req, res) => res.json(await servicios.enviarTablas(id(p)))) },
-      { metodo: 'POST', patron: /^\/compras\/(\d+)\/reenviar$/, handler: admin(async (p, req, res) => res.json(await servicios.reenviarWhatsapp(id(p)))) },
-      { metodo: 'GET', patron: /^\/compras\/(\d+)\/enlace-whatsapp$/, handler: admin(async (p, req, res) => res.json({ enlace: await servicios.enlaceWhatsapp(id(p)) })) },
-      { metodo: 'POST', patron: /^\/compras\/(\d+)\/envio-manual$/, handler: admin(async (p, req, res) => res.json(await servicios.marcarEnviadoManual(id(p)))) },
+      { metodo: 'POST', patron: /^\/compras\/(\d+)\/enviar$/, handler: admin(async (p, req, res) => res.json(await servicios.enviarTablas(id(p), { cantidad: req.body?.cantidad, canales: req.body?.canales, baseUrl: baseUrl(req) }))) },
+      { metodo: 'POST', patron: /^\/compras\/(\d+)\/reenviar$/, handler: admin(async (p, req, res) => res.json(await servicios.reenviar(id(p), { canales: req.body?.canales, baseUrl: baseUrl(req) }))) },
+      { metodo: 'GET', patron: /^\/compras\/(\d+)\/enlace-whatsapp$/, handler: admin(async (p, req, res) => res.json({ enlace: await servicios.enlaceWhatsapp(id(p), baseUrl(req)) })) },
+      { metodo: 'GET', patron: /^\/compras\/(\d+)\/enlace-correo$/, handler: admin(async (p, req, res) => res.json({ enlace: await servicios.enlaceCorreo(id(p), baseUrl(req)) })) },
+      { metodo: 'POST', patron: /^\/compras\/(\d+)\/envio-manual$/, handler: admin(async (p, req, res) => res.json(await servicios.marcarEnviadoManual(id(p), req.body?.canal))) },
+      { metodo: 'GET', patron: /^\/sobrantes$/, handler: admin(async (_p, _req, res) => res.json(await servicios.listarSobrantes())) },
+      { metodo: 'POST', patron: /^\/compras\/(\d+)\/sobrante$/, handler: admin(async (p, req, res) => res.json(await servicios.gestionarSobrante(id(p), req.body || {}))) },
+      { metodo: 'POST', patron: /^\/compras\/(\d+)\/entrega-fisica$/, handler: admin(async (p, req, res) => res.json(await servicios.entregaFisica(id(p), req.body || {}))) },
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/rechazar$/, handler: admin(async (p, req, res) => res.json(await servicios.rechazarCompra(id(p)))) },
 
       { metodo: 'POST', patron: /^\/pagos\/(\d+)\/verificar$/, handler: admin(async (p, req, res) => res.json(await servicios.verificarPago(id(p), req.body?.montoVerificado))) },
@@ -70,6 +77,7 @@ module.exports = async (req, res) => {
         }),
       },
 
+      { metodo: 'GET', patron: /^\/evento$/, handler: admin(async (_p, _req, res) => res.json(await servicios.evento())) },
       { metodo: 'PUT', patron: /^\/evento$/, handler: admin(async (_p, req, res) => res.json(await servicios.actualizarEvento(req.body || {}))) },
       { metodo: 'POST', patron: /^\/tablas\/generar$/, handler: admin(async (_p, req, res) => res.json(await servicios.generarTablas(req.body?.cantidad))) },
       { metodo: 'POST', patron: /^\/tablas\/importar$/, handler: admin(async (_p, req, res) => res.json(await servicios.importarTablas(req.body?.seriales))) },

@@ -3,60 +3,116 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Compra de tablas</title>
+<title>Bingo Auxiliadoras de Cristo Sacerdote</title>
+<meta name="description" content="Compra tus tablas del bingo benéfico de las Hermanas Auxiliadoras de Cristo Sacerdote.">
+<link rel="icon" href="img/logo-hacs.jpg">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<main class="wrap">
-  <h1 id="titulo">Compra de tablas</h1>
-  <p class="muted" id="precio"></p>
+<header class="hero">
+  <div class="hero-in">
+    <img class="logo" src="img/logo-hacs.jpg" alt="Hermanas Auxiliadoras de Cristo Sacerdote">
+    <p class="kicker">Hermanas Auxiliadoras de Cristo Sacerdote</p>
+    <h1 id="titulo">Bingo Virtual Auxiliadoras de Cristo Sacerdote</h1>
+    <p class="sub" id="sorteo">Gracias por acompañarnos en esta obra benéfica.</p>
+  </div>
+</header>
 
-  <form id="form" class="card" hidden>
-    <h2>Tus datos</h2>
-    <div class="grid">
-      <label>Nombre completo <input name="nombre" required maxlength="120"></label>
-      <label>Cédula <input name="cedula" required inputmode="numeric" maxlength="20"></label>
-      <label>WhatsApp <input name="telefono" required inputmode="tel" placeholder="04121234567" maxlength="20"></label>
-      <label>Correo <input name="correo" type="email" required maxlength="120"></label>
-      <label>Cantidad de tablas <input name="cantidad" type="number" min="1" max="50" value="1" required></label>
-      <label>Método de pago
-        <select name="metodo" required>
-          <option>Pago móvil</option>
-          <option>Transferencia</option>
-          <option>Zelle</option>
-          <option>Efectivo</option>
-        </select>
-      </label>
-      <label>Referencia del pago <input name="referencia" required maxlength="60"></label>
-      <label>Monto pagado <input name="montoPagado" type="number" min="0.01" step="0.01"></label>
-      <label class="full">Comprobante de pago
-        <input name="comprobantes" type="file" accept="image/*,application/pdf" multiple required>
-        <span class="muted">Foto o PDF, máximo 10 MB por archivo.</span>
-      </label>
-    </div>
-    <div class="actions">
-      <button type="submit" id="enviar">Enviar compra</button>
-      <span class="muted" id="total"></span>
-    </div>
+<main class="wrap sube">
+  <section class="card">
+    <h2 style="margin-top:0">¡Gracias por acompañarnos a la actividad «BINGO VIRTUAL AUXILIADORAS DE CRISTO SACERDOTE»!</h2>
+    <p style="margin:0 0 8px">Agradecemos diligenciar la siguiente información, la cual es requerida para hacer el envío de su(s) tabla(s).</p>
+    <p class="muted" style="margin:0">Tus datos y el comprobante que subas se usan solo para verificar tu pago y enviarte tus tablas.</p>
+  </section>
+  <p class="card" id="cerrado" hidden>Las compras aún no están abiertas. Vuelve pronto.</p>
+
+  <form id="form" hidden>
+    <section class="card">
+      <div class="paso"><b>1</b><h2>Tus datos</h2></div>
+      <p class="muted" style="margin-top:-6px">Los necesitamos para hacerte llegar tus tablas.</p>
+      <div class="grid">
+        <label>Nombre completo <input name="nombre" required maxlength="120" autocomplete="name"></label>
+        <label>Celular (WhatsApp) <input name="telefono" required inputmode="tel" maxlength="20" placeholder="3001234567" autocomplete="tel"></label>
+        <label>Ciudad (tu ubicación) <input name="ciudad" required maxlength="80" autocomplete="address-level2"></label>
+        <label>¿A través de quién te enteraste del bingo? <input name="referidoPor" required maxlength="120"></label>
+        <label class="full"><span>Correo electrónico <span class="opc">(opcional, para enviarte también las tablas por correo)</span></span>
+          <input name="correo" type="email" maxlength="120" autocomplete="email"></label>
+      </div>
+    </section>
+
+    <section class="card" id="pago-card" hidden>
+      <div class="paso"><b>2</b><h2>Realiza tu pago</h2></div>
+      <div class="precio-fila"><span class="muted">Precio por tabla</span><span class="valor" id="precio"></span></div>
+      <div class="pago-grid">
+        <div id="pago-datos"></div>
+        <figure id="pago-qr" hidden>
+          <img id="pago-qr-img" alt="Código QR para pagar">
+          <figcaption class="muted">Escanéalo con la app de tu banco y te llevará directo al pago.</figcaption>
+        </figure>
+      </div>
+      <p class="muted" id="pago-notas" style="white-space:pre-line"></p>
+    </section>
+
+    <section class="card">
+      <div class="paso"><b>3</b><h2>Cuéntanos tu pago</h2></div>
+      <div class="metodos" role="radiogroup" aria-label="Forma de pago">
+        <label><input type="radio" name="metodo" value="Consignación" checked> Consignación</label>
+        <label><input type="radio" name="metodo" value="Efectivo"> Efectivo</label>
+      </div>
+      <div class="grid" style="margin-top:14px">
+        <label>Valor pagado <input name="montoPagado" type="number" min="1" step="any" required inputmode="decimal"></label>
+        <label>Fecha del pago <input name="fechaPago" type="date" required></label>
+        <label class="full" id="campo-ref"><span>Referencia o número de la consignación <span class="opc">(opcional)</span></span>
+          <input name="referencia" maxlength="60"></label>
+        <label class="full" id="campo-comprobante">Comprobante de la consignación (imagen o PDF)
+          <input name="comprobantes" type="file" accept="image/*,application/pdf" multiple>
+          <span class="muted" style="font-weight:400">Foto, captura o PDF. Máximo 10 MB por archivo.</span>
+        </label>
+        <p class="note full" id="nota-efectivo" hidden>Con pago en efectivo no necesitas comprobante. Tu compra quedará pendiente hasta que alguien de la organización confirme que recibió el dinero.</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="paso"><b>4</b><h2>Tus tablas</h2></div>
+      <div class="grid">
+        <label>Número de tablas <input name="cantidad" type="number" min="1" max="50" value="1" required inputmode="numeric"></label>
+      </div>
+      <div class="calc" id="calc" style="margin-top:14px" aria-live="polite">
+        <span class="num" id="calc-n">0</span>
+        <span class="txt" id="calc-txt">Escribe el valor pagado para ver cuántas tablas corresponden.</span>
+      </div>
+      <div class="calc alerta" id="sobrante-box" style="margin-top:14px;display:block" hidden>
+        <p style="margin:0 0 10px"><strong id="sobrante-txt"></strong></p>
+        <div class="metodos" role="radiogroup" aria-label="Qué hacer con el dinero restante">
+          <label><input type="radio" name="sobranteDestino" value="donacion"> Lo dono a las Hermanas</label>
+          <label><input type="radio" name="sobranteDestino" value="devolucion"> Quiero que me lo devuelvan</label>
+        </div>
+        <label id="campo-sobrante-nota" style="margin-top:12px" hidden>¿Cómo te lo devolvemos? (cuenta, llave, efectivo…)
+          <textarea name="sobranteNota" rows="2" maxlength="300" placeholder="Ej. Nequi 300 123 4567 a nombre de Ana Pérez"></textarea>
+        </label>
+        <p class="muted" style="margin:10px 0 0">Si lo donas, se suma a lo recaudado para la obra. Si prefieres la devolución, la administración lo controla hasta devolvértelo.</p>
+      </div>
+      <div class="actions"><button type="submit" id="enviar" class="grande">Enviar mi compra</button></div>
+      <p class="msg" id="msg" role="status"></p>
+    </section>
   </form>
 
   <section class="card" id="resultado" hidden>
-    <h2>Compra registrada</h2>
-    <p>Tu código es <strong class="mono" id="codigo"></strong>. Guárdalo.</p>
-    <p class="muted">Cuando verifiquemos tu pago te enviaremos las tablas por WhatsApp.</p>
+    <h2 style="margin-top:0">¡Gracias! Recibimos tu compra</h2>
+    <p>Tu código es <strong class="mono" id="codigo" style="font-size:1.2rem"></strong>. Guárdalo para consultar el estado.</p>
+    <p class="muted">Cuando verifiquemos tu pago te enviaremos tus tablas por WhatsApp (y por correo, si lo indicaste).</p>
   </section>
 
   <section class="card">
-    <h2>Consultar mi compra</h2>
+    <h2 style="margin-top:0">Consultar mi compra</h2>
     <form id="form-consulta" class="row">
       <label style="flex:1 1 200px">Código de compra <input name="codigo" required placeholder="BNG-XXXXXX"></label>
-      <button type="submit">Consultar</button>
+      <button type="submit" style="align-self:flex-end">Consultar</button>
     </form>
     <p class="msg" id="consulta-msg"></p>
   </section>
-
-  <p class="msg" id="msg"></p>
 </main>
+
 <script type="module">
   import { upload } from 'https://cdn.jsdelivr.net/npm/@vercel/blob@2.8.2/dist/client.js';
   const EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'application/pdf': 'pdf' };
@@ -68,32 +124,150 @@
 </script>
 <script>
 const $ = id => document.getElementById(id);
-const dinero = (n, moneda) => `${moneda ? moneda + ' ' : ''}${Number(n).toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const ETIQUETAS = { por_verificar: 'Pago en verificación', verificada: 'Pago verificado. Te enviaremos las tablas.', enviada: 'Tablas enviadas por WhatsApp', rechazada: 'Compra rechazada. Escríbenos si tienes dudas.' };
+const dinero = (n, moneda) => `${moneda ? moneda + ' ' : ''}${Number(n).toLocaleString('es', { maximumFractionDigits: 2, useGrouping: 'always' })}`;
+const ETIQUETAS = {
+  por_verificar: 'Pago en verificación',
+  verificada: 'Pago verificado. Pronto te enviaremos las tablas.',
+  enviada: 'Tablas enviadas. Revisa tu WhatsApp o tu correo.',
+  rechazada: 'Compra rechazada. Escríbenos si tienes dudas.',
+};
+const hoy = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
 let evento = null;
+let cantidadTocada = false;
 
 function mostrarError(el, msg) { el.textContent = msg; el.className = 'msg bad'; }
+const esEfectivo = () => $('form').metodo.value === 'Efectivo';
 
 async function cargar() {
   evento = await (await fetch('/api/publico/evento')).json();
-  $('titulo').textContent = evento.nombre || 'Compra de tablas';
-  if (!evento.abierto) {
-    $('precio').textContent = 'Las compras aún no están abiertas.';
-    return;
+  if (evento.nombre && evento.nombre.trim().toLowerCase() !== 'bingo') $('titulo').textContent = evento.nombre;
+  if (evento.fechaSorteo) {
+    const f = new Date(evento.fechaSorteo + 'T12:00:00');
+    $('sorteo').textContent = 'Sorteo: ' + f.toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' });
   }
-  $('precio').textContent = `Precio por tabla: ${dinero(evento.precioTabla, evento.moneda)}`;
+  if (!evento.abierto) { $('cerrado').hidden = false; return; }
+  $('precio').textContent = dinero(evento.precioTabla, evento.moneda);
+  mostrarPago();
   $('form').hidden = false;
-  actualizarTotal();
-  if (evento.cuentasPago) {
-    $('precio').insertAdjacentHTML('afterend', `<div class="note" style="white-space:pre-line">Pagos:\n${evento.cuentasPago.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))}</div>`);
+  $('form').fechaPago.value = hoy();
+  $('form').fechaPago.max = hoy();
+  actualizar();
+}
+
+// Datos de pago configurados por la organización: cuenta, llave (para otros bancos) y QR del banco.
+function mostrarPago() {
+  const filas = [];
+  if (evento.titularCuenta) filas.push(['A nombre de', evento.titularCuenta]);
+  const banco = [evento.banco, evento.tipoCuenta && 'Cuenta de ' + evento.tipoCuenta].filter(Boolean).join(' · ');
+  if (banco) filas.push(['Banco', banco]);
+  if (evento.numeroCuenta) filas.push(['Número de cuenta', evento.numeroCuenta, true]);
+  if (evento.llavePago) filas.push(['Llave', evento.llavePago, true]);
+  $('pago-card').hidden = false;
+  const caja = $('pago-datos');
+  caja.replaceChildren();
+  for (const [etiqueta, valor, copiable] of filas) {
+    const fila = document.createElement('div');
+    fila.className = 'dato';
+    const t = document.createElement('div');
+    const small = document.createElement('span');
+    small.className = 'muted';
+    small.textContent = etiqueta;
+    const v = document.createElement('strong');
+    v.textContent = valor;
+    t.append(small, document.createElement('br'), v);
+    fila.append(t);
+    if (copiable) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'ghost';
+      b.textContent = 'Copiar';
+      b.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(valor); b.textContent = '¡Copiado!'; } catch { b.textContent = 'Cópialo a mano'; }
+        setTimeout(() => { b.textContent = 'Copiar'; }, 1800);
+      });
+      fila.append(b);
+    }
+    caja.append(fila);
+  }
+  if (evento.llavePago) {
+    const aviso = document.createElement('p');
+    aviso.className = 'muted';
+    aviso.textContent = 'Si transfieres desde otro banco, escribe la llave en lugar del número de cuenta.';
+    caja.append(aviso);
+  }
+  if (evento.qrPago && /^data:image\/(png|jpeg|webp);base64,/.test(evento.qrPago)) {
+    $('pago-qr-img').src = evento.qrPago;
+    $('pago-qr').hidden = false;
+  }
+  $('pago-notas').textContent = evento.cuentasPago || '';
+}
+
+// Si el valor pagado no es múltiplo del precio, el comprador decide qué hacer con lo que sobra (consignación o efectivo).
+function mostrarSobrante(tablas, sobra) {
+  const f = $('form');
+  const visible = tablas >= 1 && sobra > 0;
+  $('sobrante-box').hidden = !visible;
+  for (const r of f.querySelectorAll('input[name="sobranteDestino"]')) {
+    r.required = visible;
+    if (!visible) r.checked = false;
+  }
+  const devolver = visible && f.querySelector('input[name="sobranteDestino"]:checked')?.value === 'devolucion';
+  $('campo-sobrante-nota').hidden = !devolver;
+  f.sobranteNota.required = devolver;
+  if (!devolver) f.sobranteNota.value = '';
+  if (visible) {
+    $('sobrante-txt').textContent = `Con ese valor tienes derecho a ${tablas} tabla(s) y te sobran ${dinero(sobra, evento.moneda)}. ¿Qué quieres hacer con ese dinero?`;
   }
 }
 
-function actualizarTotal() {
-  const n = Number($('form').cantidad.value);
-  $('total').textContent = evento?.abierto && n > 0 ? `Total: ${dinero(n * evento.precioTabla, evento.moneda)}` : '';
+// Cuántas tablas cubre lo pagado (hacia abajo) y aviso si no coincide con lo que se pidió.
+function actualizar() {
+  const f = $('form');
+  const efectivo = esEfectivo();
+  $('campo-comprobante').hidden = efectivo;
+  $('campo-ref').hidden = efectivo;
+  $('nota-efectivo').hidden = !efectivo;
+  const valor = Number(f.montoPagado.value);
+  const pedidas = Number(f.cantidad.value);
+  const calc = $('calc');
+  calc.classList.remove('alerta');
+  if (!(valor > 0)) {
+    $('calc-n').textContent = '0';
+    $('calc-txt').textContent = 'Escribe el valor pagado para ver cuántas tablas corresponden.';
+    mostrarSobrante(0, 0);
+    return;
+  }
+  const n = Math.floor(valor / evento.precioTabla + 1e-9);
+  $('calc-n').textContent = n;
+  mostrarSobrante(n, n >= 1 ? Math.round((valor - n * evento.precioTabla) * 100) / 100 : 0);
+  if (n < 1) {
+    calc.classList.add('alerta');
+    $('calc-txt').textContent = `Con ${dinero(valor, evento.moneda)} no alcanza para una tabla (${dinero(evento.precioTabla, evento.moneda)} c/u).`;
+  } else if (pedidas > 0 && n !== pedidas) {
+    calc.classList.add('alerta');
+    $('calc-txt').textContent = `Con ${dinero(valor, evento.moneda)} corresponden ${n} tabla(s), pero indicaste ${pedidas}. Quien verifique tu pago confirmará cuántas se te envían.`;
+  } else {
+    $('calc-txt').textContent = `Con ${dinero(valor, evento.moneda)} corresponden ${n} tabla(s) a ${dinero(evento.precioTabla, evento.moneda)} cada una.`;
+  }
 }
-$('form').cantidad.addEventListener('input', actualizarTotal);
+
+$('form').addEventListener('input', e => {
+  if (e.target.name === 'cantidad') cantidadTocada = true;
+  // Mientras no toque el número de tablas, se sugiere según el valor pagado.
+  if (e.target.name === 'montoPagado' && !cantidadTocada && evento) {
+    const n = Math.floor(Number(e.target.value) / evento.precioTabla + 1e-9);
+    if (n >= 1) $('form').cantidad.value = Math.min(n, 50);
+  }
+  if (evento) actualizar();
+});
+$('form').addEventListener('change', e => {
+  if (e.target.name === 'sobranteDestino') actualizar();
+  if (e.target.name === 'metodo') {
+    $('form').comprobantes.required = !esEfectivo();
+    actualizar();
+  }
+});
+$('form').comprobantes.required = true;
 
 $('form').addEventListener('submit', async e => {
   e.preventDefault();
@@ -103,12 +277,13 @@ $('form').addEventListener('submit', async e => {
   $('msg').className = 'msg';
   try {
     const f = e.target;
-    const archivos = [...f.comprobantes.files];
-    if (!archivos.length) throw new Error('Adjunta el comprobante de pago.');
+    const archivos = esEfectivo() ? [] : [...f.comprobantes.files];
+    if (!esEfectivo() && !archivos.length) throw new Error('Adjunta el comprobante de la consignación.');
     // Los comprobantes van directo a Vercel Blob con un token del servidor; la compra solo guarda sus rutas.
     const comprobantes = [];
     for (const [i, file] of archivos.entries()) {
       if (file.size > 10 * 1024 * 1024) throw new Error(`"${file.name}" supera 10 MB.`);
+      if (!/^(image\/(png|jpeg|gif|webp)|application\/pdf)$/.test(file.type)) throw new Error(`"${file.name}" debe ser imagen o PDF.`);
       $('msg').textContent = `Subiendo comprobante ${i + 1} de ${archivos.length}…`;
       const blob = await window.subirComprobante(file);
       comprobantes.push({ ruta: blob.pathname, nombre: file.name, tipo: file.type });
@@ -123,10 +298,8 @@ $('form').addEventListener('submit', async e => {
     if (!res.ok) throw new Error(data.error || 'No se pudo registrar la compra.');
     $('codigo').textContent = data.codigo;
     $('resultado').hidden = false;
+    $('form').hidden = true;
     $('msg').textContent = '';
-    e.target.reset();
-    e.target.cantidad.value = 1;
-    actualizarTotal();
     $('resultado').scrollIntoView({ behavior: 'smooth' });
   } catch (err) {
     mostrarError($('msg'), err.message);
@@ -143,7 +316,7 @@ $('form-consulta').addEventListener('submit', async e => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     $('consulta-msg').className = 'msg';
-    $('consulta-msg').textContent = `${data.codigo} · ${data.cantidad} tabla(s) · ${dinero(data.total, evento?.moneda)} · ${ETIQUETAS[data.estado] || data.estado}`;
+    $('consulta-msg').textContent = `${data.codigo} · ${data.cantidad} tabla(s) · ${ETIQUETAS[data.estado] || data.estado}`;
   } catch (err) {
     mostrarError($('consulta-msg'), err.message);
   }
