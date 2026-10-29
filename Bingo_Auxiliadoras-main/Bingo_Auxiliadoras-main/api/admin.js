@@ -1,7 +1,7 @@
-const { obtenerContexto } = require('../../src/contexto');
-const { enrutar, responderError } = require('../../src/http');
-const { ErrorApp } = require('../../src/servicios');
-const sesion = require('../../src/sesion');
+const { obtenerContexto } = require('../src/contexto');
+const { enrutar, responderError } = require('../src/http');
+const { ErrorApp } = require('../src/servicios');
+const sesion = require('../src/sesion');
 
 const MAX_INTENTOS = 10;
 const VENTANA_MS = 15 * 60 * 1000;

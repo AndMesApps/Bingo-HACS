@@ -7,8 +7,8 @@ Venta, verificación y control de tablas de bingo. Todo corre en **Vercel**: fro
 | Parte | Dónde corre | Archivo |
 |---|---|---|
 | Formulario de compra y panel | Vercel (estático) | `public/` |
-| API pública (evento, compra, estado) | Vercel Function | `api/publico/[...ruta].js` |
-| API de administración (con sesión) | Vercel Function | `api/admin/[...ruta].js` |
+| API pública (evento, compra, estado) | Vercel Function | `api/publico.js` |
+| API de administración (con sesión) | Vercel Function | `api/admin.js` |
 | Base de datos PostgreSQL | Neon (Marketplace de Vercel) | `src/esquema.sql` |
 | Comprobantes | Vercel Blob (privado) | `src/storage.js` |
 

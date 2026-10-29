@@ -1,15 +1,19 @@
 const { ErrorApp } = require('./servicios');
 
-// La ruta se toma de la URL real (/api/publico/compras/BNG-1 -> /compras/BNG-1). Es lo más fiable: según el
-// entorno, el parámetro catch-all [...ruta] llega como lista, como texto con barras o no llega.
+// Cada API es una sola función (api/publico.js, api/admin.js) y vercel.json reescribe
+// /api/publico/compras/BNG-1 -> /api/publico?ruta=compras/BNG-1. Aquí se reconstruye la ruta:
+// primero el parámetro ?ruta (texto con barras o lista) y, si no llega, la URL real.
 function rutaDe(req) {
+  const param = req.query?.ruta;
+  if (param !== undefined && param !== '') {
+    const lista = (Array.isArray(param) ? param : String(param).split('/')).filter(Boolean);
+    return '/' + lista.join('/');
+  }
   if (req.url) {
     const camino = String(req.url).split('?')[0].replace(/^\/api\/(publico|admin)(?=\/|$)/, '');
     return '/' + camino.split('/').filter(Boolean).map(decodeURIComponent).join('/');
   }
-  const partes = req.query?.ruta ?? [];
-  const lista = Array.isArray(partes) ? partes : String(partes).split('/');
-  return '/' + lista.filter(Boolean).join('/');
+  return '/';
 }
 
 async function enrutar(rutas, req, res) {
