@@ -231,6 +231,12 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       fisicaNota: c.fisica_nota,
       fisicaEn: c.fisica_en,
       tokenEntrega: c.token_entrega,
+      sobranteDestino: c.sobrante_destino,
+      sobranteNota: c.sobrante_nota,
+      sobranteMonto: num(c.sobrante_monto),
+      sobranteEstado: c.sobrante_estado,
+      sobranteResolucion: c.sobrante_resolucion,
+      sobranteEn: c.sobrante_en,
       creadaEn: c.creada_en,
       verificadaEn: c.verificada_en,
       enviadaEn: c.enviada_en,
@@ -300,6 +306,23 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const total = redondear(cantidad * e.precioTabla);
     const montoPagado = montoPositivo(datos.montoPagado, 'El valor pagado');
 
+    // Lo que sobra al pagar por encima de las tablas que cubre el valor (consignación o efectivo):
+    // el comprador decide si lo dona o si se lo devolvemos, y en ese caso deja una nota de cómo.
+    const cubiertas = tablasPorMonto(montoPagado, e.precioTabla);
+    if (cubiertas < 1) throw new ErrorApp(`El valor pagado no alcanza para una tabla (${e.precioTabla}).`);
+    const sobranteEstimado = redondear(montoPagado - cubiertas * e.precioTabla);
+    let sobranteDestino = '';
+    let sobranteNota = '';
+    if (sobranteEstimado > 0) {
+      sobranteDestino = String(datos.sobranteDestino ?? '').trim();
+      if (!['donacion', 'devolucion'].includes(sobranteDestino)) {
+        throw new ErrorApp(`Sobran ${sobranteEstimado}: indica si los donas o si prefieres que te los devolvamos.`);
+      }
+      sobranteNota = sobranteDestino === 'devolucion'
+        ? texto(datos.sobranteNota, 'La nota de cómo devolverte el dinero', 300)
+        : String(datos.sobranteNota ?? '').trim().slice(0, 300);
+    }
+
     return db.tx(async t => {
       await t('SELECT pg_advisory_xact_lock($1)', [LOCK_VENTAS]);
       if (cantidad > await tablasLibresParaVender(t)) {
@@ -307,9 +330,11 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       }
       const codigo = await codigoCompra(t);
       const [{ id }] = await t(
-        `INSERT INTO compras (codigo, nombre, cedula, telefono, correo, ciudad, referido_por, cantidad, precio_unitario, total, estado, creada_en)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'por_verificar', $11) RETURNING id`,
-        [codigo, d.nombre, d.cedula, d.telefono, d.correo, d.ciudad, d.referidoPor, cantidad, e.precioTabla, total, ahora()],
+        `INSERT INTO compras (codigo, nombre, cedula, telefono, correo, ciudad, referido_por, cantidad, precio_unitario, total,
+           sobrante_destino, sobrante_nota, estado, creada_en)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'por_verificar', $13) RETURNING id`,
+        [codigo, d.nombre, d.cedula, d.telefono, d.correo, d.ciudad, d.referidoPor, cantidad, e.precioTabla, total,
+          sobranteDestino, sobranteNota, ahora()],
       );
       const [{ id: pagoId }] = await t(
         `INSERT INTO pagos (compra_id, monto_reportado, metodo, referencia, fecha_pago, estado, creado_en)
@@ -321,7 +346,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
           [pagoId, c.ruta, String(c.nombre).slice(0, 120), c.tipo]);
       }
       await bitacora('compra registrada', `${codigo} · ${d.nombre} · ${cantidad} tabla(s) · pagó ${montoPagado}`, t);
-      return { id: Number(id), codigo, total, tablasSugeridas: tablasPorMonto(montoPagado, e.precioTabla) };
+      return { id: Number(id), codigo, total, tablasSugeridas: cubiertas, sobrante: sobranteEstimado, sobranteDestino };
     });
   }
 
@@ -446,12 +471,21 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       const [{ n }] = await t('SELECT COUNT(*)::int AS n FROM tablas WHERE compra_id = $1', [compraId]);
       if (n !== cantidad) throw new Error(`Control de tablas: la compra ${c.codigo} quedó con ${n} tabla(s), se esperaban ${cantidad}.`);
 
+      // Sobrante = lo verificado por encima de las tablas entregadas. Si el comprador eligió donarlo queda como
+      // donación; si pidió devolución, por devolver; si no eligió nada, por definir para que la administración decida.
+      const sobrante = Math.max(0, redondear(pagado - cantidad * precio));
+      const estadoSobrante = sobrante <= 0 ? 'ninguno'
+        : c.sobrante_destino === 'donacion' ? 'donado'
+          : c.sobrante_destino === 'devolucion' ? 'por_devolver' : 'por_definir';
+
       const token = crypto.randomBytes(16).toString('hex');
       await t(
         `UPDATE compras SET estado = 'enviada', enviada_en = $1, tablas_aprobadas = $2, total = $3,
-           token_entrega = $4, fisica_estado = $5 WHERE id = $6`,
-        [ahora(), cantidad, redondear(cantidad * precio), token, canales.fisica ? 'pendiente' : 'no', compraId],
+           token_entrega = $4, fisica_estado = $5, sobrante_monto = $6::numeric, sobrante_estado = $7,
+           sobrante_en = CASE WHEN $6::numeric > 0 THEN $1::text ELSE NULL END WHERE id = $8`,
+        [ahora(), cantidad, redondear(cantidad * precio), token, canales.fisica ? 'pendiente' : 'no', sobrante, estadoSobrante, compraId],
       );
+      if (sobrante > 0) await bitacora('sobrante', `${c.codigo}: ${sobrante} (${estadoSobrante.replace('_', ' ')})`, t);
       const lista = asignadas.map(r => r.serial).sort();
       await bitacora('tablas asignadas', `${c.codigo}: ${lista.join(', ')} (pidió ${c.cantidad}, pagó ${pagado}, se aprobaron ${cantidad})`, t);
       return { seriales: lista, token };
@@ -561,6 +595,44 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     if (!c) throw new ErrorApp('Enlace no válido.', 404);
     const seriales = (await q('SELECT serial FROM tablas WHERE compra_id = $1 ORDER BY serial', [c.id])).map(r => r.serial);
     return { nombre: c.nombre, evento: (await evento()).nombre, tablas: seriales };
+  }
+
+  // ---------- Sobrantes (donaciones y devoluciones) ----------
+  // Transiciones permitidas, para que el control sea claro y no se pueda "donar" lo que el comprador pidió devolver:
+  //   por definir -> donado | por devolver      por devolver -> devuelto (con nota de cómo se devolvió)
+  async function gestionarSobrante(compraId, { accion, nota } = {}) {
+    const c = await uno('SELECT * FROM compras WHERE id = $1', [compraId]);
+    if (!c) throw new ErrorApp('Compra no encontrada.', 404);
+    if (!(num(c.sobrante_monto) > 0)) throw new ErrorApp('Esta compra no tiene sobrante.', 409);
+    const reglas = {
+      donar: { desde: 'por_definir', hacia: 'donado' },
+      por_devolver: { desde: 'por_definir', hacia: 'por_devolver' },
+      devuelto: { desde: 'por_devolver', hacia: 'devuelto' },
+    };
+    const r = reglas[accion];
+    if (!r) throw new ErrorApp('Acción de sobrante no válida.');
+    if (c.sobrante_estado !== r.desde) {
+      throw new ErrorApp(`No se puede pasar de "${c.sobrante_estado.replace('_', ' ')}" a "${r.hacia.replace('_', ' ')}".`, 409);
+    }
+    const detalle = String(nota ?? '').trim().slice(0, 300);
+    if (accion === 'devuelto' && !detalle) throw new ErrorApp('Anota cómo se devolvió el dinero (fecha, medio o referencia).');
+    if (accion === 'por_devolver' && !detalle && !c.sobrante_nota) throw new ErrorApp('Anota cómo se le devolverá el dinero (cuenta, llave, etc.).');
+    const act = await q(
+      `UPDATE compras SET sobrante_estado = $1::text, sobrante_en = $2::text,
+         sobrante_nota = CASE WHEN $1::text = 'por_devolver' AND $3::text <> '' THEN $3::text ELSE sobrante_nota END,
+         sobrante_resolucion = CASE WHEN $1::text = 'por_devolver' THEN sobrante_resolucion ELSE NULLIF($3::text, '') END
+       WHERE id = $4 AND sobrante_estado = $5 RETURNING id`,
+      [r.hacia, ahora(), detalle, compraId, r.desde],
+    );
+    if (!act.length) throw new ErrorApp('El sobrante ya fue procesado por otra persona. Actualiza la lista.', 409);
+    await bitacora(`sobrante ${r.hacia.replace('_', ' ')}`, `${c.codigo}: ${num(c.sobrante_monto)}${detalle ? ' · ' + detalle : ''}`);
+    return detalleCompra(compraId);
+  }
+
+  async function listarSobrantes() {
+    const filas = await q(`${SQL_COMPRAS} WHERE c.sobrante_monto > 0
+      ORDER BY CASE c.sobrante_estado WHEN 'por_definir' THEN 0 WHEN 'por_devolver' THEN 1 ELSE 2 END, c.id DESC`);
+    return filas.map(compraDTO);
   }
 
   async function rechazarCompra(compraId) {
@@ -690,6 +762,11 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const premiosProgramados = await suma('SELECT COALESCE(SUM(monto), 0) AS n FROM premios');
     const gastos = await suma('SELECT COALESCE(SUM(monto), 0) AS n FROM gastos');
     const porCobrar = redondear(compras.reduce((s, c) => s + c.saldo, 0));
+    // Dinero recibido por encima de las tablas: donado (suma a ingresos), por devolver (no es de la organización) o ya devuelto.
+    const sobranteEn = estados => suma(`SELECT COALESCE(SUM(sobrante_monto), 0) AS n FROM compras WHERE sobrante_estado IN (${estados})`);
+    const donaciones = await sobranteEn("'donado'");
+    const porDevolver = await sobranteEn("'por_devolver','por_definir'");
+    const devuelto = await sobranteEn("'devuelto'");
     const porMetodo = (await q(
       "SELECT metodo, SUM(monto_verificado) AS monto FROM pagos WHERE estado = 'verificado' GROUP BY metodo ORDER BY monto DESC",
     )).map(r => ({ metodo: r.metodo, monto: redondear(r.monto) }));
@@ -702,7 +779,10 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     return {
       dinero: {
         cobrado, porVerificar, porCobrar, premiosPagados, premiosProgramados, gastos,
-        balance: redondear(cobrado - premiosPagados - gastos),
+        donaciones, porDevolver, devuelto,
+        // Ventas + donaciones reales: lo cobrado menos lo que hay que devolver o ya se devolvió.
+        ingresos: redondear(cobrado - porDevolver - devuelto),
+        balance: redondear(cobrado - premiosPagados - gastos - devuelto),
         porMetodo,
       },
       tablas: {
@@ -732,6 +812,13 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       return {
         encabezados: ['Código', 'Fecha', 'Nombre', 'Celular', 'Ciudad', 'Referido por', 'Cédula', 'Correo', 'Tablas pedidas', 'Tablas enviadas', 'Total', 'Pagado', 'Saldo', 'Estado', 'WhatsApp', 'Correo envío', 'Entrega física', 'Seriales'],
         filas: filas.map(c => [c.codigo, c.creadaEn.slice(0, 10), c.nombre, c.telefono, c.ciudad, c.referidoPor, c.cedula, c.correo, c.cantidad, c.tablasAprobadas ?? '', c.total, c.pagado, c.saldo, c.estado, c.whatsappEstado, c.correoEstado, c.fisicaEstado, c.tablas.join(' ')]),
+      };
+    }
+    if (nombre === 'sobrantes') {
+      const filas = await listarSobrantes();
+      return {
+        encabezados: ['Código', 'Nombre', 'Celular', 'Pagado', 'Tablas enviadas', 'Sobrante', 'Eligió', 'Estado', 'Nota del comprador', 'Cómo se devolvió'],
+        filas: filas.map(c => [c.codigo, c.nombre, c.telefono, c.pagado, c.tablasAprobadas ?? '', c.sobranteMonto, c.sobranteDestino || 'sin elegir', c.sobranteEstado, c.sobranteNota, c.sobranteResolucion ?? '']),
       };
     }
     if (nombre === 'deudas') {
@@ -777,6 +864,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     crearCompra, estadoPublico, detalleCompra, listarCompras,
     registrarPagoManual, verificarPago, rechazarPago,
     enviarTablas, reenviar, enlaceWhatsapp, enlaceCorreo, marcarEnviadoManual, entregaFisica, entregaPublica, rechazarCompra,
+    gestionarSobrante, listarSobrantes,
     comprobanteDe,
     listarPremios, crearPremio, asignarGanador, quitarGanador, pagarPremio,
     listarGastos, crearGasto, eliminarGasto,

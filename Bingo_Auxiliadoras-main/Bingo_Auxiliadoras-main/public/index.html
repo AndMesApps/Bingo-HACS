@@ -81,6 +81,17 @@
         <span class="num" id="calc-n">0</span>
         <span class="txt" id="calc-txt">Escribe el valor pagado para ver cuántas tablas corresponden.</span>
       </div>
+      <div class="calc alerta" id="sobrante-box" style="margin-top:14px;display:block" hidden>
+        <p style="margin:0 0 10px"><strong id="sobrante-txt"></strong></p>
+        <div class="metodos" role="radiogroup" aria-label="Qué hacer con el dinero restante">
+          <label><input type="radio" name="sobranteDestino" value="donacion"> Lo dono a las Hermanas</label>
+          <label><input type="radio" name="sobranteDestino" value="devolucion"> Quiero que me lo devuelvan</label>
+        </div>
+        <label id="campo-sobrante-nota" style="margin-top:12px" hidden>¿Cómo te lo devolvemos? (cuenta, llave, efectivo…)
+          <textarea name="sobranteNota" rows="2" maxlength="300" placeholder="Ej. Nequi 300 123 4567 a nombre de Ana Pérez"></textarea>
+        </label>
+        <p class="muted" style="margin:10px 0 0">Si lo donas, se suma a lo recaudado para la obra. Si prefieres la devolución, la administración lo controla hasta devolvértelo.</p>
+      </div>
       <div class="actions"><button type="submit" id="enviar" class="grande">Enviar mi compra</button></div>
       <p class="msg" id="msg" role="status"></p>
     </section>
@@ -113,7 +124,7 @@
 </script>
 <script>
 const $ = id => document.getElementById(id);
-const dinero = (n, moneda) => `${moneda ? moneda + ' ' : ''}${Number(n).toLocaleString('es', { maximumFractionDigits: 2 })}`;
+const dinero = (n, moneda) => `${moneda ? moneda + ' ' : ''}${Number(n).toLocaleString('es', { maximumFractionDigits: 2, useGrouping: 'always' })}`;
 const ETIQUETAS = {
   por_verificar: 'Pago en verificación',
   verificada: 'Pago verificado. Pronto te enviaremos las tablas.',
@@ -193,6 +204,24 @@ function mostrarPago() {
   $('pago-card').hidden = false;
 }
 
+// Si el valor pagado no es múltiplo del precio, el comprador decide qué hacer con lo que sobra (consignación o efectivo).
+function mostrarSobrante(tablas, sobra) {
+  const f = $('form');
+  const visible = tablas >= 1 && sobra > 0;
+  $('sobrante-box').hidden = !visible;
+  for (const r of f.querySelectorAll('input[name="sobranteDestino"]')) {
+    r.required = visible;
+    if (!visible) r.checked = false;
+  }
+  const devolver = visible && f.querySelector('input[name="sobranteDestino"]:checked')?.value === 'devolucion';
+  $('campo-sobrante-nota').hidden = !devolver;
+  f.sobranteNota.required = devolver;
+  if (!devolver) f.sobranteNota.value = '';
+  if (visible) {
+    $('sobrante-txt').textContent = `Con ese valor tienes derecho a ${tablas} tabla(s) y te sobran ${dinero(sobra, evento.moneda)}. ¿Qué quieres hacer con ese dinero?`;
+  }
+}
+
 // Cuántas tablas cubre lo pagado (hacia abajo) y aviso si no coincide con lo que se pidió.
 function actualizar() {
   const f = $('form');
@@ -207,10 +236,12 @@ function actualizar() {
   if (!(valor > 0)) {
     $('calc-n').textContent = '0';
     $('calc-txt').textContent = 'Escribe el valor pagado para ver cuántas tablas corresponden.';
+    mostrarSobrante(0, 0);
     return;
   }
   const n = Math.floor(valor / evento.precioTabla + 1e-9);
   $('calc-n').textContent = n;
+  mostrarSobrante(n, n >= 1 ? Math.round((valor - n * evento.precioTabla) * 100) / 100 : 0);
   if (n < 1) {
     calc.classList.add('alerta');
     $('calc-txt').textContent = `Con ${dinero(valor, evento.moneda)} no alcanza para una tabla (${dinero(evento.precioTabla, evento.moneda)} c/u).`;
@@ -232,6 +263,7 @@ $('form').addEventListener('input', e => {
   if (evento) actualizar();
 });
 $('form').addEventListener('change', e => {
+  if (e.target.name === 'sobranteDestino') actualizar();
   if (e.target.name === 'metodo') {
     $('form').comprobantes.required = !esEfectivo();
     actualizar();

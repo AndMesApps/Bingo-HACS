@@ -56,6 +56,8 @@ module.exports = async (req, res) => {
       { metodo: 'GET', patron: /^\/compras\/(\d+)\/enlace-whatsapp$/, handler: admin(async (p, req, res) => res.json({ enlace: await servicios.enlaceWhatsapp(id(p), baseUrl(req)) })) },
       { metodo: 'GET', patron: /^\/compras\/(\d+)\/enlace-correo$/, handler: admin(async (p, req, res) => res.json({ enlace: await servicios.enlaceCorreo(id(p), baseUrl(req)) })) },
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/envio-manual$/, handler: admin(async (p, req, res) => res.json(await servicios.marcarEnviadoManual(id(p), req.body?.canal))) },
+      { metodo: 'GET', patron: /^\/sobrantes$/, handler: admin(async (_p, _req, res) => res.json(await servicios.listarSobrantes())) },
+      { metodo: 'POST', patron: /^\/compras\/(\d+)\/sobrante$/, handler: admin(async (p, req, res) => res.json(await servicios.gestionarSobrante(id(p), req.body || {}))) },
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/entrega-fisica$/, handler: admin(async (p, req, res) => res.json(await servicios.entregaFisica(id(p), req.body || {}))) },
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/rechazar$/, handler: admin(async (p, req, res) => res.json(await servicios.rechazarCompra(id(p)))) },
 

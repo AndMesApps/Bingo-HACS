@@ -111,6 +111,16 @@ ALTER TABLE compras ADD COLUMN IF NOT EXISTS fisica_estado TEXT NOT NULL DEFAULT
 ALTER TABLE compras ADD COLUMN IF NOT EXISTS fisica_nota TEXT;
 ALTER TABLE compras ADD COLUMN IF NOT EXISTS fisica_en TEXT;
 ALTER TABLE pagos ADD COLUMN IF NOT EXISTS fecha_pago TEXT NOT NULL DEFAULT '';
+-- Sobrante: lo pagado por encima de las tablas entregadas. El comprador elige donarlo o que se lo devuelvan
+-- (con una nota de cómo); la administración lo controla hasta que queda donado o devuelto.
+ALTER TABLE compras ADD COLUMN IF NOT EXISTS sobrante_destino TEXT NOT NULL DEFAULT ''
+  CHECK (sobrante_destino IN ('','donacion','devolucion'));
+ALTER TABLE compras ADD COLUMN IF NOT EXISTS sobrante_nota TEXT NOT NULL DEFAULT '';
+ALTER TABLE compras ADD COLUMN IF NOT EXISTS sobrante_monto NUMERIC(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE compras ADD COLUMN IF NOT EXISTS sobrante_estado TEXT NOT NULL DEFAULT 'ninguno'
+  CHECK (sobrante_estado IN ('ninguno','por_definir','donado','por_devolver','devuelto'));
+ALTER TABLE compras ADD COLUMN IF NOT EXISTS sobrante_resolucion TEXT;
+ALTER TABLE compras ADD COLUMN IF NOT EXISTS sobrante_en TEXT;
 ALTER TABLE evento ALTER COLUMN exigir_pago_completo SET DEFAULT true;
 -- Datos de pago configurables desde el panel: cuenta, llave (para transferencias entre bancos) y QR del banco.
 ALTER TABLE evento ADD COLUMN IF NOT EXISTS banco TEXT NOT NULL DEFAULT '';

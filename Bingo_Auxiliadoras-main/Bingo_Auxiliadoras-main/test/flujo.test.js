@@ -25,7 +25,7 @@ const comprobante = () => [{ ruta: ruta(), nombre: 'pago.png', tipo: 'image/png'
 const datos = (n, extra = {}) => ({
   nombre: 'Ana Pérez', telefono: '04121234567', correo: 'a@x.com', ciudad: 'Medellín', referidoPor: 'Hna. María',
   cantidad: n, montoPagado: n * 10, fechaPago: new Date().toISOString().slice(0, 10),
-  metodo: 'Consignación', referencia: 'REF' + Math.random(), ...extra,
+  metodo: 'Consignación', referencia: 'REF' + Math.random(), sobranteDestino: 'donacion', ...extra,
 });
 
 async function tablas(s, n) {
@@ -414,8 +414,113 @@ test('datos de pago configurables: cuenta, llave y QR validado; el precio nuevo 
   // Editar otro dato conserva el QR; una cadena vacía lo quita.
   assert.equal((await s.actualizarEvento({ precioTabla: 25000 })).qrPago, png);
   assert.equal((await s.actualizarEvento({ tipoCuenta: 'Corriente' })).tipoCuenta, 'Corriente');
-  const despues = await comprar(s, 1);
+  const despues = await comprar(s, 1, { montoPagado: 25000 });
   assert.equal((await s.detalleCompra(antes.id)).precioUnitario, 10);
   assert.equal((await s.detalleCompra(despues.id)).precioUnitario, 25000);
   assert.equal((await s.actualizarEvento({ qrPago: '' })).tieneQr, false);
+});
+
+// ---------- Sobrante: donación o devolución ----------
+async function conSobrante(s, extra = {}, cantidadEnviar) {
+  await tablas(s, 5);
+  await s.actualizarEvento({ precioTabla: 20000 });
+  const c = await s.crearCompra(datos(3, { montoPagado: 45000, ...extra }), comprobante());
+  await verificarTodo(s, c.id, 45000);
+  const e = await s.enviarTablas(c.id, { cantidad: cantidadEnviar });
+  return { c, e };
+}
+
+test('pagar 45.000 con tablas de 20.000: derecho a 2 tablas y sobran 5.000', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  await s.actualizarEvento({ precioTabla: 20000 });
+  const c = await s.crearCompra(datos(3, { montoPagado: 45000, sobranteDestino: 'donacion' }), comprobante());
+  assert.equal(c.tablasSugeridas, 2);
+  assert.equal(c.sobrante, 5000);
+});
+
+test('si sobra dinero el comprador debe elegir donar o devolver; devolver exige una nota', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  await s.actualizarEvento({ precioTabla: 20000 });
+  const base = { montoPagado: 45000 };
+  await assert.rejects(s.crearCompra(datos(2, { ...base, sobranteDestino: '' }), comprobante()), /donas|devolvamos/);
+  await assert.rejects(s.crearCompra(datos(2, { ...base, sobranteDestino: 'otra' }), comprobante()), /donas|devolvamos/);
+  await assert.rejects(s.crearCompra(datos(2, { ...base, sobranteDestino: 'devolucion', sobranteNota: ' ' }), comprobante()), /nota/i);
+  await s.crearCompra(datos(2, { ...base, sobranteDestino: 'devolucion', sobranteNota: 'Llave 3001234567' }), comprobante());
+  // Pago exacto: no se pide decisión. Pago menor a una tabla: se rechaza.
+  await s.crearCompra(datos(2, { montoPagado: 40000, sobranteDestino: '' }), comprobante());
+  await assert.rejects(s.crearCompra(datos(1, { montoPagado: 15000 }), comprobante()), /no alcanza/);
+});
+
+test('sobrante donado suma a los ingresos y no queda por devolver', async () => {
+  const s = await nuevo();
+  const { e } = await conSobrante(s, { sobranteDestino: 'donacion' });
+  assert.equal(e.tablas.length, 2);
+  assert.equal(e.sobranteMonto, 5000);
+  assert.equal(e.sobranteEstado, 'donado');
+  const d = (await s.resumen()).dinero;
+  assert.equal(d.donaciones, 5000);
+  assert.equal(d.porDevolver, 0);
+  assert.equal(d.ingresos, 45000);
+  assert.equal(d.balance, 45000);
+});
+
+test('sobrante por devolver: no cuenta como ingreso hasta resolverse; devuelto baja la caja', async () => {
+  const s = await nuevo();
+  const { c, e } = await conSobrante(s, { sobranteDestino: 'devolucion', sobranteNota: 'Nequi 3001234567' });
+  assert.equal(e.sobranteEstado, 'por_devolver');
+  assert.equal(e.sobranteNota, 'Nequi 3001234567');
+  let d = (await s.resumen()).dinero;
+  assert.equal(d.porDevolver, 5000);
+  assert.equal(d.ingresos, 40000);
+  await assert.rejects(s.gestionarSobrante(c.id, { accion: 'devuelto' }), /cómo se devolvió/);
+  await assert.rejects(s.gestionarSobrante(c.id, { accion: 'donar' }), /No se puede pasar/);
+  const r = await s.gestionarSobrante(c.id, { accion: 'devuelto', nota: 'Transferido el 28/10, ref 998877' });
+  assert.equal(r.sobranteEstado, 'devuelto');
+  assert.equal(r.sobranteResolucion, 'Transferido el 28/10, ref 998877');
+  d = (await s.resumen()).dinero;
+  assert.equal(d.porDevolver, 0);
+  assert.equal(d.devuelto, 5000);
+  assert.equal(d.balance, 40000, 'lo devuelto sale de la caja');
+  await assert.rejects(s.gestionarSobrante(c.id, { accion: 'devuelto', nota: 'otra vez' }), /No se puede pasar/);
+});
+
+test('pago en efectivo registrado por el administrador: el sobrante queda por definir y el admin decide', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  await s.actualizarEvento({ precioTabla: 20000 });
+  const c = await s.crearCompra(datos(2, { montoPagado: 20000, sobranteDestino: '' }), comprobante());
+  await s.registrarPagoManual(c.id, { monto: 45000, metodo: 'Efectivo' });
+  const pagoInicial = (await s.detalleCompra(c.id)).pagos.find(p => p.estado === 'por_verificar');
+  await s.rechazarPago(pagoInicial.id);
+  const e = await s.enviarTablas(c.id);
+  assert.equal(e.tablas.length, 2);
+  assert.equal(e.sobranteEstado, 'por_definir');
+  assert.equal((await s.resumen()).dinero.porDevolver, 5000);
+  await assert.rejects(s.gestionarSobrante(c.id, { accion: 'por_devolver' }), /cuenta, llave/);
+  const r = await s.gestionarSobrante(c.id, { accion: 'por_devolver', nota: 'Entregar en efectivo en la parroquia' });
+  assert.equal(r.sobranteEstado, 'por_devolver');
+  assert.equal(r.sobranteNota, 'Entregar en efectivo en la parroquia');
+});
+
+test('sobrante por definir puede donarse; enviar menos tablas genera sobrante; sin sobrante no hay gestión', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  await s.actualizarEvento({ precioTabla: 20000 });
+  const a = await s.crearCompra(datos(2, { montoPagado: 40000, sobranteDestino: '' }), comprobante());
+  await verificarTodo(s, a.id, 40000);
+  const ea = await s.enviarTablas(a.id, { cantidad: 1 }); // 20.000 de más porque se enviaron menos tablas
+  assert.equal(ea.sobranteMonto, 20000);
+  assert.equal(ea.sobranteEstado, 'por_definir');
+  const don = await s.gestionarSobrante(a.id, { accion: 'donar', nota: 'Autorizó por WhatsApp' });
+  assert.equal(don.sobranteEstado, 'donado');
+  const b = await s.crearCompra(datos(1, { montoPagado: 20000, sobranteDestino: '' }), comprobante());
+  await verificarTodo(s, b.id, 20000);
+  const eb = await s.enviarTablas(b.id);
+  assert.equal(eb.sobranteEstado, 'ninguno');
+  await assert.rejects(s.gestionarSobrante(b.id, { accion: 'donar' }), /no tiene sobrante/);
+  const lista = await s.listarSobrantes();
+  assert.equal(lista.length, 1);
+  assert.equal((await s.reporte('sobrantes')).filas.length, 1);
 });

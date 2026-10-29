@@ -4,7 +4,7 @@ let moneda = '';
 let vistaActual = 'resumen';
 let filtroCompras = 'por_verificar';
 
-const dinero = n => `${moneda ? moneda + ' ' : ''}${Number(n || 0).toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const dinero = n => `${moneda ? moneda + ' ' : ''}${Number(n || 0).toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' })}`;
 const fecha = s => s ? String(s).slice(0, 16).replace('T', ' ') : '';
 
 async function api(metodo, url, cuerpo) {
@@ -42,6 +42,7 @@ function mostrarLogin() {
 const VISTAS = {
   resumen: { titulo: 'Resumen', render: renderResumen },
   compras: { titulo: 'Compras', render: renderCompras },
+  sobrantes: { titulo: 'Sobrantes', render: renderSobrantes },
   tablas: { titulo: 'Tablas', render: renderTablas },
   premios: { titulo: 'Premios', render: renderPremios },
   gastos: { titulo: 'Gastos', render: renderGastos },
@@ -106,6 +107,7 @@ async function renderResumen() {
   const invitacion = `Te invitamos a ${r.evento.nombre || 'nuestro bingo'} de las Hermanas Auxiliadoras de Cristo Sacerdote. Compra tus tablas aquí: ${enlace}`;
   const pct = t.total ? Math.round((t.vendidas / t.total) * 100) : 0;
   const pendientes = r.compras.porVerificar + r.compras.listasParaEnviar;
+  const sobrantesPend = r.dinero.porDevolver > 0;
   $('vista').innerHTML = `
     <div class="card">
       <h2 style="margin-top:0">Enlace para los benefactores</h2>
@@ -123,6 +125,8 @@ async function renderResumen() {
     ${pendientes ? `<div class="note"><strong>${pendientes}</strong> compra(s) esperan tu atención:
       ${r.compras.porVerificar} por verificar y ${r.compras.listasParaEnviar} lista(s) para enviar.
       <button type="button" class="ghost" data-vista-ir="compras" style="margin-left:8px">Ir a compras</button></div>` : ''}
+    ${sobrantesPend ? `<div class="note"><strong>${dinero(r.dinero.porDevolver)}</strong> de sobrantes esperan una decisión o una devolución.
+      <button type="button" class="ghost" data-vista-ir="sobrantes" style="margin-left:8px">Ver sobrantes</button></div>` : ''}
     <div class="card">
       <div class="row"><strong>Tablas vendidas</strong><span>${t.vendidas} de ${t.total} (${pct}%)</span></div>
       <div style="height:12px;border-radius:999px;background:var(--azul-claro);overflow:hidden;margin-top:8px" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100">
@@ -134,6 +138,9 @@ async function renderResumen() {
       <div class="card stat"><span class="muted">Cobrado (verificado)</span><strong>${dinero(d.cobrado)}</strong></div>
       <div class="card stat"><span class="muted">Por verificar</span><strong>${dinero(d.porVerificar)}</strong></div>
       <div class="card stat"><span class="muted">Por cobrar (deuda)</span><strong>${dinero(d.porCobrar)}</strong></div>
+      <div class="card stat"><span class="muted">Donaciones (sobrantes donados)</span><strong>${dinero(d.donaciones)}</strong></div>
+      <div class="card stat"><span class="muted">Por devolver a compradores</span><strong class="${d.porDevolver > 0 ? 'neg' : ''}">${dinero(d.porDevolver)}</strong></div>
+      <div class="card stat"><span class="muted">Ya devuelto</span><strong>${dinero(d.devuelto)}</strong></div>
       <div class="card stat"><span class="muted">Premios pagados</span><strong>${dinero(d.premiosPagados)}</strong></div>
       <div class="card stat"><span class="muted">Gastos</span><strong>${dinero(d.gastos)}</strong></div>
       <div class="card stat"><span class="muted">Balance en caja</span><strong class="${d.balance < 0 ? 'neg' : ''}">${dinero(d.balance)}</strong></div>
@@ -210,8 +217,9 @@ function panelEnvio(c) {
         El comprador pidió ${c.cantidad}.${sug < 1 ? ' El pago no alcanza para una tabla.' : ''}</span>
     </div>
     <div class="grid" style="margin-top:12px">
-      <label>Tablas a enviar <input name="cantidad" type="number" min="1" value="${sug || ''}" required></label>
+      <label>Tablas a enviar <input name="cantidad" type="number" min="1" value="${sug || ''}" required data-pagado="${c.pagado}" data-precio="${c.precioUnitario}"></label>
     </div>
+    <p class="muted" data-sobrante-info data-eleccion="${esc(c.sobranteDestino)}" data-nota="${esc(c.sobranteNota)}" style="margin:8px 0 0"></p>
     <div class="checks">
       <label><input type="checkbox" name="whatsapp" checked> WhatsApp</label>
       <label class="${c.correo ? '' : 'off'}"><input type="checkbox" name="correo" ${c.correo ? 'checked' : 'disabled'}> Correo${c.correo ? '' : ' (sin correo)'}</label>
@@ -239,8 +247,45 @@ function estadoEntrega(c) {
     : fila('Entrega física', c.fisicaEstado, c.fisicaNota ? c.fisicaNota : '',
       c.fisicaEstado === 'pendiente' ? b('fisica-entregada', '', 'Marcar entregada', '') : '');
   const enlace = c.tokenEntrega ? `${location.origin}/tablas.html?t=${c.tokenEntrega}` : '';
-  return `<div class="envio">${wa}${co}${fi}
+  const so = c.sobranteMonto > 0 ? filaSobrante(c) : '';
+  return `<div class="envio">${wa}${co}${fi}${so}
     ${enlace ? `<div class="actions"><button type="button" class="ghost" data-copiar="${esc(enlace)}">Copiar enlace privado de sus tablas</button></div>` : ''}</div>`;
+}
+
+// ---------- Sobrantes: lo pagado por encima de las tablas entregadas ----------
+const ESTADO_SOBRANTE = { por_definir: 'por definir', donado: 'donado', por_devolver: 'por devolver', devuelto: 'devuelto', ninguno: 'ninguno' };
+const ELECCION = { donacion: 'quiso donarlo', devolucion: 'pidió que se lo devuelvan', '': 'no eligió' };
+
+function filaSobrante(c) {
+  const b = (act, texto, clase = 'ghost') => `<button type="button" class="${clase}" data-act="${act}" data-id="${c.id}">${texto}</button>`;
+  const botones = c.sobranteEstado === 'por_definir'
+    ? b('sobrante-donar', 'Registrar donación') + b('sobrante-por-devolver', 'Marcar por devolver')
+    : c.sobranteEstado === 'por_devolver' ? b('sobrante-devuelto', 'Marcar devuelto', '') : '';
+  return `
+    <div class="kv" style="align-items:center">
+      <span>Sobrante ${dinero(c.sobranteMonto)}: <span class="pill ${c.sobranteEstado === 'donado' || c.sobranteEstado === 'devuelto' ? 'enviado' : 'pendiente'}">${esc(ESTADO_SOBRANTE[c.sobranteEstado])}</span>
+        <span class="muted">(${esc(ELECCION[c.sobranteDestino] ?? '')})</span>
+        ${c.sobranteNota ? `<br><span class="muted">Cómo devolverlo: ${esc(c.sobranteNota)}</span>` : ''}
+        ${c.sobranteResolucion ? `<br><span class="muted">${c.sobranteEstado === 'devuelto' ? 'Devuelto' : 'Nota'}: ${esc(c.sobranteResolucion)}</span>` : ''}</span>
+      <span class="actions" style="margin:0">${botones}</span>
+    </div>`;
+}
+
+async function renderSobrantes() {
+  const lista = await api('GET', '/admin/sobrantes');
+  const pend = lista.filter(c => c.sobranteEstado === 'por_definir' || c.sobranteEstado === 'por_devolver');
+  const total = pend.reduce((s, c) => s + c.sobranteMonto, 0);
+  $('vista').innerHTML = `
+    <div class="note">Cuando alguien paga más de lo que valen sus tablas, el excedente queda aquí. Si el comprador lo donó, suma a los ingresos.
+      Si pidió devolución, el dinero no cuenta como ingreso hasta que lo devuelvas y anotes cómo.</div>
+    <div class="stats">
+      <div class="card stat"><span class="muted">Pendiente de decidir o devolver</span><strong class="${total > 0 ? 'neg' : ''}">${dinero(total)}</strong></div>
+      <div class="card stat"><span class="muted">Casos pendientes</span><strong>${pend.length}</strong></div>
+    </div>
+    <h2>Sobrantes</h2>
+    ${lista.map(c => `<article class="card"><div class="row"><strong>${esc(c.nombre)}</strong><span class="muted">${esc(c.codigo)} · ${esc(c.telefono)}</span></div>
+      <p class="muted">Pagó ${dinero(c.pagado)} · se enviaron ${c.tablasAprobadas ?? 0} tabla(s)</p>${filaSobrante(c)}</article>`).join('')
+      || '<p class="muted">Aún no hay sobrantes.</p>'}`;
 }
 
 function botonesCompra(c) {
@@ -289,6 +334,23 @@ async function cargarPagos(card) {
   card.querySelector('[data-pagos]').innerHTML = pagosHtml + manual;
 }
 
+// Al elegir cuántas tablas enviar se ve cuánto sobra y qué decidió el comprador.
+function pintarSobranteEnvio(form) {
+  const i = form.cantidad;
+  const info = form.querySelector('[data-sobrante-info]');
+  const sobra = Math.round((Number(i.dataset.pagado) - Number(i.value || 0) * Number(i.dataset.precio)) * 100) / 100;
+  if (!(sobra > 0)) { info.textContent = sobra < 0 ? `Falta ${dinero(-sobra)} para cubrir esas tablas.` : 'Sin sobrante.'; return; }
+  const eleccion = { donacion: 'quiso donarlo', devolucion: `pidió devolución${info.dataset.nota ? ` («${info.dataset.nota}»)` : ''}` }[info.dataset.eleccion] || 'no eligió qué hacer: tú decidirás después';
+  info.textContent = `Sobran ${dinero(sobra)}; el comprador ${eleccion}.`;
+}
+$('vista').addEventListener('input', e => {
+  const sf = e.target.closest('form[data-enviar]');
+  if (sf && e.target.name === 'cantidad') pintarSobranteEnvio(sf);
+});
+new MutationObserver(() => document.querySelectorAll('form[data-enviar]').forEach(f => {
+  if (!f.dataset.pintado) { f.dataset.pintado = '1'; pintarSobranteEnvio(f); }
+})).observe($('vista'), { childList: true, subtree: true });
+
 // Equivalencia en tablas mientras se escribe el monto recibido.
 $('vista').addEventListener('input', e => {
   const i = e.target.closest('input[data-monto]');
@@ -334,6 +396,19 @@ $('vista').addEventListener('click', async e => {
       await api('POST', `/admin/compras/${id}/envio-manual`, { canal });
       msg('Marcado como enviado.');
       return mostrar('compras');
+    }
+    if (act === 'sobrante-donar' || act === 'sobrante-por-devolver' || act === 'sobrante-devuelto') {
+      const accion = { 'sobrante-donar': 'donar', 'sobrante-por-devolver': 'por_devolver', 'sobrante-devuelto': 'devuelto' }[act];
+      const pregunta = {
+        donar: '¿Cómo autorizó el comprador la donación? (opcional, ej. "por WhatsApp")',
+        por_devolver: '¿Cómo se le devolverá el dinero? (cuenta, llave, efectivo…)',
+        devuelto: '¿Cómo se devolvió? (fecha, medio y referencia)',
+      }[accion];
+      const nota = prompt(pregunta);
+      if (nota === null) return;
+      await api('POST', `/admin/compras/${id}/sobrante`, { accion, nota });
+      msg('Sobrante actualizado.');
+      return mostrar(vistaActual);
     }
     if (act === 'fisica-pendiente') {
       await api('POST', `/admin/compras/${id}/entrega-fisica`, { estado: 'pendiente' });
@@ -661,6 +736,7 @@ function renderReportes() {
     ['compras', 'Compras con pagado, saldo y seriales'],
     ['pagos', 'Todos los pagos reportados y verificados'],
     ['deudas', 'Quién debe cuánto'],
+    ['sobrantes', 'Sobrantes: donaciones y devoluciones'],
     ['tablas', 'Cada tabla: disponible o vendida, y a quién'],
     ['premios', 'Rondas, ganadores y pagos'],
     ['gastos', 'Gastos del evento'],
