@@ -1,9 +1,15 @@
 const { ErrorApp } = require('./servicios');
 
-// Vercel entrega el segmento de la URL en req.query.ruta (catch-all [...ruta].js).
+// La ruta se toma de la URL real (/api/publico/compras/BNG-1 -> /compras/BNG-1). Es lo más fiable: según el
+// entorno, el parámetro catch-all [...ruta] llega como lista, como texto con barras o no llega.
 function rutaDe(req) {
+  if (req.url) {
+    const camino = String(req.url).split('?')[0].replace(/^\/api\/(publico|admin)(?=\/|$)/, '');
+    return '/' + camino.split('/').filter(Boolean).map(decodeURIComponent).join('/');
+  }
   const partes = req.query?.ruta ?? [];
-  return '/' + (Array.isArray(partes) ? partes : [partes]).join('/');
+  const lista = Array.isArray(partes) ? partes : String(partes).split('/');
+  return '/' + lista.filter(Boolean).join('/');
 }
 
 async function enrutar(rutas, req, res) {
@@ -22,4 +28,4 @@ function responderError(res, err) {
   res.status(500).json({ error: 'Error interno. Revisa los logs de Vercel.' });
 }
 
-module.exports = { enrutar, responderError };
+module.exports = { enrutar, responderError, rutaDe };
