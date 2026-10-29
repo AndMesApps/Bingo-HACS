@@ -20,6 +20,7 @@
     <p style="margin:0">Hola <strong id="nombre"></strong>, estas son tus <strong id="cuantas"></strong>. ¡Mucha suerte!</p>
     <p class="muted" style="margin:8px 0 0">Cada tabla lleva tu nombre y teléfono: solo es válida para ti y no se puede transferir.</p>
     <div class="actions no-print" id="acciones"></div>
+    <p class="msg bad no-print" id="aviso-pdf" role="status" style="margin:10px 0 0"></p>
     <p class="muted no-print" id="ayuda-pdf" style="margin:10px 0 0" hidden>El PDF trae 4 tablas por hoja tamaño carta, con líneas punteadas para recortarlas.</p>
   </section>
   <div class="tablas-grid" id="lista"></div>
@@ -46,16 +47,44 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
       for (let p = 1; p <= partes; p++) {
         const lote = d.tablas.slice((p - 1) * POR_PDF, p * POR_PDF);
         const texto = partes === 1 ? 'Descargar PDF para imprimir' : `PDF ${p} · tablas ${lote[0]} a ${lote[lote.length - 1]}`;
-        acciones.push(`<a class="btn" href="/api/publico/entrega/${encodeURIComponent(token)}/pdf?parte=${p}" download>${esc(texto)}</a>`);
+        acciones.push(`<button type="button" data-pdf="${p}">${esc(texto)}</button>`);
       }
       $('ayuda-pdf').hidden = false;
     }
     acciones.push('<button type="button" class="ghost" onclick="window.print()">Imprimir esta página</button>');
     $('acciones').innerHTML = acciones.join('');
+    // El PDF se pide con fetch para poder mostrar un aviso claro si algo falla (en vez del error genérico del navegador).
+    $('acciones').addEventListener('click', async e => {
+      const b = e.target.closest('button[data-pdf]');
+      if (!b) return;
+      const original = b.textContent;
+      b.disabled = true;
+      b.textContent = 'Preparando PDF…';
+      $('aviso-pdf').textContent = '';
+      try {
+        const r = await fetch(`/api/publico/entrega/${encodeURIComponent(token)}/pdf?parte=${b.dataset.pdf}`);
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.error ? `${j.error} Intenta de nuevo más tarde o escríbenos.` : 'No pudimos generar el PDF. Intenta de nuevo.');
+        }
+        const nombre = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '')?.[1] || 'Tablas-Bingo.pdf';
+        const url = URL.createObjectURL(await r.blob());
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = nombre;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      } catch (err) {
+        $('aviso-pdf').textContent = err.message;
+      } finally {
+        b.disabled = false;
+        b.textContent = original;
+      }
+    });
     $('lista').innerHTML = d.tablas.map(s => {
       const url = `/api/publico/entrega/${token}/imagen/${encodeURIComponent(s)}`;
       return d.imagenes
-        ? `<figure class="tabla-item card" style="margin:0"><a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="Tabla ${esc(s)}" loading="lazy"></a>
+        ? `<figure class="tabla-item card" style="margin:0"><a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="Tabla ${esc(s)}" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('p'),{className:'muted',textContent:'La imagen de esta tabla aún no está disponible. Tu tabla es la N° ${esc(s)}.'}))"></a>
              <figcaption><strong>Tabla N° ${esc(s)}</strong><br><a class="btn ghost no-print" href="${url}" download="Tabla-${esc(s)}.jpg">Descargar</a></figcaption></figure>`
         : `<div class="card"><strong>Tabla N° ${esc(s)}</strong></div>`;
     }).join('');
