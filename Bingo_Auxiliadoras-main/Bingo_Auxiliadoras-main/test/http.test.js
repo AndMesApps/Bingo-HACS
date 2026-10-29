@@ -11,6 +11,13 @@ test('la ruta se toma de la URL real, con o sin parámetros', () => {
   assert.equal(rutaDe({ url: '/api/publico' }), '/');
 });
 
+test('con la reescritura de Vercel la ruta llega en ?ruta= (aunque la URL ya sea /api/publico)', () => {
+  assert.equal(rutaDe({ url: '/api/publico?ruta=compras%2FBNG-1', query: { ruta: 'compras/BNG-1' } }), '/compras/BNG-1');
+  assert.equal(rutaDe({ url: '/api/admin?ruta=compras/12/enviar', query: { ruta: 'compras/12/enviar' } }), '/compras/12/enviar');
+  assert.equal(rutaDe({ url: '/api/publico?ruta=evento', query: { ruta: 'evento' } }), '/evento');
+  assert.equal(rutaDe({ url: '/api/publico', query: {} }), '/');
+});
+
 test('sin URL usa el parámetro catch-all, ya sea lista o texto con barras', () => {
   assert.equal(rutaDe({ query: { ruta: ['compras', 'BNG-1'] } }), '/compras/BNG-1');
   assert.equal(rutaDe({ query: { ruta: 'compras/BNG-1' } }), '/compras/BNG-1');
