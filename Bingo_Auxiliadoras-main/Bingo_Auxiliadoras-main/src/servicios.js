@@ -45,6 +45,8 @@ const SQL_COMPRAS = `
 
 // Cuántas tablas cubre un monto al precio dado (siempre hacia abajo: nunca se regala una tabla).
 const tablasPorMonto = (monto, precio) => (precio > 0 ? Math.floor(redondear(monto) / precio + 1e-9) : 0);
+// Orden natural de seriales: 2 antes que 10 (con texto simple '10' quedaría antes que '2').
+const porSerial = (a, b) => String(a).localeCompare(String(b), 'es', { numeric: true });
 const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const CORREO_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CANALES = ['whatsapp', 'correo', 'fisica'];
@@ -240,7 +242,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       creadaEn: c.creada_en,
       verificadaEn: c.verificada_en,
       enviadaEn: c.enviada_en,
-      tablas: c.tablas || [],
+      tablas: [...(c.tablas || [])].sort(porSerial),
     };
   }
 
@@ -296,7 +298,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const d = {
       nombre: texto(datos.nombre, 'Nombre'),
       cedula: String(datos.cedula ?? '').trim().slice(0, 20),
-      telefono: normalizarTelefono(datos.telefono),
+      telefono: normalizarTelefono(datos.telefono, datos.paisCodigo),
       correo: correoComprador,
       ciudad: texto(datos.ciudad, 'Ciudad', 80),
       referidoPor: texto(datos.referidoPor, 'Quién le habló del bingo', 120),
@@ -350,8 +352,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     });
   }
 
-  function normalizarTelefono(texto) {
-    return whatsapp.normalizarTelefono(texto);
+  function normalizarTelefono(texto, pais) {
+    return whatsapp.normalizarTelefono(texto, pais);
   }
 
   async function estadoPublico(codigo) {
@@ -486,7 +488,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
         [ahora(), cantidad, redondear(cantidad * precio), token, canales.fisica ? 'pendiente' : 'no', sobrante, estadoSobrante, compraId],
       );
       if (sobrante > 0) await bitacora('sobrante', `${c.codigo}: ${sobrante} (${estadoSobrante.replace('_', ' ')})`, t);
-      const lista = asignadas.map(r => r.serial).sort();
+      const lista = asignadas.map(r => r.serial).sort(porSerial);
       await bitacora('tablas asignadas', `${c.codigo}: ${lista.join(', ')} (pidió ${c.cantidad}, pagó ${pagado}, se aprobaron ${cantidad})`, t);
       return { seriales: lista, token };
     });
@@ -503,7 +505,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const c = await uno('SELECT * FROM compras WHERE id = $1', [compraId]);
     if (!c) throw new ErrorApp('Compra no encontrada.', 404);
     if (c.estado !== 'enviada') throw new ErrorApp('Esta compra aún no tiene tablas asignadas.', 409);
-    const seriales = (await q('SELECT serial FROM tablas WHERE compra_id = $1 ORDER BY serial', [compraId])).map(r => r.serial);
+    const seriales = (await q('SELECT serial FROM tablas WHERE compra_id = $1 ORDER BY serial', [compraId])).map(r => r.serial).sort(porSerial);
     return { c, seriales };
   }
 
@@ -593,8 +595,17 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     if (!/^[a-f0-9]{32}$/.test(String(token || ''))) throw new ErrorApp('Enlace no válido.', 404);
     const c = await uno("SELECT id, nombre FROM compras WHERE token_entrega = $1 AND estado = 'enviada'", [token]);
     if (!c) throw new ErrorApp('Enlace no válido.', 404);
-    const seriales = (await q('SELECT serial FROM tablas WHERE compra_id = $1 ORDER BY serial', [c.id])).map(r => r.serial);
+    const seriales = (await q('SELECT serial FROM tablas WHERE compra_id = $1 ORDER BY serial', [c.id])).map(r => r.serial).sort(porSerial);
     return { nombre: c.nombre, evento: (await evento()).nombre, tablas: seriales };
+  }
+
+  // Datos con los que se sella cada imagen. Solo los usa la ruta de la imagen; nunca salen en el JSON público.
+  async function datosSelloEntrega(token) {
+    if (!/^[a-f0-9]{32}$/.test(String(token || ''))) throw new ErrorApp('Enlace no válido.', 404);
+    const c = await uno("SELECT id, codigo, nombre, telefono FROM compras WHERE token_entrega = $1 AND estado = 'enviada'", [token]);
+    if (!c) throw new ErrorApp('Enlace no válido.', 404);
+    const tablas = (await q('SELECT serial FROM tablas WHERE compra_id = $1 ORDER BY serial', [c.id])).map(r => r.serial).sort(porSerial);
+    return { nombre: c.nombre, telefono: c.telefono, codigo: c.codigo, tablas };
   }
 
   // ---------- Sobrantes (donaciones y devoluciones) ----------
@@ -864,7 +875,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     crearCompra, estadoPublico, detalleCompra, listarCompras,
     registrarPagoManual, verificarPago, rechazarPago,
     enviarTablas, reenviar, enlaceWhatsapp, enlaceCorreo, marcarEnviadoManual, entregaFisica, entregaPublica, rechazarCompra,
-    gestionarSobrante, listarSobrantes,
+    gestionarSobrante, listarSobrantes, datosSelloEntrega,
     comprobanteDe,
     listarPremios, crearPremio, asignarGanador, quitarGanador, pagarPremio,
     listarGastos, crearGasto, eliminarGasto,

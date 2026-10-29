@@ -21,7 +21,7 @@
 <main class="wrap sube">
   <section class="card">
     <h2 style="margin-top:0">¡Gracias por acompañarnos a la actividad «BINGO VIRTUAL AUXILIADORAS DE CRISTO SACERDOTE»!</h2>
-    <p style="margin:0 0 8px">Agradecemos diligenciar la siguiente información, la cual es requerida para hacer el envío de su(s) tabla(s).</p>
+    <p style="margin:0 0 8px">Agradecemos diligenciar la siguiente información, la cual es requerida para hacer el envío de tu(s) tabla(s).</p>
     <p class="muted" style="margin:0">Tus datos y el comprobante que subas se usan solo para verificar tu pago y enviarte tus tablas.</p>
   </section>
   <p class="card" id="cerrado" hidden>Las compras aún no están abiertas. Vuelve pronto.</p>
@@ -32,7 +32,13 @@
       <p class="muted" style="margin-top:-6px">Los necesitamos para hacerte llegar tus tablas.</p>
       <div class="grid">
         <label>Nombre completo <input name="nombre" required maxlength="120" autocomplete="name"></label>
-        <label>Celular (WhatsApp) <input name="telefono" required inputmode="tel" maxlength="20" placeholder="3001234567" autocomplete="tel"></label>
+        <label>País desde el que compras
+          <select name="paisCodigo" id="pais" autocomplete="country"></select>
+        </label>
+        <label>Celular (WhatsApp)
+          <input name="telefono" id="telefono" required inputmode="tel" maxlength="24" placeholder="3001234567" autocomplete="tel-national">
+          <span class="muted" id="tel-previo" style="font-weight:400">Escribe tu número sin el indicativo del país.</span>
+        </label>
         <label>Ciudad (tu ubicación) <input name="ciudad" required maxlength="80" autocomplete="address-level2"></label>
         <label>¿A través de quién te enteraste del bingo? <input name="referidoPor" required maxlength="120"></label>
         <label class="full"><span>Correo electrónico <span class="opc">(opcional, para enviarte también las tablas por correo)</span></span>
@@ -148,11 +154,58 @@ async function cargar() {
   if (!evento.abierto) { $('cerrado').hidden = false; return; }
   $('precio').textContent = dinero(evento.precioTabla, evento.moneda);
   mostrarPago();
+  poblarPaises();
   $('form').hidden = false;
   $('form').fechaPago.value = hoy();
   $('form').fechaPago.max = hoy();
   actualizar();
 }
+
+// País y teléfono: el comprador elige su país y escribe su número local; el indicativo se agrega solo.
+// Debe coincidir con la normalización del servidor (src/whatsapp.js).
+function poblarPaises() {
+  const sel = $('pais');
+  sel.replaceChildren();
+  for (const p of evento.paises || []) {
+    const o = document.createElement('option');
+    o.value = p.codigo;
+    o.textContent = p.codigo.length && !/\(\+/.test(p.nombre) ? `${p.nombre} (+${p.codigo})` : p.nombre;
+    sel.append(o);
+  }
+  const otro = document.createElement('option');
+  otro.value = '';
+  otro.textContent = 'Otro país (escribe tu número con + y el indicativo)';
+  sel.append(otro);
+  sel.value = [...sel.options].some(o => o.value === evento.paisPorDefecto) ? evento.paisPorDefecto : (sel.options[0]?.value ?? '');
+  actualizarTelefono();
+}
+
+function numeroInternacional() {
+  const f = $('form');
+  const crudo = f.telefono.value.trim();
+  let d = crudo.replace(/\D/g, '');
+  const pais = f.paisCodigo.value;
+  if (crudo.startsWith('+') || d.startsWith('00')) return d.replace(/^00/, '');
+  if (!pais) return null; // "otro país": exige escribir el + y el indicativo
+  d = d.replace(/^0+/, '');
+  return d.startsWith(pais) && d.length >= pais.length + 9 ? d : pais + d;
+}
+
+function actualizarTelefono() {
+  const f = $('form');
+  const previo = $('tel-previo');
+  previo.className = 'muted';
+  if (!f.telefono.value.trim()) {
+    previo.textContent = f.paisCodigo.value ? 'Escribe tu número sin el indicativo del país.' : 'Escribe tu número con + y el indicativo, ej. +34 612 345 678.';
+    return;
+  }
+  const n = numeroInternacional();
+  if (n === null) { previo.textContent = 'Para otro país escribe el número con + y el indicativo, ej. +34 612 345 678.'; previo.className = 'muted neg'; return; }
+  if (n.length < 8 || n.length > 15) { previo.textContent = 'Revisa el número: no parece completo.'; previo.className = 'muted neg'; return; }
+  previo.textContent = `Te escribiremos al +${n}`;
+}
+$('form').addEventListener('input', e => { if (e.target.name === 'telefono') actualizarTelefono(); });
+$('form').addEventListener('change', e => { if (e.target.name === 'paisCodigo') actualizarTelefono(); });
 
 // Datos de pago configurados por la organización: cuenta, llave (para otros bancos) y QR del banco.
 function mostrarPago() {
@@ -277,6 +330,8 @@ $('form').addEventListener('submit', async e => {
   $('msg').className = 'msg';
   try {
     const f = e.target;
+    const tel = numeroInternacional();
+    if (tel === null) throw new Error('Para otro país escribe tu celular con + y el indicativo, ej. +34 612 345 678.');
     const archivos = esEfectivo() ? [] : [...f.comprobantes.files];
     if (!esEfectivo() && !archivos.length) throw new Error('Adjunta el comprobante de la consignación.');
     // Los comprobantes van directo a Vercel Blob con un token del servidor; la compra solo guarda sus rutas.

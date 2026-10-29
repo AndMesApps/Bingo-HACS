@@ -4,9 +4,28 @@
 function crearWhatsApp({ token, phoneId, plantilla, idioma = 'es', codigoPais = '58', fetchFn = fetch } = {}) {
   const configurado = Boolean(token && phoneId);
 
-  function normalizarTelefono(texto) {
-    const digitos = String(texto || '').replace(/\D/g, '');
-    const numero = digitos.startsWith('0') ? codigoPais + digitos.slice(1) : digitos;
+  // Número que escribe el comprador -> número internacional solo con dígitos (indicativo + número).
+  //  · "+34 612 345 678" o "0034…": ya trae indicativo, se respeta tal cual.
+  //  · Si no, se le antepone el indicativo del país elegido (pais) o, sin elegir, el del evento (codigoPais).
+  //    Un cero inicial (0412…) es prefijo nacional y se quita; si ya escribió el indicativo, no se duplica.
+  function normalizarTelefono(texto, pais) {
+    const crudo = String(texto || '').trim();
+    let d = crudo.replace(/\D/g, '');
+    const indicativo = /^\d{1,3}$/.test(String(pais ?? '')) ? String(pais) : codigoPais;
+    let numero;
+    if (crudo.startsWith('+') || d.startsWith('00')) {
+      numero = d.replace(/^00/, '');
+    } else {
+      d = d.replace(/^0+/, '');
+      numero = d.startsWith(indicativo) && d.length >= indicativo.length + 9 ? d : indicativo + d;
+    }
+    if (numero.length < 8 || numero.length > 15) throw new Error('El número de WhatsApp no es válido.');
+    return numero;
+  }
+
+  // Los números ya guardados son internacionales: solo se limpian, nunca se les vuelve a agregar indicativo.
+  function numeroGuardado(telefono) {
+    const numero = String(telefono || '').replace(/\D/g, '');
     if (numero.length < 8 || numero.length > 15) throw new Error('El número de WhatsApp no es válido.');
     return numero;
   }
@@ -18,7 +37,7 @@ function crearWhatsApp({ token, phoneId, plantilla, idioma = 'es', codigoPais = 
   }
 
   function enlaceManual(telefono, nombre, seriales, enlace) {
-    const numero = normalizarTelefono(telefono);
+    const numero = numeroGuardado(telefono);
     return `https://wa.me/${numero}?text=${encodeURIComponent(mensajeTablas(nombre, seriales, enlace))}`;
   }
 
@@ -26,7 +45,7 @@ function crearWhatsApp({ token, phoneId, plantilla, idioma = 'es', codigoPais = 
   async function enviarTablas({ telefono, nombre, seriales, enlace }) {
     if (!configurado) return { estado: 'manual', enlace: enlaceManual(telefono, nombre, seriales, enlace) };
 
-    const to = normalizarTelefono(telefono);
+    const to = numeroGuardado(telefono);
     // Las plantillas de Meta no admiten saltos de línea en los parámetros: el enlace va en la misma línea.
     const texto = seriales.join(', ') + (enlace ? ` · ${enlace}` : '');
     const cuerpo = plantilla

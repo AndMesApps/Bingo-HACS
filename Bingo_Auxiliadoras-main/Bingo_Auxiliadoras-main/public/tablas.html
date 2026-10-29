@@ -17,8 +17,10 @@
 </header>
 <main class="wrap sube">
   <section class="card" id="cabecera" hidden>
-    <p style="margin:0">Hola <strong id="nombre"></strong>, estas son tus tablas. ¡Mucha suerte!</p>
-    <div class="actions no-print"><button type="button" class="ghost" onclick="window.print()">Imprimir</button></div>
+    <p style="margin:0">Hola <strong id="nombre"></strong>, estas son tus <strong id="cuantas"></strong>. ¡Mucha suerte!</p>
+    <p class="muted" style="margin:8px 0 0">Cada tabla lleva tu nombre y teléfono: solo es válida para ti y no se puede transferir.</p>
+    <div class="actions no-print" id="acciones"></div>
+    <p class="muted no-print" id="ayuda-pdf" style="margin:10px 0 0" hidden>El PDF trae 4 tablas por hoja tamaño carta, con líneas punteadas para recortarlas.</p>
   </section>
   <div class="tablas-grid" id="lista"></div>
   <p class="msg bad" id="error"></p>
@@ -34,7 +36,22 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
     if (!res.ok) throw new Error(d.error || 'Enlace no válido.');
     if (d.evento) $('titulo').textContent = d.evento;
     $('nombre').textContent = d.nombre;
+    $('cuantas').textContent = d.tablas.length === 1 ? 'tabla' : `${d.tablas.length} tablas`;
     $('cabecera').hidden = false;
+    // PDF para imprimir: 4 tablas por hoja carta, hasta 20 tablas por archivo.
+    const POR_PDF = 20;
+    const acciones = [];
+    if (d.imagenes) {
+      const partes = Math.ceil(d.tablas.length / POR_PDF);
+      for (let p = 1; p <= partes; p++) {
+        const lote = d.tablas.slice((p - 1) * POR_PDF, p * POR_PDF);
+        const texto = partes === 1 ? 'Descargar PDF para imprimir' : `PDF ${p} · tablas ${lote[0]} a ${lote[lote.length - 1]}`;
+        acciones.push(`<a class="btn" href="/api/publico/entrega/${encodeURIComponent(token)}/pdf?parte=${p}" download>${esc(texto)}</a>`);
+      }
+      $('ayuda-pdf').hidden = false;
+    }
+    acciones.push('<button type="button" class="ghost" onclick="window.print()">Imprimir esta página</button>');
+    $('acciones').innerHTML = acciones.join('');
     $('lista').innerHTML = d.tablas.map(s => {
       const url = `/api/publico/entrega/${token}/imagen/${encodeURIComponent(s)}`;
       return d.imagenes

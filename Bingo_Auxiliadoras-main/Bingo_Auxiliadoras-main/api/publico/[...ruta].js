@@ -1,11 +1,29 @@
 const { obtenerContexto } = require('../../src/contexto');
 const { enrutar, responderError } = require('../../src/http');
 const { ErrorApp } = require('../../src/servicios');
+const { sellarTabla } = require('../../src/sello');
+const { armarPdf } = require('../../src/pdf');
+const { PAISES } = require('../../src/paises');
+
+const TABLAS_POR_PDF = 20;
+
+// Procesa la lista con a lo sumo "limite" tareas a la vez, conservando el orden.
+async function conLimite(lista, limite, tarea) {
+  const resultados = new Array(lista.length);
+  let siguiente = 0;
+  await Promise.all(Array.from({ length: Math.min(limite, lista.length) }, async () => {
+    while (siguiente < lista.length) {
+      const i = siguiente++;
+      resultados[i] = await tarea(lista[i], i);
+    }
+  }));
+  return resultados;
+}
 
 // Rutas públicas: evento, subida de comprobantes, compra y consulta de estado.
 module.exports = async (req, res) => {
   try {
-    const { servicios, storage, imagenes } = obtenerContexto();
+    const { servicios, storage, imagenes, env } = obtenerContexto();
     const rutas = [
       {
         metodo: 'GET', patron: /^\/evento$/,
@@ -16,6 +34,7 @@ module.exports = async (req, res) => {
             fechaSorteo: e.fechaSorteo, cuentasPago: e.cuentasPago, abierto: e.precioTabla > 0,
             banco: e.banco, tipoCuenta: e.tipoCuenta, numeroCuenta: e.numeroCuenta,
             titularCuenta: e.titularCuenta, llavePago: e.llavePago, qrPago: e.qrPago,
+            paises: PAISES, paisPorDefecto: env.CODIGO_PAIS || '57',
           });
         },
       },
@@ -53,16 +72,43 @@ module.exports = async (req, res) => {
         },
       },
       {
+        // PDF para imprimir: 4 tablas por hoja carta, hasta 20 tablas por archivo (?parte=N si son más).
+        // Cada tabla va sellada con el nombre y el teléfono del comprador.
+        metodo: 'GET', patron: /^\/entrega\/([A-Za-z0-9]+)\/pdf$/,
+        handler: async ([token], req, res) => {
+          const d = await servicios.datosSelloEntrega(token);
+          if (!imagenes.configurado) throw new ErrorApp('Las imágenes de las tablas aún no están disponibles.', 404);
+          const partes = Math.ceil(d.tablas.length / TABLAS_POR_PDF);
+          const parte = Math.min(Math.max(parseInt(req.query?.parte, 10) || 1, 1), partes);
+          const seriales = d.tablas.slice((parte - 1) * TABLAS_POR_PDF, parte * TABLAS_POR_PDF);
+          const jpegs = await conLimite(seriales, 5, async serial => {
+            const img = await imagenes.leer(serial);
+            if (!img) throw new ErrorApp(`La imagen de la tabla ${serial} no está disponible.`, 404);
+            // Menor resolución en el PDF para que pese menos (límite de 4,5 MB por respuesta en Vercel).
+            return sellarTabla({ buffer: img.buffer, serial, nombre: d.nombre, telefono: d.telefono, codigo: d.codigo, escala: 0.8, calidad: 80 });
+          });
+          const pdf = await armarPdf(jpegs, { titulo: `Tablas del bingo - ${d.nombre}` });
+          const sufijo = partes > 1 ? `-parte${parte}` : '';
+          res.setHeader('Content-Type', 'application/pdf');
+          res.setHeader('Content-Disposition', `attachment; filename="Tablas-Bingo-${d.codigo}${sufijo}.pdf"`);
+          res.setHeader('Cache-Control', 'private, no-store');
+          res.status(200).send(Buffer.from(pdf));
+        },
+      },
+      {
         // Imagen de UNA tabla; se entrega solo si pertenece a la compra del token.
         metodo: 'GET', patron: /^\/entrega\/([A-Za-z0-9]+)\/imagen\/([A-Za-z0-9._-]+)$/,
+        // Nunca se entrega la imagen original: siempre sellada con nombre y teléfono del comprador.
+        // Si el sello falla, la respuesta es un error (no se entrega la tabla sin sellar).
         handler: async ([token, serial], _req, res) => {
-          const e = await servicios.entregaPublica(token);
-          if (!e.tablas.includes(serial)) throw new ErrorApp('Tabla no encontrada.', 404);
+          const d = await servicios.datosSelloEntrega(token);
+          if (!d.tablas.includes(serial)) throw new ErrorApp('Tabla no encontrada.', 404);
           const img = await imagenes.leer(serial);
           if (!img) throw new ErrorApp('La imagen de esta tabla no está disponible.', 404);
-          res.setHeader('Content-Type', img.tipo);
+          const sellada = await sellarTabla({ buffer: img.buffer, serial, nombre: d.nombre, telefono: d.telefono, codigo: d.codigo });
+          res.setHeader('Content-Type', 'image/jpeg');
           res.setHeader('Cache-Control', 'private, max-age=3600');
-          res.status(200).send(img.buffer);
+          res.status(200).send(sellada);
         },
       },
     ];
