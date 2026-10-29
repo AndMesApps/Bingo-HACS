@@ -49,6 +49,7 @@ const VISTAS = {
   gastos: { titulo: 'Gastos', render: renderGastos },
   config: { titulo: 'Configuración', render: renderConfig },
   reportes: { titulo: 'Reportes', render: renderReportes },
+  bingos: { titulo: 'Bingos', render: renderBingos },
   bitacora: { titulo: 'Bitácora', render: renderBitacora },
 };
 
@@ -747,6 +748,67 @@ function renderReportes() {
   $('vista').innerHTML = `<div class="card">${reportes.map(([k, t]) =>
     `<div class="kv"><span>${esc(t)}</span><a class="btn ghost" href="/api/admin/reportes/${k}.csv">Descargar CSV</a></div>`).join('')}</div>
     <p class="muted">Los CSV se abren en Excel. Cada descarga es un corte en el momento que la pides.</p>`;
+}
+
+// ---------- Bingos: histórico y reinicio ----------
+const REPORTES_BINGO = [['compras', 'Compras'], ['pagos', 'Pagos'], ['deudas', 'Deudas'], ['sobrantes', 'Sobrantes'], ['tablas', 'Tablas vendidas'], ['premios', 'Premios'], ['gastos', 'Gastos']];
+
+async function renderBingos() {
+  const { actual, historico } = await api('GET', '/admin/bingos');
+  const din = (n, m) => `${m ? m + ' ' : ''}${Number(n || 0).toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' })}`;
+  const tarjeta = b => {
+    const m = b.config?.moneda;
+    const r = b.resumen;
+    return `<article class="card">
+      <div class="row"><strong>${esc(b.nombre)}</strong><span class="pill enviada">cerrado</span></div>
+      <p class="muted">${esc(fecha(b.iniciadoEn))} → ${esc(fecha(b.cerradoEn))}${b.config?.fechaSorteo ? ` · Sorteo: ${esc(b.config.fechaSorteo)}` : ''}${b.config?.precioTabla ? ` · Tabla a ${esc(din(b.config.precioTabla, m))}` : ''}</p>
+      ${r ? `<div class="kv"><span>Tablas vendidas</span><strong>${r.tablasVendidas}</strong></div>
+        <div class="kv"><span>Compras</span><strong>${r.compras}</strong></div>
+        <div class="kv"><span>Cobrado</span><strong>${esc(din(r.dinero.cobrado, m))}</strong></div>
+        <div class="kv"><span>Donaciones</span><strong>${esc(din(r.dinero.donaciones, m))}</strong></div>
+        <div class="kv"><span>Premios pagados</span><strong>${esc(din(r.dinero.premiosPagados, m))}</strong></div>
+        <div class="kv"><span>Gastos</span><strong>${esc(din(r.dinero.gastos, m))}</strong></div>
+        <div class="kv"><span>Balance en caja</span><strong>${esc(din(r.dinero.balance, m))}</strong></div>` : ''}
+      <details style="margin-top:10px"><summary class="muted">Descargar reportes de este Bingo (CSV)</summary>
+        <div class="actions">${REPORTES_BINGO.map(([k, t]) =>
+          `<a class="btn ghost" href="/api/admin/reportes/${k}.csv?bingo=${b.id}">${esc(t)}</a>`).join('')}</div>
+      </details>
+    </article>`;
+  };
+  $('vista').innerHTML = `
+    <div class="card">
+      <div class="row"><strong>${esc(actual.nombre)}</strong><span class="pill verificada">activo</span></div>
+      <p class="muted">Desde ${esc(fecha(actual.iniciadoEn))}. Cada Bingo tiene su propia invitación y datos de pago (pestaña Configuración).</p>
+    </div>
+    <h2>Reiniciar Bingo</h2>
+    <form id="form-reiniciar" class="card">
+      <p>Cierra "${esc(actual.nombre)}" y empieza un Bingo nuevo desde cero. Lo vendido, los pagos, premios y gastos quedan guardados en el histórico,
+        las tablas vuelven a estar disponibles y la invitación y los datos de pago del nuevo Bingo empiezan vacíos
+        (no se podrán vender tablas hasta que configures el precio). Los enlaces que ya enviaste siguen funcionando.</p>
+      <p class="muted">Antes de reiniciar, todas las compras deben estar enviadas, rechazadas o donadas. Descarga tus reportes si quieres una copia extra.</p>
+      <div class="grid">
+        <label>Nombre del nuevo Bingo <input name="nombre" required maxlength="120" placeholder="Ej. Bingo Navidad 2026"></label>
+      </div>
+      <label class="check"><input type="checkbox" name="confirmar" required> Entiendo que se cerrará el Bingo actual y empezará uno nuevo</label>
+      <div class="actions"><button type="submit" class="danger">Reiniciar Bingo</button></div>
+    </form>
+    <h2>Histórico (${historico.length})</h2>
+    ${historico.map(tarjeta).join('') || '<p class="muted">Todavía no hay Bingos cerrados.</p>'}`;
+
+  $('form-reiniciar').addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = e.target;
+    if (!confirm(`¿Cerrar "${actual.nombre}" y empezar "${f.nombre.value.trim()}" desde cero?`)) return;
+    accion(async () => {
+      const r = await api('POST', '/admin/bingos/reiniciar', { nombre: f.nombre.value, confirmar: f.confirmar.checked });
+      const res = await api('GET', '/admin/resumen');
+      moneda = res.evento.moneda;
+      $('titulo').textContent = res.evento.nombre || 'Bingo';
+      vistaActual = 'config';
+      await mostrar('config');
+      msg(`"${r.cerrado.nombre}" quedó en el histórico. Configura la invitación y los datos de pago de "${r.nuevo.nombre}" (precio, cuenta, fecha) para abrir las ventas.`);
+    });
+  });
 }
 
 // ---------- Bitácora ----------

@@ -663,3 +663,132 @@ test('donar un valor menor al de una tabla: queda como donación sin tablas', as
   assert.equal(res.tablas.disponibles, 3);
   await assert.rejects(() => s.enviarTablas(r.id), err => err instanceof ErrorApp);
 });
+
+// ---------- Varios bingos: reiniciar con histórico ----------
+async function venderYEnviar(s, n) {
+  const c = await comprar(s, n);
+  await verificarTodo(s, c.id);
+  return { id: c.id, ...(await s.enviarTablas(c.id)) };
+}
+
+test('reiniciar el Bingo: lo vendido pasa al histórico y el nuevo Bingo empieza en cero', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  await s.crearGasto({ concepto: 'Premios en especie', monto: 15 });
+  const premio = await s.crearPremio({ ronda: 'Ronda 1', premio: 'Canasta', monto: 50 });
+  const v = await venderYEnviar(s, 2);
+  await s.asignarGanador(premio.id, v.tablas[0]);
+  const antes = await s.resumen();
+  assert.equal(antes.dinero.cobrado, 20);
+
+  const r = await s.reiniciarBingo({ nombre: 'Bingo 2027', confirmar: true });
+  assert.equal(r.nuevo.nombre, 'Bingo 2027');
+
+  // El Bingo nuevo está en cero y con las 5 tablas disponibles.
+  const ahora = await s.resumen();
+  assert.equal(ahora.dinero.cobrado, 0);
+  assert.equal(ahora.dinero.gastos, 0);
+  assert.equal(ahora.dinero.balance, 0);
+  assert.equal(ahora.tablas.disponibles, 5);
+  assert.equal(ahora.tablas.vendidas, 0);
+  assert.equal(ahora.evento.nombre, 'Bingo 2027');
+  assert.equal(ahora.evento.precioTabla, 0);
+  assert.deepEqual(await s.listarCompras(), []);
+  assert.deepEqual(await s.listarPremios(), []);
+  assert.deepEqual(await s.listarGastos(), []);
+  assert.deepEqual(await s.listarSobrantes(), []);
+  await assert.rejects(() => s.crearCompra(datos(1), comprobante()), err => err instanceof ErrorApp && err.status === 409);
+
+  // El histórico conserva todo, con su configuración y su resumen.
+  const { actual, historico } = await s.listarBingos();
+  assert.equal(actual.nombre, 'Bingo 2027');
+  assert.equal(historico.length, 1);
+  assert.equal(historico[0].nombre, 'Prueba');
+  assert.equal(historico[0].config.precioTabla, 10);
+  assert.equal(historico[0].resumen.dinero.cobrado, 20);
+  assert.equal(historico[0].resumen.tablasVendidas, 2);
+  const viejoId = historico[0].id;
+  assert.equal((await s.listarCompras({ bingoId: viejoId })).length, 1);
+  assert.equal((await s.listarGastos(viejoId)).length, 1);
+  const premios = await s.listarPremios(viejoId);
+  assert.equal(premios[0].ganador.nombre, 'Ana Pérez');
+  const repTablas = await s.reporte('tablas', viejoId);
+  assert.equal(repTablas.filas.length, 2);
+  assert.equal((await s.reporte('compras', viejoId)).filas[0][17].split(' ').length, 2);
+  assert.equal((await s.reporte('compras')).filas.length, 0);
+});
+
+test('tras reiniciar, el enlace del comprador del Bingo anterior sigue mostrando sus tablas', async () => {
+  const s = await nuevo();
+  await tablas(s, 4);
+  const v = await venderYEnviar(s, 2);
+  const token = (await s.detalleCompra(v.id)).tokenEntrega;
+  await s.reiniciarBingo({ nombre: 'Bingo nuevo', confirmar: true });
+  const e = await s.entregaPublica(token);
+  assert.equal(e.evento, 'Prueba');
+  assert.deepEqual(e.tablas, v.tablas);
+  const sello = await s.datosSelloEntrega(token);
+  assert.deepEqual(sello.tablas, v.tablas);
+});
+
+test('una tabla del Bingo anterior puede venderse de nuevo, pero nunca a dos personas a la vez', async () => {
+  const s = await nuevo();
+  await tablas(s, 2);
+  const v1 = await venderYEnviar(s, 2);
+  await s.reiniciarBingo({ nombre: 'Bingo 2', confirmar: true });
+  await s.actualizarEvento({ precioTabla: 10 });
+  const a = await comprar(s, 1);
+  const b = await comprar(s, 1);
+  await verificarTodo(s, a.id);
+  await verificarTodo(s, b.id);
+  const ea = await s.enviarTablas(a.id);
+  const eb = await s.enviarTablas(b.id);
+  assert.notEqual(ea.tablas[0], eb.tablas[0]);
+  assert.deepEqual([...ea.tablas, ...eb.tablas].sort(), [...v1.tablas].sort());
+  assert.equal((await s.resumen()).tablas.disponibles, 0);
+  // La compra vieja conserva SUS tablas en el histórico (no las del nuevo comprador).
+  assert.deepEqual((await s.detalleCompra(v1.id)).tablas, v1.tablas);
+});
+
+test('no se puede reiniciar con compras sin resolver ni sin confirmar', async () => {
+  const s = await nuevo();
+  await tablas(s, 3);
+  await assert.rejects(() => s.reiniciarBingo({ nombre: 'X' }), err => err instanceof ErrorApp);
+  const c = await comprar(s, 1);
+  await assert.rejects(
+    () => s.reiniciarBingo({ nombre: 'X', confirmar: true }),
+    err => err instanceof ErrorApp && err.status === 409 && /sin resolver/.test(err.message),
+  );
+  await verificarTodo(s, c.id);
+  await assert.rejects(() => s.reiniciarBingo({ nombre: 'X', confirmar: true }), err => err.status === 409);
+  await s.enviarTablas(c.id);
+  await assert.rejects(() => s.reiniciarBingo({ nombre: '  ', confirmar: true }), err => err instanceof ErrorApp);
+  await s.reiniciarBingo({ nombre: 'X', confirmar: true });
+});
+
+test('el control estricto de tablas sigue vigente fuera del reinicio', async () => {
+  const s = await nuevo();
+  await tablas(s, 2);
+  const v = await venderYEnviar(s, 1);
+  await assert.rejects(() => s.db.query("UPDATE tablas SET estado = 'disponible', compra_id = NULL WHERE serial = $1", [v.tablas[0]]));
+  await s.reiniciarBingo({ nombre: 'Otro', confirmar: true });
+  assert.equal((await s.db.query("SELECT current_setting('app.reinicio', true) AS v"))[0].v ?? '', '');
+});
+
+test('lo de un Bingo cerrado no se puede modificar y sus compras no reciben tablas', async () => {
+  const s = await nuevo();
+  await tablas(s, 3);
+  const premio = await s.crearPremio({ ronda: 'R1', premio: 'P', monto: 5 });
+  await s.crearGasto({ concepto: 'Sonido', monto: 3 });
+  const gastoId = (await s.listarGastos())[0].id;
+  await s.reiniciarBingo({ nombre: 'Nuevo', confirmar: true });
+  await assert.rejects(() => s.pagarPremio(premio.id), err => err.status === 409);
+  await assert.rejects(() => s.eliminarGasto(gastoId), err => err.status === 409);
+  await assert.rejects(() => s.asignarGanador(premio.id, 'TBL-0000'), err => err.status === 409);
+});
+
+test('cambiar el nombre del Bingo activo actualiza el histórico y la página del comprador', async () => {
+  const s = await nuevo();
+  await s.actualizarEvento({ nombre: 'Gran Bingo' });
+  assert.equal((await s.listarBingos()).actual.nombre, 'Gran Bingo');
+});

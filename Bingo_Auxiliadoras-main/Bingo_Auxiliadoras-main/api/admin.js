@@ -46,9 +46,11 @@ module.exports = async (req, res) => {
         },
       },
       { metodo: 'GET', patron: /^\/resumen$/, handler: admin(async (_p, _req, res) => res.json(await servicios.resumen())) },
+      { metodo: 'GET', patron: /^\/bingos$/, handler: admin(async (_p, _req, res) => res.json(await servicios.listarBingos())) },
+      { metodo: 'POST', patron: /^\/bingos\/reiniciar$/, handler: admin(async (_p, req, res) => res.json(await servicios.reiniciarBingo(req.body || {}))) },
       { metodo: 'GET', patron: /^\/bitacora$/, handler: admin(async (_p, _req, res) => res.json(await servicios.bitacoraLista())) },
 
-      { metodo: 'GET', patron: /^\/compras$/, handler: admin(async (_p, req, res) => res.json(await servicios.listarCompras({ estado: req.query.estado }))) },
+      { metodo: 'GET', patron: /^\/compras$/, handler: admin(async (_p, req, res) => res.json(await servicios.listarCompras({ estado: req.query.estado, bingoId: req.query.bingo }))) },
       { metodo: 'GET', patron: /^\/compras\/(\d+)$/, handler: admin(async (p, req, res) => res.json(await servicios.detalleCompra(id(p)))) },
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/pagos$/, handler: admin(async (p, req, res) => res.json(await servicios.registrarPagoManual(id(p), req.body || {}))) },
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/enviar$/, handler: admin(async (p, req, res) => res.json(await servicios.enviarTablas(id(p), { cantidad: req.body?.cantidad, canales: req.body?.canales, baseUrl: baseUrl(req) }))) },
@@ -95,8 +97,8 @@ module.exports = async (req, res) => {
 
       {
         metodo: 'GET', patron: /^\/reportes\/([a-z]+)\.csv$/,
-        handler: admin(async ([nombre], _req, res) => {
-          const { encabezados, filas } = await servicios.reporte(nombre);
+        handler: admin(async ([nombre], req, res) => {
+          const { encabezados, filas } = await servicios.reporte(nombre, req.query.bingo);
           const celda = v => {
             let s = v == null ? '' : String(v);
             if (/^[=+\-@]/.test(s)) s = "'" + s;
@@ -104,7 +106,7 @@ module.exports = async (req, res) => {
           };
           const csv = '﻿' + [encabezados, ...filas].map(f => f.map(celda).join(',')).join('\r\n');
           res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-          res.setHeader('Content-Disposition', `attachment; filename="${nombre}-${new Date().toISOString().slice(0, 10)}.csv"`);
+          res.setHeader('Content-Disposition', `attachment; filename="${nombre}${req.query.bingo ? '-bingo' + Number(req.query.bingo) : ''}-${new Date().toISOString().slice(0, 10)}.csv"`);
           res.status(200).send(csv);
         }),
       },
