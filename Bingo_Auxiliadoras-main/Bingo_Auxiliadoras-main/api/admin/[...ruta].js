@@ -75,6 +75,7 @@ module.exports = async (req, res) => {
         }),
       },
 
+      { metodo: 'GET', patron: /^\/evento$/, handler: admin(async (_p, _req, res) => res.json(await servicios.evento())) },
       { metodo: 'PUT', patron: /^\/evento$/, handler: admin(async (_p, req, res) => res.json(await servicios.actualizarEvento(req.body || {}))) },
       { metodo: 'POST', patron: /^\/tablas\/generar$/, handler: admin(async (_p, req, res) => res.json(await servicios.generarTablas(req.body?.cantidad))) },
       { metodo: 'POST', patron: /^\/tablas\/importar$/, handler: admin(async (_p, req, res) => res.json(await servicios.importarTablas(req.body?.seriales))) },

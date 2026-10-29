@@ -114,6 +114,13 @@ button.grande { width: 100%; padding: 14px 18px; font-size: 1.05rem; background:
 .calc.alerta { background: color-mix(in srgb, var(--dorado) 18%, var(--card)); border-color: var(--dorado); }
 .precio-card { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .precio-card .valor { font: 700 2rem/1 Georgia, serif; color: var(--azul); }
+.pago-grid { display: grid; gap: 18px; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 620px) { .pago-grid:has(#pago-qr:not([hidden])) { grid-template-columns: 1fr 220px; } }
+.dato { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.dato strong { font-size: 1.1rem; overflow-wrap: anywhere; }
+.dato button { padding: 6px 14px; flex-shrink: 0; }
+#pago-qr { margin: 0; text-align: center; }
+#pago-qr img { width: 100%; max-width: 220px; border-radius: 14px; border: 1px solid var(--line); background: #fff; padding: 6px; }
 .cuentas { white-space: pre-line; background: var(--azul-claro); border-radius: 12px; padding: 12px 14px; font-size: .95rem; flex: 1 1 100%; }
 
 /* ---- Panel de administración ---- */

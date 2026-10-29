@@ -14,6 +14,8 @@ module.exports = async (req, res) => {
           res.status(200).json({
             nombre: e.nombre, precioTabla: e.precioTabla, moneda: e.moneda,
             fechaSorteo: e.fechaSorteo, cuentasPago: e.cuentasPago, abierto: e.precioTabla > 0,
+            banco: e.banco, tipoCuenta: e.tipoCuenta, numeroCuenta: e.numeroCuenta,
+            titularCuenta: e.titularCuenta, llavePago: e.llavePago, qrPago: e.qrPago,
           });
         },
       },

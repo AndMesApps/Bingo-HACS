@@ -112,6 +112,13 @@ ALTER TABLE compras ADD COLUMN IF NOT EXISTS fisica_nota TEXT;
 ALTER TABLE compras ADD COLUMN IF NOT EXISTS fisica_en TEXT;
 ALTER TABLE pagos ADD COLUMN IF NOT EXISTS fecha_pago TEXT NOT NULL DEFAULT '';
 ALTER TABLE evento ALTER COLUMN exigir_pago_completo SET DEFAULT true;
+-- Datos de pago configurables desde el panel: cuenta, llave (para transferencias entre bancos) y QR del banco.
+ALTER TABLE evento ADD COLUMN IF NOT EXISTS banco TEXT NOT NULL DEFAULT '';
+ALTER TABLE evento ADD COLUMN IF NOT EXISTS tipo_cuenta TEXT NOT NULL DEFAULT '' CHECK (tipo_cuenta IN ('','Ahorros','Corriente'));
+ALTER TABLE evento ADD COLUMN IF NOT EXISTS numero_cuenta TEXT NOT NULL DEFAULT '';
+ALTER TABLE evento ADD COLUMN IF NOT EXISTS titular_cuenta TEXT NOT NULL DEFAULT '';
+ALTER TABLE evento ADD COLUMN IF NOT EXISTS llave_pago TEXT NOT NULL DEFAULT '';
+ALTER TABLE evento ADD COLUMN IF NOT EXISTS qr_pago TEXT NOT NULL DEFAULT '';
 
 -- ---------- Control estricto de tablas ----------
 -- Una tabla vendida siempre tiene compra, y una disponible nunca la tiene.

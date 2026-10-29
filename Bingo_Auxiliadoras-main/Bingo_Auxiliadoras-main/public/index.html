@@ -24,7 +24,18 @@
       <span class="muted">Precio por tabla</span><br>
       <span class="valor" id="precio"></span>
     </div>
-    <div class="cuentas" id="cuentas" hidden></div>
+  </section>
+
+  <section class="card" id="pago-card" hidden>
+    <h2 style="margin-top:0">¿Cómo pagar?</h2>
+    <div class="pago-grid">
+      <div id="pago-datos"></div>
+      <figure id="pago-qr" hidden>
+        <img id="pago-qr-img" alt="Código QR para pagar">
+        <figcaption class="muted">Escanéalo con la app de tu banco y te llevará directo al pago.</figcaption>
+      </figure>
+    </div>
+    <p class="muted" id="pago-notas" style="white-space:pre-line"></p>
   </section>
   <p class="card" id="cerrado" hidden>Las compras aún no están abiertas. Vuelve pronto.</p>
 
@@ -125,12 +136,61 @@ async function cargar() {
   }
   if (!evento.abierto) { $('cerrado').hidden = false; return; }
   $('precio').textContent = dinero(evento.precioTabla, evento.moneda);
-  if (evento.cuentasPago) { $('cuentas').textContent = 'Datos para el pago:\n' + evento.cuentasPago; $('cuentas').hidden = false; }
+  mostrarPago();
   $('precio-card').hidden = false;
   $('form').hidden = false;
   $('form').fechaPago.value = hoy();
   $('form').fechaPago.max = hoy();
   actualizar();
+}
+
+// Datos de pago configurados por la organización: cuenta, llave (para otros bancos) y QR del banco.
+function mostrarPago() {
+  const filas = [];
+  if (evento.titularCuenta) filas.push(['A nombre de', evento.titularCuenta]);
+  const banco = [evento.banco, evento.tipoCuenta && 'Cuenta de ' + evento.tipoCuenta].filter(Boolean).join(' · ');
+  if (banco) filas.push(['Banco', banco]);
+  if (evento.numeroCuenta) filas.push(['Número de cuenta', evento.numeroCuenta, true]);
+  if (evento.llavePago) filas.push(['Llave', evento.llavePago, true]);
+  if (!filas.length && !evento.qrPago && !evento.cuentasPago) return;
+  const caja = $('pago-datos');
+  caja.replaceChildren();
+  for (const [etiqueta, valor, copiable] of filas) {
+    const fila = document.createElement('div');
+    fila.className = 'dato';
+    const t = document.createElement('div');
+    const small = document.createElement('span');
+    small.className = 'muted';
+    small.textContent = etiqueta;
+    const v = document.createElement('strong');
+    v.textContent = valor;
+    t.append(small, document.createElement('br'), v);
+    fila.append(t);
+    if (copiable) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'ghost';
+      b.textContent = 'Copiar';
+      b.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(valor); b.textContent = '¡Copiado!'; } catch { b.textContent = 'Cópialo a mano'; }
+        setTimeout(() => { b.textContent = 'Copiar'; }, 1800);
+      });
+      fila.append(b);
+    }
+    caja.append(fila);
+  }
+  if (evento.llavePago) {
+    const aviso = document.createElement('p');
+    aviso.className = 'muted';
+    aviso.textContent = 'Si transfieres desde otro banco, escribe la llave en lugar del número de cuenta.';
+    caja.append(aviso);
+  }
+  if (evento.qrPago && /^data:image\/(png|jpeg|webp);base64,/.test(evento.qrPago)) {
+    $('pago-qr-img').src = evento.qrPago;
+    $('pago-qr').hidden = false;
+  }
+  $('pago-notas').textContent = evento.cuentasPago || '';
+  $('pago-card').hidden = false;
 }
 
 // Cuántas tablas cubre lo pagado (hacia abajo) y aviso si no coincide con lo que se pidió.

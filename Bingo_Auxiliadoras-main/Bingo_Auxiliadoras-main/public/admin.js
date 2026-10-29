@@ -558,25 +558,78 @@ async function renderGastos() {
 
 // ---------- Configuración ----------
 async function renderConfig() {
-  const e = (await api('GET', '/admin/resumen')).evento;
+  const e = await api('GET', '/admin/evento');
+  let qr = e.qrPago; // '' = sin QR; solo se envía si el administrador lo cambia
+  let qrCambiado = false;
   $('vista').innerHTML = `
-    <form id="form-config" class="card">
-      <div class="grid">
-        <label>Nombre del evento <input name="nombre" value="${esc(e.nombre)}" maxlength="120"></label>
-        <label>Precio por tabla <input name="precioTabla" type="number" min="0" step="0.01" value="${e.precioTabla}" required></label>
-        <label>Moneda (texto) <input name="moneda" value="${esc(e.moneda)}" maxlength="10" placeholder="Bs, USD, $"></label>
-        <label>Fecha del sorteo <input name="fechaSorteo" type="date" value="${esc(e.fechaSorteo)}"></label>
-        <label class="full">Datos de pago (se muestran al comprador)
-          <textarea name="cuentasPago" rows="5">${esc(e.cuentasPago)}</textarea>
-        </label>
+    <form id="form-config">
+      <div class="card">
+        <h2 style="margin-top:0">Evento</h2>
+        <div class="grid">
+          <label>Nombre del evento <input name="nombre" value="${esc(e.nombre)}" maxlength="120"></label>
+          <label>Precio por tabla <input name="precioTabla" type="number" min="0" step="any" value="${e.precioTabla}" required></label>
+          <label>Moneda (símbolo o texto) <input name="moneda" value="${esc(e.moneda)}" maxlength="10" placeholder="$, COP"></label>
+          <label>Fecha del sorteo <input name="fechaSorteo" type="date" value="${esc(e.fechaSorteo)}"></label>
+        </div>
+        <p class="muted">Con el precio en 0 las compras quedan cerradas. Al cambiarlo, solo afecta las compras nuevas.</p>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0">Datos de pago que ve el comprador</h2>
+        <div class="grid">
+          <label>Titular de la cuenta <input name="titularCuenta" value="${esc(e.titularCuenta)}" maxlength="120"></label>
+          <label>Banco <input name="banco" value="${esc(e.banco)}" maxlength="80" placeholder="Ej. Bancolombia"></label>
+          <label>Tipo de cuenta
+            <select name="tipoCuenta">
+              ${['', 'Ahorros', 'Corriente'].map(t => `<option value="${t}" ${e.tipoCuenta === t ? 'selected' : ''}>${t || '(sin indicar)'}</option>`).join('')}
+            </select>
+          </label>
+          <label>Número de cuenta <input name="numeroCuenta" value="${esc(e.numeroCuenta)}" maxlength="40" inputmode="numeric"></label>
+          <label class="full">Llave (para transferencias desde otros bancos)
+            <input name="llavePago" value="${esc(e.llavePago)}" maxlength="80" placeholder="Número de celular, correo o código de la llave">
+            <span class="muted" style="font-weight:400">El comprador la escribe en su app en lugar del número de cuenta.</span>
+          </label>
+          <label class="full">Instrucciones adicionales <span class="opc">(opcional)</span>
+            <textarea name="cuentasPago" rows="3" maxlength="2000">${esc(e.cuentasPago)}</textarea>
+          </label>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0">Código QR de pago</h2>
+        <p class="muted" style="margin-top:-6px">Sube la imagen del QR que te dio el banco (PNG, JPG o WEBP, máximo 400 KB). El comprador lo escanea con su app y lo lleva directo al pago.</p>
+        <div id="qr-vista" style="margin:10px 0"></div>
+        <input type="file" id="qr-archivo" accept="image/png,image/jpeg,image/webp">
+        <div class="actions"><button type="button" class="ghost danger" id="qr-quitar">Quitar QR</button></div>
+      </div>
+
+      <div class="card">
         <label class="full" style="flex-direction:row;align-items:center;gap:8px">
           <input type="checkbox" name="exigirPagoCompleto" style="width:auto" ${e.exigirPagoCompleto ? 'checked' : ''}>
           Exigir que el pago verificado cubra las tablas que se envían (recomendado: nunca se entregan tablas sin pagar)
         </label>
       </div>
-      <div class="actions"><button type="submit">Guardar</button></div>
-    </form>
-    <p class="muted">Con el precio en 0 las compras quedan cerradas.</p>`;
+      <div class="actions"><button type="submit" class="grande">Guardar configuración</button></div>
+    </form>`;
+
+  const pintarQr = () => {
+    $('qr-vista').innerHTML = qr
+      ? `<img src="${esc(qr)}" alt="QR de pago" style="max-width:220px;width:100%;border-radius:12px;border:1px solid var(--line);background:#fff">`
+      : '<p class="muted">Aún no hay un QR cargado.</p>';
+    $('qr-quitar').hidden = !qr;
+  };
+  pintarQr();
+
+  $('qr-archivo').addEventListener('change', ev => {
+    const archivo = ev.target.files[0];
+    if (!archivo) return;
+    if (!/^image\/(png|jpeg|webp)$/.test(archivo.type)) { ev.target.value = ''; return msg('El QR debe ser PNG, JPG o WEBP.', true); }
+    if (archivo.size > 400 * 1024) { ev.target.value = ''; return msg('El QR pesa más de 400 KB. Reduce la imagen.', true); }
+    const lector = new FileReader();
+    lector.onload = () => { qr = lector.result; qrCambiado = true; pintarQr(); msg('QR listo. Pulsa "Guardar configuración".'); };
+    lector.readAsDataURL(archivo);
+  });
+  $('qr-quitar').addEventListener('click', () => { qr = ''; qrCambiado = true; $('qr-archivo').value = ''; pintarQr(); });
 
   $('form-config').addEventListener('submit', async ev => {
     ev.preventDefault();
@@ -587,11 +640,17 @@ async function renderConfig() {
         precioTabla: Number(f.precioTabla.value),
         moneda: f.moneda.value,
         fechaSorteo: f.fechaSorteo.value,
+        titularCuenta: f.titularCuenta.value,
+        banco: f.banco.value,
+        tipoCuenta: f.tipoCuenta.value,
+        numeroCuenta: f.numeroCuenta.value,
+        llavePago: f.llavePago.value,
         cuentasPago: f.cuentasPago.value,
         exigirPagoCompleto: f.exigirPagoCompleto.checked,
+        ...(qrCambiado ? { qrPago: qr } : {}),
       });
-      msg('Configuración guardada.');
       await entrar();
+      msg('Configuración guardada.');
     } catch (err) { msg(err.message, true); }
   });
 }

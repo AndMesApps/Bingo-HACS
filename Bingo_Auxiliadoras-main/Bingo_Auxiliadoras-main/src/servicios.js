@@ -58,7 +58,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     t('INSERT INTO bitacora (fecha, accion, detalle) VALUES ($1, $2, $3)', [ahora(), accion, detalle]);
 
   // ---------- Evento ----------
-  async function evento() {
+  // conQr=false deja fuera la imagen del QR (pesa) y solo avisa si existe; el panel la pide aparte al editar.
+  async function evento({ conQr = true } = {}) {
     const e = await uno('SELECT * FROM evento WHERE id = 1');
     return {
       nombre: e.nombre,
@@ -67,11 +68,28 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       fechaSorteo: e.fecha_sorteo,
       cuentasPago: e.cuentas_pago,
       exigirPagoCompleto: Boolean(e.exigir_pago_completo),
+      banco: e.banco ?? '',
+      tipoCuenta: e.tipo_cuenta ?? '',
+      numeroCuenta: e.numero_cuenta ?? '',
+      titularCuenta: e.titular_cuenta ?? '',
+      llavePago: e.llave_pago ?? '',
+      tieneQr: Boolean(e.qr_pago),
+      ...(conQr ? { qrPago: e.qr_pago ?? '' } : {}),
     };
   }
 
+  const QR_VALIDO = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/;
+  const QR_MAX_CARACTERES = 600000; // ~450 KB de imagen
+
   async function actualizarEvento(datos) {
     const actual = await evento();
+    const tipoCuenta = String(datos.tipoCuenta ?? actual.tipoCuenta).trim();
+    if (!['', 'Ahorros', 'Corriente'].includes(tipoCuenta)) throw new ErrorApp('El tipo de cuenta debe ser Ahorros o Corriente.');
+    // undefined conserva la imagen actual; una cadena vacía la quita.
+    const qrPago = datos.qrPago === undefined ? actual.qrPago : String(datos.qrPago);
+    if (qrPago && (qrPago.length > QR_MAX_CARACTERES || !QR_VALIDO.test(qrPago))) {
+      throw new ErrorApp('El QR debe ser una imagen PNG, JPG o WEBP de máximo 400 KB.');
+    }
     const nuevo = {
       nombre: String(datos.nombre ?? actual.nombre).trim().slice(0, 120),
       precioTabla: datos.precioTabla === undefined ? actual.precioTabla : redondear(datos.precioTabla),
@@ -79,11 +97,19 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       fechaSorteo: String(datos.fechaSorteo ?? actual.fechaSorteo).slice(0, 10),
       cuentasPago: String(datos.cuentasPago ?? actual.cuentasPago).slice(0, 2000),
       exigirPagoCompleto: datos.exigirPagoCompleto === undefined ? actual.exigirPagoCompleto : Boolean(datos.exigirPagoCompleto),
+      banco: String(datos.banco ?? actual.banco).trim().slice(0, 80),
+      tipoCuenta,
+      numeroCuenta: String(datos.numeroCuenta ?? actual.numeroCuenta).trim().slice(0, 40),
+      titularCuenta: String(datos.titularCuenta ?? actual.titularCuenta).trim().slice(0, 120),
+      llavePago: String(datos.llavePago ?? actual.llavePago).trim().slice(0, 80),
+      qrPago,
     };
     if (!(nuevo.precioTabla >= 0)) throw new ErrorApp('El precio no puede ser negativo.');
     await q(
-      'UPDATE evento SET nombre=$1, precio_tabla=$2, moneda=$3, fecha_sorteo=$4, cuentas_pago=$5, exigir_pago_completo=$6 WHERE id = 1',
-      [nuevo.nombre, nuevo.precioTabla, nuevo.moneda, nuevo.fechaSorteo, nuevo.cuentasPago, nuevo.exigirPagoCompleto],
+      `UPDATE evento SET nombre=$1, precio_tabla=$2, moneda=$3, fecha_sorteo=$4, cuentas_pago=$5, exigir_pago_completo=$6,
+         banco=$7, tipo_cuenta=$8, numero_cuenta=$9, titular_cuenta=$10, llave_pago=$11, qr_pago=$12 WHERE id = 1`,
+      [nuevo.nombre, nuevo.precioTabla, nuevo.moneda, nuevo.fechaSorteo, nuevo.cuentasPago, nuevo.exigirPagoCompleto,
+        nuevo.banco, nuevo.tipoCuenta, nuevo.numeroCuenta, nuevo.titularCuenta, nuevo.llavePago, nuevo.qrPago],
     );
     await bitacora('configuración', `Precio ${nuevo.precioTabla} ${nuevo.moneda}`);
     return evento();
@@ -692,7 +718,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
         listasParaEnviar: compras.filter(c => c.estado === 'verificada').length,
         conDeuda: compras.filter(c => c.saldo > 0).length,
       },
-      evento: await evento(),
+      evento: await evento({ conQr: false }),
     };
   }
 

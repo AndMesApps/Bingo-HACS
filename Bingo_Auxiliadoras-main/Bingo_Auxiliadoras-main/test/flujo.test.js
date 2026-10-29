@@ -387,3 +387,35 @@ test('enlace privado: solo muestra las tablas de esa compra y rechaza tokens fal
   await assert.rejects(s.entregaPublica('0'.repeat(32)), /no válido/);
   await assert.rejects(s.entregaPublica("' OR 1=1 --"), /no válido/);
 });
+
+test('datos de pago configurables: cuenta, llave y QR validado; el precio nuevo no cambia compras previas', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  const png = 'data:image/png;base64,iVBORw0KGgo=';
+  const antes = await comprar(s, 1);
+  const e = await s.actualizarEvento({
+    precioTabla: 20000, moneda: '$', titularCuenta: 'Hermanas Auxiliadoras De Cristo Sacerdote', banco: 'Banco X',
+    tipoCuenta: 'Ahorros', numeroCuenta: '11279075642', llavePago: '3001234567', qrPago: png,
+  });
+  assert.equal(e.precioTabla, 20000);
+  assert.equal(e.numeroCuenta, '11279075642');
+  assert.equal(e.tipoCuenta, 'Ahorros');
+  assert.equal(e.llavePago, '3001234567');
+  assert.equal(e.qrPago, png);
+  const r = await s.resumen();
+  assert.equal(r.evento.tieneQr, true);
+  assert.equal(r.evento.qrPago, undefined, 'el resumen no arrastra la imagen');
+
+  await assert.rejects(s.actualizarEvento({ tipoCuenta: 'Otra' }), /Ahorros o Corriente/);
+  await assert.rejects(s.actualizarEvento({ qrPago: 'http://malo.example/qr.png' }), /QR/);
+  await assert.rejects(s.actualizarEvento({ qrPago: 'data:image/svg+xml;base64,AAAA' }), /QR/);
+  await assert.rejects(s.actualizarEvento({ qrPago: 'data:image/png;base64,' + 'A'.repeat(600001) }), /QR/);
+
+  // Editar otro dato conserva el QR; una cadena vacía lo quita.
+  assert.equal((await s.actualizarEvento({ precioTabla: 25000 })).qrPago, png);
+  assert.equal((await s.actualizarEvento({ tipoCuenta: 'Corriente' })).tipoCuenta, 'Corriente');
+  const despues = await comprar(s, 1);
+  assert.equal((await s.detalleCompra(antes.id)).precioUnitario, 10);
+  assert.equal((await s.detalleCompra(despues.id)).precioUnitario, 25000);
+  assert.equal((await s.actualizarEvento({ qrPago: '' })).tieneQr, false);
+});
