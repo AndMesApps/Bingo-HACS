@@ -109,14 +109,15 @@
     <p class="muted">Cuando verifiquemos tu pago te enviaremos tus tablas por WhatsApp (y por correo, si lo indicaste).</p>
   </section>
 
-  <section class="card">
-    <h2 style="margin-top:0">Consultar mi compra</h2>
+  <details class="consulta">
+    <summary>¿Ya compraste? Consulta el estado de tu compra</summary>
+    <p class="muted" style="margin:10px 0">Escribe el código que recibiste al enviar tu compra (empieza por BNG-).</p>
     <form id="form-consulta" class="row">
       <label style="flex:1 1 200px">Código de compra <input name="codigo" required placeholder="BNG-XXXXXX"></label>
       <button type="submit" style="align-self:flex-end">Consultar</button>
     </form>
     <p class="msg" id="consulta-msg"></p>
-  </section>
+  </details>
 </main>
 
 <script type="module">
