@@ -792,3 +792,9 @@ test('cambiar el nombre del Bingo activo actualiza el histórico y la página de
   await s.actualizarEvento({ nombre: 'Gran Bingo' });
   assert.equal((await s.listarBingos()).actual.nombre, 'Gran Bingo');
 });
+
+test('una inserción sin bingo_id toma el Bingo activo (compatibilidad con el código anterior)', async () => {
+  const s = await nuevo();
+  await s.db.query("INSERT INTO gastos (fecha, concepto, categoria, monto, creado_en) VALUES ('2026-10-29', 'x', 'Otros', 1, 'ahora')");
+  assert.equal((await s.listarGastos()).length, 1);
+});

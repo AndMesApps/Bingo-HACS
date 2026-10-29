@@ -212,6 +212,21 @@ ALTER TABLE gastos ADD COLUMN IF NOT EXISTS bingo_id INTEGER REFERENCES bingos(i
 UPDATE gastos SET bingo_id = (SELECT id FROM bingos WHERE estado = 'activo') WHERE bingo_id IS NULL;
 ALTER TABLE gastos ALTER COLUMN bingo_id SET NOT NULL;
 
+-- Si una inserción no indica el Bingo, se usa el activo (así el código anterior sigue funcionando durante la migración).
+CREATE OR REPLACE FUNCTION bingo_por_defecto() RETURNS trigger AS $$
+BEGIN
+  IF NEW.bingo_id IS NULL THEN
+    NEW.bingo_id := (SELECT id FROM bingos WHERE estado = 'activo');
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS compras_bingo_trg ON compras;
+CREATE TRIGGER compras_bingo_trg BEFORE INSERT ON compras FOR EACH ROW EXECUTE FUNCTION bingo_por_defecto();
+DROP TRIGGER IF EXISTS premios_bingo_trg ON premios;
+CREATE TRIGGER premios_bingo_trg BEFORE INSERT ON premios FOR EACH ROW EXECUTE FUNCTION bingo_por_defecto();
+DROP TRIGGER IF EXISTS gastos_bingo_trg ON gastos;
+CREATE TRIGGER gastos_bingo_trg BEFORE INSERT ON gastos FOR EACH ROW EXECUTE FUNCTION bingo_por_defecto();
+
 -- Qué tablas vendió cada Bingo cerrado (las tablas vuelven a quedar disponibles para el siguiente).
 CREATE TABLE IF NOT EXISTS tablas_historial (
   bingo_id INTEGER NOT NULL REFERENCES bingos(id),
