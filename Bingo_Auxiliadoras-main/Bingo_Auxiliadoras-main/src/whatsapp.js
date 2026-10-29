@@ -6,7 +6,10 @@ function crearWhatsApp({ token, phoneId, plantilla, idioma = 'es', codigoPais = 
 
   function normalizarTelefono(texto) {
     const digitos = String(texto || '').replace(/\D/g, '');
-    const numero = digitos.startsWith('0') ? codigoPais + digitos.slice(1) : digitos;
+    // 0412… (con cero inicial) y celulares nacionales de 10 dígitos (Colombia: 3001234567) reciben el indicativo.
+    const numero = digitos.startsWith('0') ? codigoPais + digitos.slice(1)
+      : digitos.length === 10 ? codigoPais + digitos
+        : digitos;
     if (numero.length < 8 || numero.length > 15) throw new Error('El número de WhatsApp no es válido.');
     return numero;
   }

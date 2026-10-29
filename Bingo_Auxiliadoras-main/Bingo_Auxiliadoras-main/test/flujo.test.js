@@ -524,3 +524,24 @@ test('sobrante por definir puede donarse; enviar menos tablas genera sobrante; s
   assert.equal(lista.length, 1);
   assert.equal((await s.reporte('sobrantes')).filas.length, 1);
 });
+
+test('los datos del sello salen solo con el token de esa compra', async () => {
+  const s = await nuevo();
+  await tablas(s, 4);
+  const a = await comprar(s, 2, { nombre: 'Dora Gómez' });
+  const b = await comprar(s, 1, { nombre: 'Luis Pérez', telefono: '3115556677' });
+  await verificarTodo(s, a.id);
+  await verificarTodo(s, b.id);
+  const ea = await s.enviarTablas(a.id);
+  const eb = await s.enviarTablas(b.id);
+  const da = await s.datosSelloEntrega(ea.tokenEntrega);
+  assert.equal(da.nombre, 'Dora Gómez');
+  assert.equal(da.telefono, '584121234567');
+  assert.equal(da.codigo, ea.codigo);
+  assert.deepEqual(da.tablas, ea.tablas);
+  const db_ = await s.datosSelloEntrega(eb.tokenEntrega);
+  assert.equal(db_.nombre, 'Luis Pérez');
+  assert.ok(!db_.tablas.some(t => da.tablas.includes(t)), 'cada token solo ve las tablas de su compra');
+  await assert.rejects(s.datosSelloEntrega('1'.repeat(32)), /no válido/);
+  await assert.rejects(s.datosSelloEntrega('abc'), /no válido/);
+});

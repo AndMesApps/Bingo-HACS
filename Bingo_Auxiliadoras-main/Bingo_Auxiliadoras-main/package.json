@@ -13,7 +13,9 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.13",
     "@vercel/blob": "^2.8.2",
+    "pdf-lib": "^1.17.1",
     "pg": "^8.23.1"
   },
   "devDependencies": {

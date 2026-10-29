@@ -1,0 +1,5 @@
+Fuente DejaVu Sans (DejaVuSans.ttf y DejaVuSans-Bold.ttf).
+Licencia libre (Bitstream Vera / dominio público para las modificaciones de DejaVu): permite usarla y
+redistribuirla, incluso con fines comerciales. Texto completo: https://dejavu-fonts.github.io/License.html
+Autores: https://dejavu-fonts.github.io/
+Se usa para estampar el nombre del comprador en las imágenes de las tablas (src/sello.js).
