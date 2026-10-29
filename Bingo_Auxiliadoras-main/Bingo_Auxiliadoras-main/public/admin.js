@@ -167,7 +167,7 @@ async function renderResumen() {
 }
 
 // ---------- Compras ----------
-const ESTADOS_COMPRA = [['por_verificar', 'Por verificar'], ['verificada', 'Listas para enviar'], ['enviada', 'Enviadas'], ['rechazada', 'Rechazadas'], ['', 'Todas']];
+const ESTADOS_COMPRA = [['por_verificar', 'Por verificar'], ['verificada', 'Listas para enviar'], ['enviada', 'Enviadas'], ['donacion', 'Donaciones'], ['rechazada', 'Rechazadas'], ['', 'Todas']];
 
 async function renderCompras() {
   const compras = await api('GET', '/admin/compras' + (filtroCompras ? `?estado=${filtroCompras}` : ''));
@@ -182,7 +182,9 @@ async function renderCompras() {
 function tarjetaCompra(c) {
   const saldo = c.saldo > 0 ? `<span class="neg">Debe ${dinero(c.saldo)}</span>` : '<span>Al día</span>';
   const contacto = [c.codigo, c.telefono, c.correo, c.ciudad, c.cedula ? 'CC ' + c.cedula : ''].filter(Boolean).map(esc).join(' · ');
-  const resumenPago = c.estado === 'por_verificar'
+  const resumenPago = c.cantidad === 0
+    ? `Donación (pagó menos que una tabla y decidió donarlo) · Verificado ${dinero(c.pagado)}`
+    : c.estado === 'por_verificar'
     ? `Pidió ${c.cantidad} tabla(s) · el pago reportado alcanza para ${c.tablasReportadas}`
     : `Pidió ${c.cantidad} tabla(s)${c.tablasAprobadas ? ` · se enviaron ${c.tablasAprobadas}` : ''} · Total ${dinero(c.total)} · Pagado ${dinero(c.pagado)} · ${saldo}`;
   return `

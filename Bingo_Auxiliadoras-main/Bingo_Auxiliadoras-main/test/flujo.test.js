@@ -450,7 +450,7 @@ test('si sobra dinero el comprador debe elegir donar o devolver; devolver exige 
   await s.crearCompra(datos(2, { ...base, sobranteDestino: 'devolucion', sobranteNota: 'Llave 3001234567' }), comprobante());
   // Pago exacto: no se pide decisión. Pago menor a una tabla: se rechaza.
   await s.crearCompra(datos(2, { montoPagado: 40000, sobranteDestino: '' }), comprobante());
-  await assert.rejects(s.crearCompra(datos(1, { montoPagado: 15000 }), comprobante()), /no alcanza/);
+  await assert.rejects(s.crearCompra(datos(1, { montoPagado: 15000 }), comprobante()), /valor mínimo/);
 });
 
 test('sobrante donado suma a los ingresos y no queda por devolver', async () => {
@@ -602,4 +602,64 @@ test('los mensajes reales incluyen el código de compra', () => {
   assert.match(m.texto, /BNG-4K7P2X/);
   assert.match(m.html, /<strong>BNG-4K7P2X<\/strong>/);
   assert.match(decodeURIComponent(w.enlaceManual('573001234567', 'Ana', ['3'], null, 'BNG-4K7P2X')), /BNG-4K7P2X/);
+});
+test('menos que una tabla sin elegir donar se rechaza y dice el mínimo', async () => {
+  const s = await nuevo();
+  await tablas(s, 3);
+  await assert.rejects(
+    () => s.crearCompra(datos(1, { montoPagado: 4 }), comprobante()),
+    err => err instanceof ErrorApp && /valor mínimo es 10/.test(err.message),
+  );
+  await assert.rejects(
+    () => s.crearCompra(datos(1, { montoPagado: 4, valorInsuficiente: 'completar' }), comprobante()),
+    err => err instanceof ErrorApp && /valor mínimo es 10/.test(err.message),
+  );
+});
+
+test('un pago menor al de una tabla se completa con otro pago en el mismo formulario', async () => {
+  const s = await nuevo();
+  await tablas(s, 3);
+  const r = await s.crearCompra(
+    datos(1, { montoPagado: 4, valorInsuficiente: 'completar', pagosExtra: [{ montoPagado: 6, fechaPago: new Date().toISOString().slice(0, 10), referencia: 'R2', comprobantes: comprobante() }] }),
+    comprobante(),
+  );
+  assert.equal(r.donacion, false);
+  assert.equal(r.tablasSugeridas, 1);
+  const d = await s.detalleCompra(r.id);
+  assert.equal(d.pagos.length, 2);
+  assert.ok(d.pagos.every(p => p.comprobantes.length === 1));
+  await s.verificarPago(d.pagos[0].id, 4);
+  await s.verificarPago(d.pagos[1].id, 6);
+  const e = await s.enviarTablas(r.id);
+  assert.equal(e.tablas.length, 1);
+});
+
+test('el pago extra también exige comprobante y fecha válida', async () => {
+  const s = await nuevo();
+  await tablas(s, 3);
+  await assert.rejects(
+    () => s.crearCompra(datos(1, { montoPagado: 4, pagosExtra: [{ montoPagado: 6, fechaPago: new Date().toISOString().slice(0, 10), comprobantes: [] }] }), comprobante()),
+    err => err instanceof ErrorApp && /pago 2/.test(err.message),
+  );
+});
+
+test('donar un valor menor al de una tabla: queda como donación sin tablas', async () => {
+  const s = await nuevo();
+  await tablas(s, 3);
+  const r = await s.crearCompra(datos(1, { montoPagado: 4, valorInsuficiente: 'donacion' }), comprobante());
+  assert.equal(r.donacion, true);
+  let d = await s.detalleCompra(r.id);
+  assert.equal(d.cantidad, 0);
+  assert.equal(d.estado, 'por_verificar');
+  assert.equal((await s.resumen()).dinero.donaciones, 0); // aún sin verificar
+  await s.verificarPago(d.pagos[0].id, 4);
+  d = await s.detalleCompra(r.id);
+  assert.equal(d.estado, 'donacion');
+  assert.equal(d.sobranteEstado, 'donado');
+  const res = await s.resumen();
+  assert.equal(res.dinero.donaciones, 4);
+  assert.equal(res.dinero.cobrado, 4);
+  assert.equal(res.dinero.ingresos, 4);
+  assert.equal(res.tablas.disponibles, 3);
+  await assert.rejects(() => s.enviarTablas(r.id), err => err instanceof ErrorApp);
 });
