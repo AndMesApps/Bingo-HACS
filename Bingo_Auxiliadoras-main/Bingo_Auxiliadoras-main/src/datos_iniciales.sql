@@ -2,6 +2,7 @@
 -- (Administración → Configuración), donde también se editan precio, titular, banco, llave y QR.
 -- Se ejecuta una sola vez, después de src/esquema.sql.
 UPDATE evento SET
+  nombre = 'Bingo Virtual Auxiliadoras de Cristo Sacerdote',
   precio_tabla = 20000,
   moneda = '$',
   tipo_cuenta = 'Ahorros',

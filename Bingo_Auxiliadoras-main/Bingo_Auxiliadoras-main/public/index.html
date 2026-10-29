@@ -13,29 +13,16 @@
   <div class="hero-in">
     <img class="logo" src="img/logo-hacs.jpg" alt="Hermanas Auxiliadoras de Cristo Sacerdote">
     <p class="kicker">Hermanas Auxiliadoras de Cristo Sacerdote</p>
-    <h1 id="titulo">Bingo Virtual</h1>
+    <h1 id="titulo">Bingo Virtual Auxiliadoras de Cristo Sacerdote</h1>
     <p class="sub" id="sorteo">Gracias por acompañarnos en esta obra benéfica.</p>
   </div>
 </header>
 
 <main class="wrap sube">
-  <section class="card precio-card" id="precio-card" hidden>
-    <div>
-      <span class="muted">Precio por tabla</span><br>
-      <span class="valor" id="precio"></span>
-    </div>
-  </section>
-
-  <section class="card" id="pago-card" hidden>
-    <h2 style="margin-top:0">¿Cómo pagar?</h2>
-    <div class="pago-grid">
-      <div id="pago-datos"></div>
-      <figure id="pago-qr" hidden>
-        <img id="pago-qr-img" alt="Código QR para pagar">
-        <figcaption class="muted">Escanéalo con la app de tu banco y te llevará directo al pago.</figcaption>
-      </figure>
-    </div>
-    <p class="muted" id="pago-notas" style="white-space:pre-line"></p>
+  <section class="card">
+    <h2 style="margin-top:0">¡Gracias por acompañarnos a la actividad «BINGO VIRTUAL AUXILIADORAS DE CRISTO SACERDOTE»!</h2>
+    <p style="margin:0 0 8px">Agradecemos diligenciar la siguiente información, la cual es requerida para hacer el envío de su(s) tabla(s).</p>
+    <p class="muted" style="margin:0">Tus datos y el comprobante que subas se usan solo para verificar tu pago y enviarte tus tablas.</p>
   </section>
   <p class="card" id="cerrado" hidden>Las compras aún no están abiertas. Vuelve pronto.</p>
 
@@ -53,8 +40,21 @@
       </div>
     </section>
 
+    <section class="card" id="pago-card" hidden>
+      <div class="paso"><b>2</b><h2>Realiza tu pago</h2></div>
+      <div class="precio-fila"><span class="muted">Precio por tabla</span><span class="valor" id="precio"></span></div>
+      <div class="pago-grid">
+        <div id="pago-datos"></div>
+        <figure id="pago-qr" hidden>
+          <img id="pago-qr-img" alt="Código QR para pagar">
+          <figcaption class="muted">Escanéalo con la app de tu banco y te llevará directo al pago.</figcaption>
+        </figure>
+      </div>
+      <p class="muted" id="pago-notas" style="white-space:pre-line"></p>
+    </section>
+
     <section class="card">
-      <div class="paso"><b>2</b><h2>Tu pago</h2></div>
+      <div class="paso"><b>3</b><h2>Cuéntanos tu pago</h2></div>
       <div class="metodos" role="radiogroup" aria-label="Forma de pago">
         <label><input type="radio" name="metodo" value="Consignación" checked> Consignación</label>
         <label><input type="radio" name="metodo" value="Efectivo"> Efectivo</label>
@@ -73,7 +73,7 @@
     </section>
 
     <section class="card">
-      <div class="paso"><b>3</b><h2>Tus tablas</h2></div>
+      <div class="paso"><b>4</b><h2>Tus tablas</h2></div>
       <div class="grid">
         <label>Número de tablas <input name="cantidad" type="number" min="1" max="50" value="1" required inputmode="numeric"></label>
       </div>
@@ -140,7 +140,7 @@ const esEfectivo = () => $('form').metodo.value === 'Efectivo';
 
 async function cargar() {
   evento = await (await fetch('/api/publico/evento')).json();
-  if (evento.nombre) $('titulo').textContent = evento.nombre;
+  if (evento.nombre && evento.nombre.trim().toLowerCase() !== 'bingo') $('titulo').textContent = evento.nombre;
   if (evento.fechaSorteo) {
     const f = new Date(evento.fechaSorteo + 'T12:00:00');
     $('sorteo').textContent = 'Sorteo: ' + f.toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -148,7 +148,6 @@ async function cargar() {
   if (!evento.abierto) { $('cerrado').hidden = false; return; }
   $('precio').textContent = dinero(evento.precioTabla, evento.moneda);
   mostrarPago();
-  $('precio-card').hidden = false;
   $('form').hidden = false;
   $('form').fechaPago.value = hoy();
   $('form').fechaPago.max = hoy();
@@ -163,7 +162,7 @@ function mostrarPago() {
   if (banco) filas.push(['Banco', banco]);
   if (evento.numeroCuenta) filas.push(['Número de cuenta', evento.numeroCuenta, true]);
   if (evento.llavePago) filas.push(['Llave', evento.llavePago, true]);
-  if (!filas.length && !evento.qrPago && !evento.cuentasPago) return;
+  $('pago-card').hidden = false;
   const caja = $('pago-datos');
   caja.replaceChildren();
   for (const [etiqueta, valor, copiable] of filas) {
@@ -201,7 +200,6 @@ function mostrarPago() {
     $('pago-qr').hidden = false;
   }
   $('pago-notas').textContent = evento.cuentasPago || '';
-  $('pago-card').hidden = false;
 }
 
 // Si el valor pagado no es múltiplo del precio, el comprador decide qué hacer con lo que sobra (consignación o efectivo).
