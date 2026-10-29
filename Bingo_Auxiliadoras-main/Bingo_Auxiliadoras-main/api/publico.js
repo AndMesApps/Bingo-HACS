@@ -47,14 +47,23 @@ module.exports = async (req, res) => {
         metodo: 'POST', patron: /^\/compras$/,
         handler: async (_p, req, res) => {
           const cuerpo = req.body || {};
-          const comprobantes = Array.isArray(cuerpo.comprobantes) ? cuerpo.comprobantes.slice(0, 3) : [];
-          for (const c of comprobantes) {
-            if (!storage.rutaValida(c.ruta) || !(await storage.existe(c.ruta))) {
-              throw new ErrorApp('Uno de los comprobantes no se subió correctamente. Vuelve a intentarlo.');
+          // Cada pago (el principal y los extra del mismo formulario) trae hasta 3 comprobantes ya subidos a Blob.
+          const validar = async lista => {
+            const comprobantes = Array.isArray(lista) ? lista.slice(0, 3) : [];
+            for (const c of comprobantes) {
+              if (!storage.rutaValida(c?.ruta) || !(await storage.existe(c.ruta))) {
+                throw new ErrorApp('Uno de los comprobantes no se subió correctamente. Vuelve a intentarlo.');
+              }
+              if (!storage.tipoPermitido(c.tipo)) throw new ErrorApp('Tipo de comprobante no permitido.');
             }
-            if (!storage.tipoPermitido(c.tipo)) throw new ErrorApp('Tipo de comprobante no permitido.');
+            return comprobantes;
+          };
+          const comprobantes = await validar(cuerpo.comprobantes);
+          const pagosExtra = [];
+          for (const x of Array.isArray(cuerpo.pagosExtra) ? cuerpo.pagosExtra.slice(0, 4) : []) {
+            pagosExtra.push({ ...x, comprobantes: await validar(x?.comprobantes) });
           }
-          const r = await servicios.crearCompra(cuerpo, comprobantes);
+          const r = await servicios.crearCompra({ ...cuerpo, pagosExtra }, comprobantes);
           res.status(201).json(r);
         },
       },

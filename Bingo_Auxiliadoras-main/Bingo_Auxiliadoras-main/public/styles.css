@@ -137,7 +137,7 @@ button.grande { width: 100%; padding: 14px 18px; font-size: 1.05rem; background:
 .pill { font-size: .78rem; font-weight: 600; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
 .pill.por_verificar, .pill.pendiente, .pill.manual { color: var(--warn); }
 .pill.verificada { color: var(--accent); }
-.pill.enviada, .pill.verificado, .pill.enviado, .pill.entregada { color: var(--ok); }
+.pill.donacion, .pill.enviada, .pill.verificado, .pill.enviado, .pill.entregada { color: var(--ok); }
 .pill.rechazada, .pill.rechazado, .pill.fallido { color: var(--bad); }
 .row { display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; }
 .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85rem; overflow-wrap: anywhere; }

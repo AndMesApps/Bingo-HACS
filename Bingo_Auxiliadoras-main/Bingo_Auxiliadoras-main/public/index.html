@@ -76,16 +76,26 @@
         </label>
         <p class="note full" id="nota-efectivo" hidden>Con pago en efectivo no necesitas comprobante. Tu compra quedará pendiente hasta que alguien de la organización confirme que recibió el dinero.</p>
       </div>
+      <div id="pagos-extra"></div>
     </section>
 
     <section class="card">
       <div class="paso"><b>4</b><h2>Tus tablas</h2></div>
       <div class="grid">
-        <label>Número de tablas <input name="cantidad" type="number" min="1" max="50" value="1" required inputmode="numeric"></label>
+        <label id="campo-cantidad">Número de tablas <input name="cantidad" type="number" min="1" max="50" value="1" required inputmode="numeric"></label>
       </div>
       <div class="calc" id="calc" style="margin-top:14px" aria-live="polite">
         <span class="num" id="calc-n">0</span>
         <span class="txt" id="calc-txt">Escribe el valor pagado para ver cuántas tablas corresponden.</span>
+      </div>
+      <div class="calc alerta" id="insuf-box" style="margin-top:14px;display:block" hidden>
+        <p style="margin:0 0 10px"><strong id="insuf-txt"></strong></p>
+        <div class="metodos" role="radiogroup" aria-label="Qué hacer con un valor menor al de una tabla">
+          <label><input type="radio" name="valorInsuficiente" value="donacion"> Lo dono a las Hermanas</label>
+          <label><input type="radio" name="valorInsuficiente" value="completar"> Lo completo con otro pago</label>
+        </div>
+        <p class="muted" id="insuf-ayuda" style="margin:10px 0 0"></p>
+        <div class="actions" id="insuf-agregar" hidden><button type="button" class="ghost" id="agregar-pago">Agregar otro pago</button></div>
       </div>
       <div class="calc alerta" id="sobrante-box" style="margin-top:14px;display:block" hidden>
         <p style="margin:0 0 10px"><strong id="sobrante-txt"></strong></p>
@@ -104,11 +114,11 @@
   </form>
 
   <section class="card" id="resultado" hidden>
-    <h2 style="margin-top:0">¡Gracias! Recibimos tu compra</h2>
+    <h2 style="margin-top:0" id="res-titulo">¡Gracias! Recibimos tu compra</h2>
     <p>Tu código es <strong class="mono" id="codigo" style="font-size:1.2rem"></strong>
       <button type="button" class="ghost" id="copiar-codigo" style="padding:4px 12px;margin-left:6px">Copiar</button></p>
     <p class="muted" style="margin-top:-4px">Guárdalo: con él puedes consultar el estado de tu compra. También te lo enviaremos junto con tus tablas.</p>
-    <p class="muted">Cuando verifiquemos tu pago te enviaremos tus tablas por WhatsApp (y por correo, si lo indicaste).</p>
+    <p class="muted" id="res-texto">Cuando verifiquemos tu pago te enviaremos tus tablas por WhatsApp (y por correo, si lo indicaste).</p>
   </section>
 
   <details class="consulta">
@@ -139,6 +149,7 @@ const ETIQUETAS = {
   verificada: 'Pago verificado. Pronto te enviaremos las tablas.',
   enviada: 'Tablas enviadas. Revisa tu WhatsApp o tu correo.',
   rechazada: 'Compra rechazada. Escríbenos si tienes dudas.',
+  donacion: 'Donación verificada. ¡Gracias por tu aporte!',
 };
 const hoy = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
 let evento = null;
@@ -276,6 +287,71 @@ function mostrarSobrante(tablas, sobra) {
   }
 }
 
+// Lo pagado = el pago principal + los pagos extra que se agregaron en este mismo formulario.
+const filasExtra = () => [...$('pagos-extra').querySelectorAll('.pago-extra')];
+function valorTotal() {
+  let total = Number($('form').montoPagado.value) || 0;
+  for (const fila of filasExtra()) total += Number(fila.querySelector('[data-c="monto"]').value) || 0;
+  return Math.round(total * 100) / 100;
+}
+
+function agregarFilaExtra() {
+  if (filasExtra().length >= 4) return null;
+  const fila = document.createElement('div');
+  fila.className = 'pago-extra';
+  fila.style.cssText = 'margin-top:16px;padding-top:12px;border-top:1px dashed #9db4bf';
+  fila.innerHTML = `
+    <p style="margin:0 0 8px"><strong>Otro pago</strong></p>
+    <div class="grid">
+      <label>Valor pagado <input data-c="monto" type="number" min="1" step="any" required inputmode="decimal"></label>
+      <label>Fecha del pago <input data-c="fecha" type="date" required></label>
+      <label class="full" data-ref><span>Referencia o número de la consignación <span class="opc">(opcional)</span></span>
+        <input data-c="ref" maxlength="60"></label>
+      <label class="full" data-comp>Comprobante de la consignación (imagen o PDF)
+        <input data-c="archivos" type="file" accept="image/*,application/pdf" multiple>
+      </label>
+    </div>
+    <div class="actions"><button type="button" class="ghost" data-quitar>Quitar este pago</button></div>`;
+  const fecha = fila.querySelector('[data-c="fecha"]');
+  fecha.value = hoy();
+  fecha.max = hoy();
+  $('pagos-extra').append(fila);
+  actualizar();
+  return fila;
+}
+
+// En efectivo los pagos extra tampoco llevan comprobante.
+function actualizarExtras() {
+  const efectivo = esEfectivo();
+  for (const fila of filasExtra()) {
+    fila.querySelector('[data-comp]').hidden = efectivo;
+    fila.querySelector('[data-ref]').hidden = efectivo;
+    fila.querySelector('[data-c="archivos"]').required = !efectivo;
+  }
+}
+
+// Con menos de lo que vale una tabla: se informa el mínimo y se pregunta si dona o completa con otro pago aquí mismo.
+function mostrarInsuficiente(valor) {
+  const f = $('form');
+  const visible = valor > 0;
+  $('insuf-box').hidden = !visible;
+  for (const r of f.querySelectorAll('input[name="valorInsuficiente"]')) {
+    r.required = visible;
+    if (!visible) r.checked = false;
+  }
+  const eleccion = visible ? f.querySelector('input[name="valorInsuficiente"]:checked')?.value : '';
+  $('campo-cantidad').hidden = eleccion === 'donacion';
+  $('insuf-agregar').hidden = eleccion !== 'completar';
+  if (!visible) return;
+  const faltan = Math.round((evento.precioTabla - valor) * 100) / 100;
+  $('insuf-txt').textContent = `El valor mínimo de una tabla es ${dinero(evento.precioTabla, evento.moneda)} y llevas ${dinero(valor, evento.moneda)}. ¿Qué quieres hacer con ese dinero?`;
+  $('insuf-ayuda').textContent = eleccion === 'completar'
+    ? `Te faltan ${dinero(faltan, evento.moneda)}: usa "Agregar otro pago" y sube el comprobante del segundo pago aquí mismo, en este formulario.`
+    : eleccion === 'donacion'
+      ? 'Se registra como donación a las Hermanas y no se te asignan tablas.'
+      : 'Elige una opción para continuar.';
+}
+
 // Cuántas tablas cubre lo pagado (hacia abajo) y aviso si no coincide con lo que se pidió.
 function actualizar() {
   const f = $('form');
@@ -283,7 +359,8 @@ function actualizar() {
   $('campo-comprobante').hidden = efectivo;
   $('campo-ref').hidden = efectivo;
   $('nota-efectivo').hidden = !efectivo;
-  const valor = Number(f.montoPagado.value);
+  const valor = valorTotal();
+  actualizarExtras();
   const pedidas = Number(f.cantidad.value);
   const calc = $('calc');
   calc.classList.remove('alerta');
@@ -291,10 +368,12 @@ function actualizar() {
     $('calc-n').textContent = '0';
     $('calc-txt').textContent = 'Escribe el valor pagado para ver cuántas tablas corresponden.';
     mostrarSobrante(0, 0);
+    mostrarInsuficiente(0);
     return;
   }
   const n = Math.floor(valor / evento.precioTabla + 1e-9);
   $('calc-n').textContent = n;
+  mostrarInsuficiente(n < 1 ? valor : 0);
   mostrarSobrante(n, n >= 1 ? Math.round((valor - n * evento.precioTabla) * 100) / 100 : 0);
   if (n < 1) {
     calc.classList.add('alerta');
@@ -310,20 +389,28 @@ function actualizar() {
 $('form').addEventListener('input', e => {
   if (e.target.name === 'cantidad') cantidadTocada = true;
   // Mientras no toque el número de tablas, se sugiere según el valor pagado.
-  if (e.target.name === 'montoPagado' && !cantidadTocada && evento) {
-    const n = Math.floor(Number(e.target.value) / evento.precioTabla + 1e-9);
+  if ((e.target.name === 'montoPagado' || e.target.dataset?.c === 'monto') && !cantidadTocada && evento) {
+    const n = Math.floor(valorTotal() / evento.precioTabla + 1e-9);
     if (n >= 1) $('form').cantidad.value = Math.min(n, 50);
   }
   if (evento) actualizar();
 });
 $('form').addEventListener('change', e => {
   if (e.target.name === 'sobranteDestino') actualizar();
+  if (e.target.name === 'valorInsuficiente') {
+    actualizar();
+    if (e.target.value === 'completar' && !filasExtra().length) agregarFilaExtra()?.querySelector('[data-c="monto"]').focus();
+  }
   if (e.target.name === 'metodo') {
     $('form').comprobantes.required = !esEfectivo();
     actualizar();
   }
 });
 $('form').comprobantes.required = true;
+$('agregar-pago').addEventListener('click', () => agregarFilaExtra()?.querySelector('[data-c="monto"]').focus());
+$('pagos-extra').addEventListener('click', e => {
+  if (e.target.closest('[data-quitar]')) { e.target.closest('.pago-extra').remove(); actualizar(); }
+});
 
 $('form').addEventListener('submit', async e => {
   e.preventDefault();
@@ -335,20 +422,35 @@ $('form').addEventListener('submit', async e => {
     const f = e.target;
     const tel = numeroInternacional();
     if (tel === null) throw new Error('Para otro país escribe tu celular con + y el indicativo, ej. +34 612 345 678.');
-    const archivos = esEfectivo() ? [] : [...f.comprobantes.files];
-    if (!esEfectivo() && !archivos.length) throw new Error('Adjunta el comprobante de la consignación.');
     // Los comprobantes van directo a Vercel Blob con un token del servidor; la compra solo guarda sus rutas.
-    const comprobantes = [];
-    for (const [i, file] of archivos.entries()) {
-      if (file.size > 10 * 1024 * 1024) throw new Error(`"${file.name}" supera 10 MB.`);
-      if (!/^(image\/(png|jpeg|gif|webp)|application\/pdf)$/.test(file.type)) throw new Error(`"${file.name}" debe ser imagen o PDF.`);
-      $('msg').textContent = `Subiendo comprobante ${i + 1} de ${archivos.length}…`;
-      if (typeof window.subirComprobante !== 'function') throw new Error('No se pudo cargar el módulo de subida. Recarga la página e inténtalo de nuevo.');
-      const blob = await window.subirComprobante(file);
-      comprobantes.push({ ruta: blob.pathname, nombre: file.name, tipo: file.type });
+    const subir = async (archivos, etiqueta) => {
+      if (!esEfectivo() && !archivos.length) throw new Error(`Adjunta el comprobante de la consignación${etiqueta}.`);
+      const subidos = [];
+      for (const [i, file] of archivos.entries()) {
+        if (file.size > 10 * 1024 * 1024) throw new Error(`"${file.name}" supera 10 MB.`);
+        if (!/^(image\/(png|jpeg|gif|webp)|application\/pdf)$/.test(file.type)) throw new Error(`"${file.name}" debe ser imagen o PDF.`);
+        $('msg').textContent = `Subiendo comprobante ${i + 1} de ${archivos.length}${etiqueta}…`;
+        if (typeof window.subirComprobante !== 'function') throw new Error('No se pudo cargar el módulo de subida. Recarga la página e inténtalo de nuevo.');
+        const blob = await window.subirComprobante(file);
+        subidos.push({ ruta: blob.pathname, nombre: file.name, tipo: file.type });
+      }
+      return subidos;
+    };
+    if (valorTotal() < evento.precioTabla && f.querySelector('input[name="valorInsuficiente"]:checked')?.value === 'completar') {
+      throw new Error(`Aún no alcanza el valor mínimo de una tabla (${dinero(evento.precioTabla, evento.moneda)}). Agrega otro pago o elige donar ese dinero.`);
+    }
+    const comprobantes = await subir(esEfectivo() ? [] : [...f.comprobantes.files], '');
+    const pagosExtra = [];
+    for (const [j, fila] of filasExtra().entries()) {
+      const c = k => fila.querySelector(`[data-c="${k}"]`);
+      pagosExtra.push({
+        montoPagado: c('monto').value, fechaPago: c('fecha').value, referencia: c('ref').value,
+        comprobantes: await subir(esEfectivo() ? [] : [...c('archivos').files], ` (pago ${j + 2})`),
+      });
     }
     const cuerpo = Object.fromEntries([...new FormData(f)].filter(([k]) => k !== 'comprobantes'));
     cuerpo.comprobantes = comprobantes;
+    cuerpo.pagosExtra = pagosExtra;
     $('msg').textContent = 'Registrando compra…';
     const res = await fetch('/api/publico/compras', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo),
@@ -356,6 +458,10 @@ $('form').addEventListener('submit', async e => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'No se pudo registrar la compra.');
     $('codigo').textContent = data.codigo;
+    if (data.donacion) {
+      $('res-titulo').textContent = '¡Gracias por tu donación!';
+      $('res-texto').textContent = 'Cuando verifiquemos tu pago quedará registrada tu donación para la obra de las Hermanas.';
+    }
     $('resultado').hidden = false;
     $('form').hidden = true;
     $('msg').textContent = '';
@@ -381,7 +487,7 @@ $('form-consulta').addEventListener('submit', async e => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     $('consulta-msg').className = 'msg';
-    $('consulta-msg').textContent = `${data.codigo} · ${data.cantidad} tabla(s) · ${ETIQUETAS[data.estado] || data.estado}`;
+    $('consulta-msg').textContent = `${data.codigo} · ${data.estado === 'donacion' ? '' : data.cantidad + ' tabla(s) · '}${ETIQUETAS[data.estado] || data.estado}`;
   } catch (err) {
     mostrarError($('consulta-msg'), err.message);
   }

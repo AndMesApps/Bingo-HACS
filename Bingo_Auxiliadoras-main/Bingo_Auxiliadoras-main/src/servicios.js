@@ -4,6 +4,7 @@ const { crearCorreo } = require('./correo');
 const ALFABETO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const MAX_TABLAS_POR_COMPRA = 50;
 const MAX_TABLAS_LOTE = 500;
+const MAX_PAGOS_EXTRA = 4;
 const LOCK_VENTAS = 7001;
 const LOCK_TABLAS = 7002;
 
@@ -284,17 +285,43 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
 
     // Campos del formulario del bingo: nombre, celular, ciudad, quién lo refirió, valor y fecha de la consignación,
     // número de tablas y soporte. Cédula y correo son opcionales; el efectivo no lleva comprobante.
-    const cantidad = enteroPositivo(datos.cantidad, 'El número de tablas');
-    if (cantidad > MAX_TABLAS_POR_COMPRA) throw new ErrorApp(`Máximo ${MAX_TABLAS_POR_COMPRA} tablas por compra.`);
     const metodo = texto(datos.metodo, 'Método de pago', 40);
     const esEfectivo = /efectivo/i.test(metodo);
-    if (!esEfectivo && !comprobantes.length) throw new ErrorApp('Adjunta el comprobante de la consignación.');
     const correoComprador = String(datos.correo ?? '').trim().slice(0, 120);
     if (correoComprador && !CORREO_VALIDO.test(correoComprador)) throw new ErrorApp('El correo no es válido.');
     const hoy = ahora().slice(0, 10);
-    const fechaPago = String(datos.fechaPago || (esEfectivo ? hoy : '')).trim();
-    if (!FECHA_ISO.test(fechaPago)) throw new ErrorApp('Indica la fecha de la consignación.');
-    if (fechaPago > new Date(Date.now() + 86400000).toISOString().slice(0, 10)) throw new ErrorApp('La fecha del pago no puede ser futura.');
+    const manana = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+
+    // El pago principal y los que el comprador agregó en el mismo formulario para completar el valor de una tabla.
+    const extras = Array.isArray(datos.pagosExtra) ? datos.pagosExtra.slice(0, MAX_PAGOS_EXTRA) : [];
+    const pagos = [{ monto: datos.montoPagado, fecha: datos.fechaPago, referencia: datos.referencia, comprobantes }, ...extras.map(x => ({
+      monto: x?.montoPagado, fecha: x?.fechaPago, referencia: x?.referencia, comprobantes: Array.isArray(x?.comprobantes) ? x.comprobantes : [],
+    }))].map((p, i) => {
+      const en = i ? ` (pago ${i + 1})` : '';
+      if (!esEfectivo && !p.comprobantes.length) throw new ErrorApp(`Adjunta el comprobante de la consignación${en}.`);
+      const fechaPago = String(p.fecha || (esEfectivo ? hoy : '')).trim();
+      if (!FECHA_ISO.test(fechaPago)) throw new ErrorApp(`Indica la fecha de la consignación${en}.`);
+      if (fechaPago > manana) throw new ErrorApp(`La fecha del pago no puede ser futura${en}.`);
+      return {
+        monto: montoPositivo(p.monto, `El valor pagado${en}`),
+        fechaPago,
+        referencia: String(p.referencia ?? '').trim().slice(0, 60) || (esEfectivo ? 'Efectivo' : 'Sin referencia'),
+        comprobantes: p.comprobantes,
+      };
+    });
+    const montoPagado = redondear(pagos.reduce((s, p) => s + p.monto, 0));
+
+    // Lo que sobra al pagar por encima de las tablas que cubre el valor (consignación o efectivo):
+    // el comprador decide si lo dona o si se lo devolvemos, y en ese caso deja una nota de cómo.
+    const cubiertas = tablasPorMonto(montoPagado, e.precioTabla);
+    // Si lo pagado no alcanza para una tabla, solo se acepta como donación (cantidad 0); para comprar debe completarlo
+    // con otro pago en el mismo formulario.
+    const donacion = cubiertas < 1;
+    if (donacion && String(datos.valorInsuficiente ?? '').trim() !== 'donacion') {
+      throw new ErrorApp(`El valor mínimo es ${e.precioTabla} (una tabla) y llevas ${montoPagado}. Agrega otro pago para completarlo o elige donar ese dinero.`);
+    }
+    const cantidad = donacion ? 0 : enteroPositivo(datos.cantidad, 'El número de tablas');
+    if (cantidad > MAX_TABLAS_POR_COMPRA) throw new ErrorApp(`Máximo ${MAX_TABLAS_POR_COMPRA} tablas por compra.`);
     const d = {
       nombre: texto(datos.nombre, 'Nombre'),
       cedula: String(datos.cedula ?? '').trim().slice(0, 20),
@@ -303,17 +330,10 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       ciudad: texto(datos.ciudad, 'Ciudad', 80),
       referidoPor: texto(datos.referidoPor, 'Quién le habló del bingo', 120),
       metodo,
-      referencia: String(datos.referencia ?? '').trim().slice(0, 60) || (esEfectivo ? 'Efectivo' : 'Sin referencia'),
     };
     const total = redondear(cantidad * e.precioTabla);
-    const montoPagado = montoPositivo(datos.montoPagado, 'El valor pagado');
-
-    // Lo que sobra al pagar por encima de las tablas que cubre el valor (consignación o efectivo):
-    // el comprador decide si lo dona o si se lo devolvemos, y en ese caso deja una nota de cómo.
-    const cubiertas = tablasPorMonto(montoPagado, e.precioTabla);
-    if (cubiertas < 1) throw new ErrorApp(`El valor pagado no alcanza para una tabla (${e.precioTabla}).`);
-    const sobranteEstimado = redondear(montoPagado - cubiertas * e.precioTabla);
-    let sobranteDestino = '';
+    const sobranteEstimado = donacion ? 0 : redondear(montoPagado - cubiertas * e.precioTabla);
+    let sobranteDestino = donacion ? 'donacion' : '';
     let sobranteNota = '';
     if (sobranteEstimado > 0) {
       sobranteDestino = String(datos.sobranteDestino ?? '').trim();
@@ -338,17 +358,20 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
         [codigo, d.nombre, d.cedula, d.telefono, d.correo, d.ciudad, d.referidoPor, cantidad, e.precioTabla, total,
           sobranteDestino, sobranteNota, ahora()],
       );
-      const [{ id: pagoId }] = await t(
-        `INSERT INTO pagos (compra_id, monto_reportado, metodo, referencia, fecha_pago, estado, creado_en)
-         VALUES ($1, $2, $3, $4, $5, 'por_verificar', $6) RETURNING id`,
-        [id, montoPagado, d.metodo, d.referencia, fechaPago, ahora()],
-      );
-      for (const c of comprobantes) {
-        await t('INSERT INTO comprobantes (pago_id, ruta, nombre, tipo) VALUES ($1, $2, $3, $4)',
-          [pagoId, c.ruta, String(c.nombre).slice(0, 120), c.tipo]);
+      for (const p of pagos) {
+        const [{ id: pagoId }] = await t(
+          `INSERT INTO pagos (compra_id, monto_reportado, metodo, referencia, fecha_pago, estado, creado_en)
+           VALUES ($1, $2, $3, $4, $5, 'por_verificar', $6) RETURNING id`,
+          [id, p.monto, d.metodo, p.referencia, p.fechaPago, ahora()],
+        );
+        for (const c of p.comprobantes) {
+          await t('INSERT INTO comprobantes (pago_id, ruta, nombre, tipo) VALUES ($1, $2, $3, $4)',
+            [pagoId, c.ruta, String(c.nombre).slice(0, 120), c.tipo]);
+        }
       }
-      await bitacora('compra registrada', `${codigo} · ${d.nombre} · ${cantidad} tabla(s) · pagó ${montoPagado}`, t);
-      return { id: Number(id), codigo, total, tablasSugeridas: cubiertas, sobrante: sobranteEstimado, sobranteDestino };
+      await bitacora(donacion ? 'donación registrada' : 'compra registrada',
+        `${codigo} · ${d.nombre} · ${donacion ? 'donación' : cantidad + ' tabla(s)'} · pagó ${montoPagado} en ${pagos.length} pago(s)`, t);
+      return { id: Number(id), codigo, total, tablasSugeridas: cubiertas, sobrante: sobranteEstimado, sobranteDestino, donacion };
     });
   }
 
@@ -360,6 +383,21 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const c = await uno('SELECT codigo, cantidad, tablas_aprobadas, total, estado FROM compras WHERE codigo = $1', [String(codigo || '').trim().toUpperCase()]);
     if (!c) throw new ErrorApp('No encontramos una compra con ese código.', 404);
     return { codigo: c.codigo, cantidad: c.tablas_aprobadas ?? c.cantidad, total: num(c.total), estado: c.estado };
+  }
+
+  // Con el primer pago verificado la compra queda lista para enviar. Una compra con cantidad 0 es una donación
+  // (pagó menos que una tabla y decidió donarlo): no lleva tablas y queda donada por lo verificado.
+  async function alVerificarPago(t, c) {
+    if (c.cantidad === 0) {
+      const pagado = await pagadoDe(c.id, t);
+      await t(
+        `UPDATE compras SET estado = 'donacion', verificada_en = COALESCE(verificada_en, $1::text), sobrante_monto = $2::numeric,
+           sobrante_estado = 'donado', sobrante_en = $1::text WHERE id = $3`,
+        [ahora(), pagado, c.id],
+      );
+    } else if (c.estado === 'por_verificar') {
+      await t("UPDATE compras SET estado = 'verificada', verificada_en = $1 WHERE id = $2", [ahora(), c.id]);
+    }
   }
 
   async function registrarPagoManual(compraId, datos) {
@@ -375,9 +413,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
          VALUES ($1, $2, $2, $3, $4, $5, 'verificado', $6, $6)`,
         [compraId, monto, metodo, referencia, FECHA_ISO.test(String(datos.fechaPago || '')) ? datos.fechaPago : ahora().slice(0, 10), ahora()],
       );
-      if (c.estado === 'por_verificar') {
-        await t("UPDATE compras SET estado = 'verificada', verificada_en = $1 WHERE id = $2", [ahora(), compraId]);
-      }
+      await alVerificarPago(t, c);
       await bitacora('pago registrado', `${c.codigo}: ${monto} (${metodo})`, t);
     });
     return detalleCompra(compraId);
@@ -395,9 +431,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
         [monto, ahora(), pagoId],
       );
       if (!act.length) throw new ErrorApp('Este pago ya fue procesado.', 409);
-      if (c.estado === 'por_verificar') {
-        await t("UPDATE compras SET estado = 'verificada', verificada_en = $1 WHERE id = $2", [ahora(), c.id]);
-      }
+      await alVerificarPago(t, c);
       await bitacora('pago verificado', `${c.codigo}: ${monto} (${p.metodo} ${p.referencia})`, t);
     });
     return detalleCompra(c.id);

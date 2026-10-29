@@ -169,3 +169,11 @@ ALTER TABLE premios ENABLE ROW LEVEL SECURITY;
 ALTER TABLE gastos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bitacora ENABLE ROW LEVEL SECURITY;
 ALTER TABLE login_intentos ENABLE ROW LEVEL SECURITY;
+
+-- ---------- Donaciones menores al valor de una tabla ----------
+-- Quien paga menos que una tabla puede donarlo: la compra queda con cantidad 0 y, al verificar el pago, en estado 'donacion'.
+ALTER TABLE compras DROP CONSTRAINT IF EXISTS compras_cantidad_check;
+ALTER TABLE compras ADD CONSTRAINT compras_cantidad_check CHECK (cantidad BETWEEN 0 AND 50);
+ALTER TABLE compras DROP CONSTRAINT IF EXISTS compras_estado_check;
+ALTER TABLE compras ADD CONSTRAINT compras_estado_check
+  CHECK (estado IN ('por_verificar','verificada','enviada','rechazada','donacion'));
