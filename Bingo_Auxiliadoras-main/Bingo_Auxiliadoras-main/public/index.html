@@ -105,7 +105,9 @@
 
   <section class="card" id="resultado" hidden>
     <h2 style="margin-top:0">¡Gracias! Recibimos tu compra</h2>
-    <p>Tu código es <strong class="mono" id="codigo" style="font-size:1.2rem"></strong>. Guárdalo para consultar el estado.</p>
+    <p>Tu código es <strong class="mono" id="codigo" style="font-size:1.2rem"></strong>
+      <button type="button" class="ghost" id="copiar-codigo" style="padding:4px 12px;margin-left:6px">Copiar</button></p>
+    <p class="muted" style="margin-top:-4px">Guárdalo: con él puedes consultar el estado de tu compra. También te lo enviaremos junto con tus tablas.</p>
     <p class="muted">Cuando verifiquemos tu pago te enviaremos tus tablas por WhatsApp (y por correo, si lo indicaste).</p>
   </section>
 
@@ -362,6 +364,12 @@ $('form').addEventListener('submit', async e => {
   } finally {
     btn.disabled = false;
   }
+});
+
+$('copiar-codigo').addEventListener('click', async e => {
+  const b = e.currentTarget;
+  try { await navigator.clipboard.writeText($('codigo').textContent); b.textContent = '¡Copiado!'; } catch { b.textContent = 'Cópialo a mano'; }
+  setTimeout(() => { b.textContent = 'Copiar'; }, 1800);
 });
 
 $('form-consulta').addEventListener('submit', async e => {

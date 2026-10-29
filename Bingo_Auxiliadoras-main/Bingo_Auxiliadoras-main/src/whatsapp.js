@@ -30,24 +30,25 @@ function crearWhatsApp({ token, phoneId, plantilla, idioma = 'es', codigoPais = 
     return numero;
   }
 
-  function mensajeTablas(nombre, seriales, enlace) {
+  function mensajeTablas(nombre, seriales, enlace, codigo) {
     const lista = seriales.map((s, i) => `${i + 1}. ${s}`).join('\n');
     const descarga = enlace ? `\nDescárgalas aquí: ${enlace}` : '';
-    return `Hola ${nombre}, tu pago fue verificado. Estas son tus tablas de bingo:\n${lista}${descarga}\n¡Gracias por tu compra!`;
+    const compra = codigo ? `\nCódigo de tu compra: ${codigo} (guárdalo para consultar el estado)` : '';
+    return `Hola ${nombre}, tu pago fue verificado. Estas son tus tablas de bingo:\n${lista}${descarga}${compra}\n¡Gracias por tu compra!`;
   }
 
-  function enlaceManual(telefono, nombre, seriales, enlace) {
+  function enlaceManual(telefono, nombre, seriales, enlace, codigo) {
     const numero = numeroGuardado(telefono);
-    return `https://wa.me/${numero}?text=${encodeURIComponent(mensajeTablas(nombre, seriales, enlace))}`;
+    return `https://wa.me/${numero}?text=${encodeURIComponent(mensajeTablas(nombre, seriales, enlace, codigo))}`;
   }
 
   // Devuelve { estado: 'enviado' | 'manual', enlace? } o lanza error si la API rechaza el envío.
-  async function enviarTablas({ telefono, nombre, seriales, enlace }) {
-    if (!configurado) return { estado: 'manual', enlace: enlaceManual(telefono, nombre, seriales, enlace) };
+  async function enviarTablas({ telefono, nombre, seriales, enlace, codigo }) {
+    if (!configurado) return { estado: 'manual', enlace: enlaceManual(telefono, nombre, seriales, enlace, codigo) };
 
     const to = numeroGuardado(telefono);
     // Las plantillas de Meta no admiten saltos de línea en los parámetros: el enlace va en la misma línea.
-    const texto = seriales.join(', ') + (enlace ? ` · ${enlace}` : '');
+    const texto = seriales.join(', ') + (enlace ? ` · ${enlace}` : '') + (codigo ? ` · Código ${codigo}` : '');
     const cuerpo = plantilla
       ? {
           type: 'template',
@@ -57,7 +58,7 @@ function crearWhatsApp({ token, phoneId, plantilla, idioma = 'es', codigoPais = 
             components: [{ type: 'body', parameters: [{ type: 'text', text: nombre }, { type: 'text', text: texto }] }],
           },
         }
-      : { type: 'text', text: { body: mensajeTablas(nombre, seriales, enlace) } };
+      : { type: 'text', text: { body: mensajeTablas(nombre, seriales, enlace, codigo) } };
 
     const res = await fetchFn(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
       method: 'POST',
