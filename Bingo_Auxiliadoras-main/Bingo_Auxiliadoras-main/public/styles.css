@@ -161,5 +161,10 @@ button.grande { width: 100%; padding: 14px 18px; font-size: 1.05rem; background:
 .tabla-item img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); box-shadow: var(--sombra); background: #fff; }
 .tabla-item .btn { margin-top: 8px; }
 
+/* Consulta de compra: discreta, se abre solo si el comprador la necesita. */
+.consulta { margin: 8px 4px 0; }
+.consulta summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: .95rem; padding: 6px 0; }
+.consulta[open] { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 12px 20px 16px; box-shadow: var(--sombra); }
+
 [hidden] { display: none !important; }
 @media print { .hero, .no-print { display: none !important; } body { background: #fff; } .tabla-item { break-inside: avoid; } }

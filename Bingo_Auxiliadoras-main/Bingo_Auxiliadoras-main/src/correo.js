@@ -6,26 +6,28 @@ const escHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '
 function crearCorreo({ apiKey, desde, fetchFn = fetch } = {}) {
   const configurado = Boolean(apiKey && desde);
 
-  function mensajeTablas(nombre, seriales, enlace) {
+  function mensajeTablas(nombre, seriales, enlace, codigo) {
     const lista = seriales.join(', ');
     const texto = `Hola ${nombre},\n\nTu pago fue verificado. Tus tablas de bingo: ${lista}.\n`
       + (enlace ? `\nDescárgalas aquí: ${enlace}\n` : '')
+      + (codigo ? `\nCódigo de tu compra: ${codigo} (guárdalo para consultar el estado).\n` : '')
       + '\n¡Gracias por tu compra!';
     const html = `<p>Hola ${escHtml(nombre)},</p><p>Tu pago fue verificado. Tus tablas de bingo: <strong>${escHtml(lista)}</strong>.</p>`
       + (enlace ? `<p><a href="${escHtml(enlace)}">Descargar mis tablas</a></p>` : '')
+      + (codigo ? `<p>Código de tu compra: <strong>${escHtml(codigo)}</strong> (guárdalo para consultar el estado).</p>` : '')
       + '<p>¡Gracias por tu compra!</p>';
     return { asunto: 'Tus tablas del bingo', texto, html };
   }
 
-  function enlaceManual(correo, nombre, seriales, enlace) {
-    const m = mensajeTablas(nombre, seriales, enlace);
+  function enlaceManual(correo, nombre, seriales, enlace, codigo) {
+    const m = mensajeTablas(nombre, seriales, enlace, codigo);
     return `mailto:${encodeURIComponent(correo)}?subject=${encodeURIComponent(m.asunto)}&body=${encodeURIComponent(m.texto)}`;
   }
 
   // Devuelve { estado: 'enviado' | 'manual', enlace? } o lanza error si Resend rechaza el envío.
-  async function enviarTablas({ correo, nombre, seriales, enlace }) {
-    if (!configurado) return { estado: 'manual', enlace: enlaceManual(correo, nombre, seriales, enlace) };
-    const m = mensajeTablas(nombre, seriales, enlace);
+  async function enviarTablas({ correo, nombre, seriales, enlace, codigo }) {
+    if (!configurado) return { estado: 'manual', enlace: enlaceManual(correo, nombre, seriales, enlace, codigo) };
+    const m = mensajeTablas(nombre, seriales, enlace, codigo);
     const res = await fetchFn('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },

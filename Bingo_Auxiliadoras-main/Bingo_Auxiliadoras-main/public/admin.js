@@ -14,7 +14,8 @@ async function api(metodo, url, cuerpo) {
     body: cuerpo ? JSON.stringify(cuerpo) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401) { mostrarLogin(); throw new Error('Sesión vencida. Vuelve a entrar.'); }
+  // En el login, un 401 es "contraseña incorrecta" (el mensaje viene del servidor); en cualquier otra llamada, sesión vencida.
+  if (res.status === 401 && url !== '/admin/login') { mostrarLogin(); throw new Error('Sesión vencida. Vuelve a entrar.'); }
   if (!res.ok) throw new Error(data.error || 'Error inesperado.');
   return data;
 }

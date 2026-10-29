@@ -572,3 +572,34 @@ test('el enlace de WhatsApp usa el número internacional guardado, sin volver a 
   assert.equal(e.telefono, '34612345678');
   assert.match(await s.enlaceWhatsapp(c.id, 'https://bingo.test'), /^https:\/\/wa\.me\/34612345678\?text=/);
 });
+
+test('el código de la compra viaja en el mensaje de WhatsApp y en el correo (automático y manual)', async () => {
+  const wa = []; const mail = [];
+  const whatsapp = {
+    normalizarTelefono: t => String(t).replace(/\D/g, ''),
+    enviarTablas: async x => { wa.push(x); return { estado: 'enviado' }; },
+    enlaceManual: (...a) => `wa:${a[4]}`,
+  };
+  const correo = { enviarTablas: async x => { mail.push(x); return { estado: 'enviado' }; }, enlaceManual: (...a) => `mailto:${a[4]}` };
+  const s = await nuevo({ whatsapp, correo });
+  await tablas(s, 3);
+  const c = await comprar(s, 1);
+  await verificarTodo(s, c.id);
+  const e = await s.enviarTablas(c.id, { canales: { whatsapp: true, correo: true } });
+  assert.equal(wa[0].codigo, e.codigo);
+  assert.equal(mail[0].codigo, e.codigo);
+  assert.equal(await s.enlaceWhatsapp(c.id, 'https://x.test'), `wa:${e.codigo}`);
+  assert.equal(await s.enlaceCorreo(c.id, 'https://x.test'), `mailto:${e.codigo}`);
+});
+
+test('los mensajes reales incluyen el código de compra', () => {
+  const { crearWhatsApp } = require('../src/whatsapp');
+  const { crearCorreo } = require('../src/correo');
+  const w = crearWhatsApp({});
+  assert.match(w.mensajeTablas('Ana', ['3', '25'], 'https://x.test/t', 'BNG-4K7P2X'), /Código de tu compra: BNG-4K7P2X/);
+  assert.doesNotMatch(w.mensajeTablas('Ana', ['3'], null, undefined), /Código de tu compra/);
+  const m = crearCorreo({}).mensajeTablas('Ana', ['3'], 'https://x.test/t', 'BNG-4K7P2X');
+  assert.match(m.texto, /BNG-4K7P2X/);
+  assert.match(m.html, /<strong>BNG-4K7P2X<\/strong>/);
+  assert.match(decodeURIComponent(w.enlaceManual('573001234567', 'Ana', ['3'], null, 'BNG-4K7P2X')), /BNG-4K7P2X/);
+});

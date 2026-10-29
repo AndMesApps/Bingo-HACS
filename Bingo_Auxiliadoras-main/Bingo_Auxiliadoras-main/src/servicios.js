@@ -524,7 +524,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
 
   async function entregarWhatsApp(c, seriales, enlace) {
     try {
-      const r = await whatsapp.enviarTablas({ telefono: c.telefono, nombre: c.nombre, seriales, enlace });
+      const r = await whatsapp.enviarTablas({ telefono: c.telefono, nombre: c.nombre, seriales, enlace, codigo: c.codigo });
       if (r.estado === 'enviado') {
         await q("UPDATE compras SET whatsapp_estado = 'enviado', whatsapp_error = NULL WHERE id = $1", [c.id]);
         await bitacora('tablas enviadas', `${c.codigo} por WhatsApp`);
@@ -540,7 +540,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
 
   async function entregarCorreo(c, seriales, enlace) {
     try {
-      const r = await correo.enviarTablas({ correo: c.correo, nombre: c.nombre, seriales, enlace });
+      const r = await correo.enviarTablas({ correo: c.correo, nombre: c.nombre, seriales, enlace, codigo: c.codigo });
       if (r.estado === 'enviado') {
         await q("UPDATE compras SET correo_estado = 'enviado', correo_error = NULL WHERE id = $1", [c.id]);
         await bitacora('tablas enviadas', `${c.codigo} por correo`);
@@ -556,13 +556,13 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
 
   async function enlaceWhatsapp(compraId, baseUrl) {
     const { c, seriales } = await datosEntrega(compraId);
-    return whatsapp.enlaceManual(c.telefono, c.nombre, seriales, enlaceEntrega(baseUrl, c.token_entrega));
+    return whatsapp.enlaceManual(c.telefono, c.nombre, seriales, enlaceEntrega(baseUrl, c.token_entrega), c.codigo);
   }
 
   async function enlaceCorreo(compraId, baseUrl) {
     const { c, seriales } = await datosEntrega(compraId);
     if (!c.correo) throw new ErrorApp('Esta compra no tiene correo registrado.', 409);
-    return correo.enlaceManual(c.correo, c.nombre, seriales, enlaceEntrega(baseUrl, c.token_entrega));
+    return correo.enlaceManual(c.correo, c.nombre, seriales, enlaceEntrega(baseUrl, c.token_entrega), c.codigo);
   }
 
   // Confirma a mano un envío que se hizo fuera del sistema (enlace wa.me / mailto).
