@@ -1043,6 +1043,8 @@ test('premio: la entrega registra quién recibió', async () => {
   const e = await s.pagarPremio(p.id, { recibidoPor: 'Ana Pérez CC 123', nota: 'Entregado en el evento' });
   assert.equal(e.pagado, true);
   assert.equal(e.recibidoPor, 'Ana Pérez CC 123');
+});
+
 test('envío automático: al verificar el pago se asignan y envían las tablas pedidas', async () => {
   const enviados = [];
   const correo = { configurado: true, enviarTablas: async x => { enviados.push(['correo', x.correo]); return { estado: 'enviado' }; }, enlaceManual: () => '' };
