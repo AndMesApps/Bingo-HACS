@@ -332,10 +332,12 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     // Lo que sobra al pagar por encima de las tablas que cubre el valor (consignación o efectivo):
     // el comprador decide si lo dona o si se lo devolvemos, y en ese caso deja una nota de cómo.
     const cubiertas = tablasPorMonto(montoPagado, e.precioTabla);
-    // Si lo pagado no alcanza para una tabla, solo se acepta como donación (cantidad 0); para comprar debe completarlo
-    // con otro pago en el mismo formulario.
-    const donacion = cubiertas < 1;
-    if (donacion && String(datos.valorInsuficiente ?? '').trim() !== 'donacion') {
+    // Quien paga puede decidir donar todo sin tablas (cantidad 0), tenga o no derecho a alguna. Si lo pagado no alcanza
+    // para una tabla, solo se acepta como donación; para comprar debe completarlo con otro pago en el mismo formulario.
+    const donarSinTablas = datos.donarSinTablas === true || datos.donarSinTablas === 'si'
+      || (cubiertas < 1 && String(datos.valorInsuficiente ?? '').trim() === 'donacion');
+    const donacion = cubiertas < 1 || donarSinTablas;
+    if (cubiertas < 1 && !donarSinTablas) {
       throw new ErrorApp(`El valor mínimo es ${e.precioTabla} (una tabla) y llevas ${montoPagado}. Agrega otro pago para completarlo o elige donar ese dinero.`);
     }
     const cantidad = donacion ? 0 : enteroPositivo(datos.cantidad, 'El número de tablas');
@@ -416,6 +418,39 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     } else if (c.estado === 'por_verificar') {
       await t("UPDATE compras SET estado = 'verificada', verificada_en = $1 WHERE id = $2", [ahora(), c.id]);
     }
+  }
+
+  // Cambio de opinión: quien donó sin tablas decide recibirlas. La compra vuelve al flujo normal (por verificar, o lista
+  // para enviar si el pago ya estaba verificado) con la cantidad que cubre su pago o la que indique quien administra.
+  async function convertirDonacion(compraId, { cantidad } = {}) {
+    await db.tx(async t => {
+      await t('SELECT pg_advisory_xact_lock($1)', [LOCK_VENTAS]);
+      const [c] = await t('SELECT * FROM compras WHERE id = $1 FOR UPDATE', [compraId]);
+      if (!c) throw new ErrorApp('Compra no encontrada.', 404);
+      if (c.cantidad !== 0 || !['por_verificar', 'donacion'].includes(c.estado)) {
+        throw new ErrorApp('Esta compra no es una donación sin tablas.', 409);
+      }
+      const [{ id: activo }] = await t("SELECT id FROM bingos WHERE estado = 'activo'");
+      if (c.bingo_id !== activo) throw new ErrorApp('Esta donación es de un Bingo cerrado: no se le pueden asignar tablas.', 409);
+      const precio = num(c.precio_unitario);
+      const monto = c.estado === 'donacion'
+        ? await pagadoDe(compraId, t)
+        : redondear(num((await t("SELECT COALESCE(SUM(monto_reportado), 0) AS n FROM pagos WHERE compra_id = $1 AND estado <> 'rechazado'", [compraId]))[0].n));
+      const cubiertas = tablasPorMonto(monto, precio);
+      if (cubiertas < 1) throw new ErrorApp(`El pago (${monto}) no alcanza para una tabla (${precio}).`, 409);
+      const n = enteroPositivo(cantidad ?? cubiertas, 'La cantidad de tablas');
+      if (n > MAX_TABLAS_POR_COMPRA) throw new ErrorApp(`Máximo ${MAX_TABLAS_POR_COMPRA} tablas por compra.`);
+      if (n > cubiertas) throw new ErrorApp(`El pago cubre solo ${cubiertas} tabla(s) a ${precio}.`, 409);
+      if (n > await tablasLibresParaVender(t)) throw new ErrorApp('No hay suficientes tablas disponibles para esta cantidad.', 409);
+      // Deja de ser donación: el sobrante (lo pagado por encima de las tablas) se define al enviar, como en cualquier compra.
+      await t(
+        `UPDATE compras SET cantidad = $1, total = $2::numeric, estado = $3::text, sobrante_destino = '', sobrante_nota = '',
+           sobrante_monto = 0, sobrante_estado = 'ninguno', sobrante_en = NULL WHERE id = $4`,
+        [n, redondear(n * precio), c.estado === 'donacion' ? 'verificada' : 'por_verificar', compraId],
+      );
+      await bitacora('donación cambiada a compra', `${c.codigo}: ${n} tabla(s)`, t);
+    });
+    return detalleCompra(compraId);
   }
 
   async function registrarPagoManual(compraId, datos) {
@@ -1006,7 +1041,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     evento, actualizarEvento,
     tablasDisponibles, tablasLibresParaVender, generarTablas, importarTablas, listarTablas,
     crearCompra, estadoPublico, detalleCompra, listarCompras,
-    registrarPagoManual, verificarPago, rechazarPago,
+    registrarPagoManual, verificarPago, rechazarPago, convertirDonacion,
     enviarTablas, reenviar, enlaceWhatsapp, enlaceCorreo, marcarEnviadoManual, entregaFisica, entregaPublica, rechazarCompra,
     gestionarSobrante, listarSobrantes, datosSelloEntrega,
     comprobanteDe,

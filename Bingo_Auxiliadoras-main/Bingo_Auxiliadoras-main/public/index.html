@@ -88,6 +88,12 @@
         <span class="num" id="calc-n">0</span>
         <span class="txt" id="calc-txt">Escribe el valor pagado para ver cuántas tablas corresponden.</span>
       </div>
+      <div class="calc" id="donar-box" style="margin-top:14px;display:block" hidden>
+        <label style="display:flex;gap:10px;align-items:flex-start;font-weight:600">
+          <input type="checkbox" name="donarSinTablas" value="si" style="margin-top:4px">
+          <span>Prefiero donar todo este dinero a las Hermanas y no recibir tablas</span></label>
+        <p class="muted" style="margin:8px 0 0" id="donar-ayuda">Si más adelante cambias de opinión, avísanos y la administración podrá enviarte tus tablas.</p>
+      </div>
       <div class="calc alerta" id="insuf-box" style="margin-top:14px;display:block" hidden>
         <p style="margin:0 0 10px"><strong id="insuf-txt"></strong></p>
         <div class="metodos" role="radiogroup" aria-label="Qué hacer con un valor menor al de una tabla">
@@ -330,6 +336,18 @@ function actualizarExtras() {
   }
 }
 
+// Con derecho a una o más tablas se ofrece donar todo sin recibirlas. Devuelve true si el comprador eligió donar
+// (con menos de una tabla, esa decisión es la opción "Lo dono" de abajo). Sin tablas no se pide cantidad.
+function mostrarDonar(n) {
+  const f = $('form');
+  $('donar-box').hidden = n < 1;
+  if (n < 1) f.donarSinTablas.checked = false;
+  const donando = n >= 1 ? f.donarSinTablas.checked
+    : f.querySelector('input[name="valorInsuficiente"]:checked')?.value === 'donacion';
+  $('campo-cantidad').hidden = donando;
+  return n >= 1 && donando;
+}
+
 // Con menos de lo que vale una tabla: se informa el mínimo y se pregunta si dona o completa con otro pago aquí mismo.
 function mostrarInsuficiente(valor) {
   const f = $('form');
@@ -340,7 +358,6 @@ function mostrarInsuficiente(valor) {
     if (!visible) r.checked = false;
   }
   const eleccion = visible ? f.querySelector('input[name="valorInsuficiente"]:checked')?.value : '';
-  $('campo-cantidad').hidden = eleccion === 'donacion';
   $('insuf-agregar').hidden = eleccion !== 'completar';
   if (!visible) return;
   const faltan = Math.round((evento.precioTabla - valor) * 100) / 100;
@@ -369,13 +386,18 @@ function actualizar() {
     $('calc-txt').textContent = 'Escribe el valor pagado para ver cuántas tablas corresponden.';
     mostrarSobrante(0, 0);
     mostrarInsuficiente(0);
+    mostrarDonar(0);
     return;
   }
   const n = Math.floor(valor / evento.precioTabla + 1e-9);
   $('calc-n').textContent = n;
   mostrarInsuficiente(n < 1 ? valor : 0);
-  mostrarSobrante(n, n >= 1 ? Math.round((valor - n * evento.precioTabla) * 100) / 100 : 0);
-  if (n < 1) {
+  const donando = mostrarDonar(n);
+  mostrarSobrante(donando ? 0 : n, n >= 1 && !donando ? Math.round((valor - n * evento.precioTabla) * 100) / 100 : 0);
+  if (donando) {
+    calc.classList.add('alerta');
+    $('calc-txt').textContent = `Con ${dinero(valor, evento.moneda)} te corresponden ${n} tabla(s), pero elegiste donar todo: no se te asignarán tablas.`;
+  } else if (n < 1) {
     calc.classList.add('alerta');
     $('calc-txt').textContent = `Con ${dinero(valor, evento.moneda)} no alcanza para una tabla (${dinero(evento.precioTabla, evento.moneda)} c/u).`;
   } else if (pedidas > 0 && n !== pedidas) {
@@ -460,7 +482,7 @@ $('form').addEventListener('submit', async e => {
     $('codigo').textContent = data.codigo;
     if (data.donacion) {
       $('res-titulo').textContent = '¡Gracias por tu donación!';
-      $('res-texto').textContent = 'Cuando verifiquemos tu pago quedará registrada tu donación para la obra de las Hermanas.';
+      $('res-texto').textContent = 'Cuando verifiquemos tu pago quedará registrada tu donación para la obra de las Hermanas. Si cambias de opinión y quieres tus tablas, escríbenos con tu código y la administración podrá enviártelas.';
     }
     $('resultado').hidden = false;
     $('form').hidden = true;

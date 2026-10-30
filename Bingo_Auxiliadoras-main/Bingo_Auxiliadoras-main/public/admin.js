@@ -184,7 +184,7 @@ function tarjetaCompra(c) {
   const saldo = c.saldo > 0 ? `<span class="neg">Debe ${dinero(c.saldo)}</span>` : '<span>Al día</span>';
   const contacto = [c.codigo, c.telefono, c.correo, c.ciudad, c.cedula ? 'CC ' + c.cedula : ''].filter(Boolean).map(esc).join(' · ');
   const resumenPago = c.cantidad === 0
-    ? `Donación (pagó menos que una tabla y decidió donarlo) · Verificado ${dinero(c.pagado)}`
+    ? `Donación sin tablas · Verificado ${dinero(c.pagado)} · con su pago le corresponderían ${c.estado === 'donacion' ? c.tablasSugeridas : c.tablasReportadas} tabla(s)`
     : c.estado === 'por_verificar'
     ? `Pidió ${c.cantidad} tabla(s) · el pago reportado alcanza para ${c.tablasReportadas}`
     : `Pidió ${c.cantidad} tabla(s)${c.tablasAprobadas ? ` · se enviaron ${c.tablasAprobadas}` : ''} · Total ${dinero(c.total)} · Pagado ${dinero(c.pagado)} · ${saldo}`;
@@ -297,6 +297,13 @@ function botonesCompra(c) {
   if (c.estado === 'por_verificar' || c.estado === 'verificada') {
     b.push(`<button type="button" class="danger" data-act="rechazar" data-id="${c.id}">Rechazar compra</button>`);
   }
+  // Cambio de opinión de quien donó sin tablas: pasa a ser una compra normal y se le pueden enviar.
+  if (c.cantidad === 0 && (c.estado === 'por_verificar' || c.estado === 'donacion')) {
+    const sugeridas = c.estado === 'donacion' ? c.tablasSugeridas : c.tablasReportadas;
+    if (sugeridas >= 1) {
+      b.push(`<button type="button" data-act="donacion-a-compra" data-id="${c.id}" data-sugeridas="${sugeridas}" data-estado="${c.estado}">Quiere sus tablas (cambiar la donación)</button>`);
+    }
+  }
   return b.join('');
 }
 
@@ -395,6 +402,17 @@ $('vista').addEventListener('click', async e => {
       const { enlace } = await api('GET', `/admin/compras/${id}/${act === 'enlace' ? 'enlace-whatsapp' : 'enlace-correo'}`);
       window.open(enlace, '_blank', 'noopener');
       msg('Se abrió el mensaje. Envíalo y luego usa "Marcar enviado".');
+    }
+    if (act === 'donacion-a-compra') {
+      const sugeridas = Number(btn.dataset.sugeridas);
+      const texto = prompt(`Esta persona donó sin tablas. ¿Cuántas tablas se le enviarán? (su pago cubre hasta ${sugeridas})`, String(sugeridas));
+      if (texto === null) return;
+      await api('POST', `/admin/compras/${id}/convertir-donacion`, { cantidad: Number(texto) });
+      filtroCompras = btn.dataset.estado === 'donacion' ? 'verificada' : 'por_verificar';
+      msg(btn.dataset.estado === 'donacion'
+        ? 'Listo: la compra quedó en "Listas para enviar". Envíale las tablas desde ahí.'
+        : 'Listo: la compra quedó por verificar como una compra normal.');
+      return mostrar('compras');
     }
     if (act === 'marcar') {
       await api('POST', `/admin/compras/${id}/envio-manual`, { canal });

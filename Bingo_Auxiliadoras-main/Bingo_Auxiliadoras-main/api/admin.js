@@ -61,6 +61,7 @@ module.exports = async (req, res) => {
       { metodo: 'GET', patron: /^\/sobrantes$/, handler: admin(async (_p, _req, res) => res.json(await servicios.listarSobrantes())) },
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/sobrante$/, handler: admin(async (p, req, res) => res.json(await servicios.gestionarSobrante(id(p), req.body || {}))) },
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/entrega-fisica$/, handler: admin(async (p, req, res) => res.json(await servicios.entregaFisica(id(p), req.body || {}))) },
+      { metodo: 'POST', patron: /^\/compras\/(\d+)\/convertir-donacion$/, handler: admin(async (p, req, res) => res.json(await servicios.convertirDonacion(id(p), req.body || {}))) },
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/rechazar$/, handler: admin(async (p, req, res) => res.json(await servicios.rechazarCompra(id(p)))) },
 
       { metodo: 'POST', patron: /^\/pagos\/(\d+)\/verificar$/, handler: admin(async (p, req, res) => res.json(await servicios.verificarPago(id(p), req.body?.montoVerificado))) },
