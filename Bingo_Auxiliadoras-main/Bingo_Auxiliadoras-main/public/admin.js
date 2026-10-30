@@ -1001,12 +1001,17 @@ function renderManual() {
   $('vista').innerHTML = `
     <h2>Manual «Cómo hago…»</h2>
     <div class="card">
+      <p style="margin-top:0"><strong>¿Qué quieres saber?</strong> Escríbelo con tus palabras y te muestro dónde se explica.</p>
+      <div id="buscador-panel"></div>
+    </div>
+    <div class="card">
       <p>Explica paso a paso todo lo que se puede hacer en el Bingo, con letra grande y lenguaje sencillo.</p>
       <div class="actions"><a class="btn" href="/manual.html#parte-b" target="_blank" rel="noopener">Abrir el manual completo</a>
         <a class="btn ghost" href="/manual.html#parte-a" target="_blank" rel="noopener">Guía para el benefactor</a></div>
     </div>
     <h2>Ir directo a una pregunta</h2>
     <div class="card">${temas.map(([id, t]) => `<div class="kv"><span>Cómo hago: ${esc(t)}</span><a class="btn ghost" href="/manual.html#${id}" target="_blank" rel="noopener">Ver</a></div>`).join('')}</div>`;
+  if (window.ayudaMontarBuscador) window.ayudaMontarBuscador($('buscador-panel'), '/manual.html');
 }
 
 // ---------- Gastos ----------
