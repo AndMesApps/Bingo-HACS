@@ -1082,3 +1082,42 @@ test('envío automático: sin correo solo WhatsApp; con pago insuficiente no env
   assert.equal(dbb.estado, 'verificada');
   assert.equal(dbb.tablas.length, 0);
 });
+
+// ---------- Informes ----------
+test('informes: estado de resultados, caja, ventas por referido/ciudad, gastos y premios cuadran', async () => {
+  const s = await nuevo();
+  await tablas(s, 10);
+  const hoy = new Date().toISOString().slice(0, 10);
+  const a = await comprar(s, 2, { referidoPor: 'Hna. María', ciudad: 'Medellín' });
+  const b = await comprar(s, 3, { referidoPor: 'Hna. María', ciudad: 'Cali', metodo: 'Efectivo', comprobantes: undefined });
+  await verificarTodo(s, a.id);
+  await verificarTodo(s, b.id);
+  await s.enviarTablas(a.id);
+  await s.enviarTablas(b.id);
+  await s.crearGasto({ fecha: hoy, concepto: 'Impresión', categoria: 'Impresión', monto: 8 });
+  const premio = await s.crearPremio({ ronda: 'R1', premio: 'Canasta', monto: 12 });
+  const serial = (await s.detalleCompra(a.id)).tablas[0];
+  await s.asignarGanador(premio.id, serial);
+  await s.pagarPremio(premio.id, { recibidoPor: 'Ana' });
+
+  const i = await s.informes({});
+  assert.equal(i.resultados.cobrado, 50);
+  assert.equal(i.resultados.ingresos, 50);
+  assert.equal(i.resultados.premiosPagados, 12);
+  assert.equal(i.resultados.gastos, 8);
+  assert.equal(i.resultados.excedente, 30);
+  assert.equal(i.caja.dias.reduce((t, d) => t + d.total, 0), 50);
+  const ref = i.porReferido.find(r => r.clave === 'Hna. María');
+  assert.deepEqual([ref.compras, ref.tablas, ref.monto], [2, 5, 50]);
+  assert.equal(i.porCiudad.length, 2);
+  assert.equal(i.gastosPorCategoria[0].monto, 8);
+  assert.equal(i.premios[0].estado, 'entregado');
+  assert.equal(i.tablas.vendidas, 5);
+
+  // Rango sin movimientos: todo en cero. Fechas inválidas se rechazan.
+  const vacio = await s.informes({ desde: '2000-01-01', hasta: '2000-01-31' });
+  assert.equal(vacio.resultados.cobrado, 0);
+  assert.equal(vacio.caja.dias.length, 0);
+  await assert.rejects(() => s.informes({ desde: 'ayer' }), /no es válida/);
+  await assert.rejects(() => s.informes({ desde: '2026-02-02', hasta: '2026-01-01' }), /posterior/);
+});

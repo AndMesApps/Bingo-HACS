@@ -1,0 +1,901 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manual del Bingo: Cómo hago…</title>
+<meta name="robots" content="noindex">
+<style>
+  :root { --azul: #106080; --marino: #0F3448; --dorado: #C9A24B; --fondo: #F6F4EE; --texto: #1d2a33; --linea: #cfd8dc; --ok: #1b6e3a; --aviso: #fff4d6; --avisoborde: #C9A24B; }
+  * { box-sizing: border-box; }
+  html { font-size: 20px; }
+  body { margin: 0; background: var(--fondo); color: var(--texto); font-family: "Segoe UI", Roboto, Arial, sans-serif; line-height: 1.6; }
+  header.portada { background: linear-gradient(135deg, var(--marino), var(--azul)); color: #fff; padding: 22px 16px; border-bottom: 5px solid var(--dorado); }
+  .ancho { max-width: 860px; margin: 0 auto; padding: 0 16px; }
+  header.portada .ancho { display: flex; gap: 16px; align-items: center; }
+  header.portada img { width: 72px; height: 72px; border-radius: 50%; border: 3px solid #fff; background: #fff; }
+  header.portada h1 { margin: 0; font-size: 1.5rem; line-height: 1.2; }
+  header.portada p { margin: 4px 0 0; opacity: .92; font-size: .9rem; }
+  .barra { background: #fff; border-bottom: 1px solid var(--linea); padding: 10px 0; position: sticky; top: 0; z-index: 5; }
+  .barra .ancho { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .barra span { font-weight: 600; }
+  button, .boton { font: inherit; font-weight: 700; background: var(--azul); color: #fff; border: 0; border-radius: 12px; padding: 10px 18px; cursor: pointer; text-decoration: none; display: inline-block; }
+  button.claro, .boton.claro { background: #fff; color: var(--azul); border: 2px solid var(--azul); }
+  main { padding: 20px 0 60px; }
+  h2, .parte { scroll-margin-top: 84px; }
+  h2 { font-size: 1.55rem; color: var(--marino); border-bottom: 4px solid var(--dorado); padding-bottom: 6px; margin: 44px 0 10px; line-height: 1.25; }
+  h3 { font-size: 1.25rem; color: var(--azul); margin: 28px 0 6px; line-height: 1.3; }
+  h4 { font-size: 1.05rem; margin: 18px 0 4px; }
+  p, li { font-size: 1rem; }
+  .parte { background: var(--marino); color: #fff; border-radius: 14px; padding: 16px 20px; margin: 48px 0 8px; }
+  .parte h2 { color: #fff; border: 0; margin: 0; }
+  .parte p { margin: 4px 0 0; }
+  .indice { background: #fff; border: 2px solid var(--linea); border-radius: 14px; padding: 8px 20px 16px; margin: 18px 0; }
+  .indice h2 { margin-top: 14px; font-size: 1.3rem; }
+  .indice ol { margin: 6px 0; padding-left: 1.6rem; }
+  .indice li { margin: 6px 0; }
+  .indice a { color: var(--azul); font-weight: 600; }
+  .tarjeta { background: #fff; border: 1px solid var(--linea); border-radius: 14px; padding: 4px 20px 20px; margin: 14px 0; }
+  ol.pasos { list-style: none; counter-reset: paso; padding: 0; margin: 12px 0; }
+  ol.pasos > li { counter-increment: paso; position: relative; padding: 4px 0 14px 58px; min-height: 48px; }
+  ol.pasos > li::before { content: counter(paso); position: absolute; left: 0; top: 0; width: 42px; height: 42px; border-radius: 50%; background: var(--azul); color: #fff; font-weight: 800; font-size: 1.15rem; display: flex; align-items: center; justify-content: center; }
+  .ojo, .ok, .nota { border-radius: 12px; padding: 10px 16px; margin: 12px 0; }
+  .ojo { background: var(--aviso); border: 2px solid var(--avisoborde); }
+  .ok { background: #e6f4ea; border: 2px solid #7fbf91; }
+  .nota { background: #eaf2f6; border: 2px solid #a9c6d4; }
+  .ojo::before { content: "⚠ Ojo: "; font-weight: 800; }
+  .ok::before { content: "✔ Así sabrás que salió bien: "; font-weight: 800; color: var(--ok); }
+  .nota::before { content: "ℹ Para que sepas: "; font-weight: 800; }
+  .boton-texto { display: inline-block; background: var(--azul); color: #fff; border-radius: 8px; padding: 1px 10px; font-weight: 700; white-space: nowrap; }
+  .pestana { display: inline-block; border: 2px solid var(--azul); color: var(--azul); border-radius: 999px; padding: 0 12px; font-weight: 700; white-space: nowrap; }
+  .campo { font-weight: 700; border-bottom: 2px dotted var(--azul); }
+  .volver { display: inline-block; margin-top: 8px; font-size: .9rem; color: var(--azul); font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: .95rem; }
+  th, td { border: 1px solid var(--linea); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #eef3f5; }
+  code { background: #eef3f5; padding: 1px 6px; border-radius: 6px; font-size: .92em; }
+  footer { text-align: center; color: #5a6b75; font-size: .85rem; padding: 24px 16px 40px; }
+  @media print {
+    .barra, .volver, .no-imprimir { display: none !important; }
+    html { font-size: 13pt; }
+    body { background: #fff; }
+    h2 { break-after: avoid; } .tarjeta, ol.pasos > li { break-inside: avoid; }
+    header.portada { background: #fff; color: #000; border-bottom: 3px solid #000; } header.portada img { border-color: #000; }
+    .parte { background: #fff; color: #000; border: 2px solid #000; } .parte h2 { color: #000; }
+  }
+</style>
+</head>
+<body>
+
+<header class="portada">
+  <div class="ancho">
+    <img src="img/logo-hacs.jpg" alt="Logo de las Hermanas Auxiliadoras de Cristo Sacerdote">
+    <div>
+      <h1>Manual del Bingo: «Cómo hago…»</h1>
+      <p>Hermanas Auxiliadoras de Cristo Sacerdote · Explicado paso a paso, sin prisa</p>
+    </div>
+  </div>
+</header>
+
+<div class="barra no-imprimir">
+  <div class="ancho">
+    <span>Tamaño de la letra:</span>
+    <button type="button" class="claro" id="letra-menos" aria-label="Letra más pequeña">A −</button>
+    <button type="button" class="claro" id="letra-mas" aria-label="Letra más grande">A +</button>
+    <button type="button" class="claro" onclick="window.print()">Imprimir este manual</button>
+    <a class="boton claro" href="#indice">Ir al índice</a>
+  </div>
+</div>
+
+<main>
+<div class="ancho">
+
+<div class="tarjeta" style="margin-top:20px">
+  <h3 style="margin-top:14px">¿Cómo uso este manual?</h3>
+  <p>Este manual explica <strong>todo</strong> lo que se puede hacer en el Bingo, paso por paso. No hace falta saber de computadores. Si no entiendes algo, vuelve a leer con calma: cada paso dice <strong>dónde tocar</strong> y <strong>qué vas a ver</strong>.</p>
+  <ul>
+    <li>Los <span class="boton-texto">botones azules</span> se escriben así: tocas el botón con ese mismo nombre.</li>
+    <li>Las <span class="pestana">pestañas</span> son las palabras redondeadas que están arriba en el panel de administración.</li>
+    <li>Los <span class="campo">espacios para escribir</span> se escriben así.</li>
+    <li>Si tienes la letra muy pequeña, usa los botones <strong>A +</strong> y <strong>A −</strong> de arriba.</li>
+    <li>Puedes imprimir este manual con el botón <strong>Imprimir este manual</strong>.</li>
+  </ul>
+  <div class="nota">En todas las pantallas de la aplicación hay, <strong>abajo a la derecha</strong>, un botón azul con una <strong>burbuja de tres puntitos</strong> y la palabra <strong>«Ayuda»</strong>. Tócalo y se abre este manual.</div>
+  <div class="nota">Hay dos partes. La <strong>Parte A</strong> es para el <strong>benefactor</strong> (la persona que compra tablas). La <strong>Parte B</strong> es para quien <strong>administra</strong> el Bingo (verifica pagos, envía tablas, canta las balotas y entrega premios).</div>
+</div>
+
+<nav class="indice" id="indice" aria-label="Índice">
+  <h2>Índice: ¿qué quieres hacer?</h2>
+  <h3>Parte A · Soy benefactor (compro tablas)</h3>
+  <ol>
+    <li><a href="#a1">Cómo hago para comprar mis tablas</a></li>
+    <li><a href="#a2">Cómo hago para pagar (consignación, llave, QR o efectivo)</a></li>
+    <li><a href="#a3">Cómo hago para subir el comprobante de pago</a></li>
+    <li><a href="#a4">Qué hago si pagué más de lo que valen mis tablas (sobrante)</a></li>
+    <li><a href="#a5">Qué hago si pagué menos del valor de una tabla</a></li>
+    <li><a href="#a6">Cómo hago para donar todo mi dinero sin recibir tablas</a></li>
+    <li><a href="#a7">Cómo hago para saber cómo va mi compra</a></li>
+    <li><a href="#a8">Cómo hago para ver, descargar e imprimir mis tablas</a></li>
+    <li><a href="#a9">Qué hago si no me llegaron mis tablas o perdí mi código</a></li>
+  </ol>
+  <h3>Parte B · Administro el Bingo</h3>
+  <ol start="10">
+    <li><a href="#b1">Cómo hago para entrar y salir del panel de administración</a></li>
+    <li><a href="#b2">Cómo hago para conocer el panel (qué hay en cada pestaña)</a></li>
+    <li><a href="#b3">Cómo hago para configurar el Bingo (precio, cuenta, QR, invitación)</a></li>
+    <li><a href="#b4">Cómo hago para invitar a la gente (compartir el enlace)</a></li>
+    <li><a href="#b5">Cómo hago para verificar un pago</a></li>
+    <li><a href="#b6">Cómo hago para enviar las tablas a un benefactor</a></li>
+    <li><a href="#b7">Cómo hago para reintentar o enviar a mano un WhatsApp o un correo</a></li>
+    <li><a href="#b8">Cómo hago para registrar un pago en efectivo que recibí en mano</a></li>
+    <li><a href="#b9">Cómo hago para rechazar un pago o una compra</a></li>
+    <li><a href="#b10">Cómo hago con el dinero sobrante (donar o devolver)</a></li>
+    <li><a href="#b11">Cómo hago cuando alguien que donó cambia de opinión y quiere sus tablas</a></li>
+    <li><a href="#b12">Cómo hago para buscar una compra o ver quién compró qué (Transacciones)</a></li>
+    <li><a href="#b13">Cómo hago para ver las tablas y saber a quién se vendió cada una</a></li>
+    <li><a href="#b14">Cómo hago para crear los premios (rondas)</a></li>
+    <li><a href="#b15">Cómo hago para cantar el Bingo en vivo (balotas)</a></li>
+    <li><a href="#b16">Cómo hago cuando alguien grita «¡Bingo!»</a></li>
+    <li><a href="#b17">Cómo hago para entregar un premio y dejar constancia</a></li>
+    <li><a href="#b18">Cómo hago para anotar los gastos</a></li>
+    <li><a href="#b19">Cómo hago para entender el Resumen (los números de la primera pestaña)</a></li>
+    <li><a href="#b20">Cómo hago para sacar informes (imprimir, PDF, Excel)</a></li>
+    <li><a href="#b21">Cómo hago para descargar los reportes en Excel</a></li>
+    <li><a href="#b22">Cómo hago para que las tablas se envíen solas al verificar el pago</a></li>
+    <li><a href="#b23">Cómo hago para empezar un Bingo nuevo (reiniciar)</a></li>
+    <li><a href="#b24">Cómo hago para ver qué se ha hecho en el sistema (Bitácora)</a></li>
+    <li><a href="#b25">Si algo sale mal: qué hago cuando…</a></li>
+  </ol>
+  <h3>Al final</h3>
+  <ol start="35">
+    <li><a href="#glosario">Palabras que aparecen en la aplicación y qué significan</a></li>
+  </ol>
+</nav>
+
+<!-- =========================== PARTE A =========================== -->
+<div class="parte" id="parte-a">
+  <h2>Parte A · Soy benefactor</h2>
+  <p>Para quien quiere comprar tablas del Bingo. Solo necesitas tu celular o un computador con internet.</p>
+</div>
+
+<h2 id="a1">1. Cómo hago para comprar mis tablas</h2>
+<div class="tarjeta">
+<p>Compras desde una página de internet. Quien organiza el Bingo te envía el <strong>enlace</strong> (la dirección de la página) por WhatsApp. Cuando lo tocas, se abre el formulario.</p>
+<ol class="pasos">
+  <li><strong>Abre el enlace</strong> que te enviaron por WhatsApp. Verás el logo de las Hermanas y la frase «Gracias por acompañarnos en esta obra benéfica».</li>
+  <li><strong>Paso «1 Tus datos».</strong> Escribe:
+    <ul>
+      <li><span class="campo">Nombre completo</span>: tu nombre y apellidos.</li>
+      <li><span class="campo">País desde el que compras</span>: toca y elige tu país. Si estás en Colombia ya aparece Colombia.</li>
+      <li><span class="campo">Celular (WhatsApp)</span>: escribe tu número <strong>sin</strong> el indicativo del país. Ejemplo: <code>3001234567</code>. Por este número te llegarán tus tablas.</li>
+      <li><span class="campo">Ciudad</span>: la ciudad donde vives.</li>
+      <li><span class="campo">¿A través de quién te enteraste del bingo?</span>: escribe el nombre de la persona o hermana que te invitó.</li>
+      <li><span class="campo">Correo electrónico</span>: es <strong>opcional</strong>. Si lo escribes, te enviaremos las tablas también por correo.</li>
+    </ul>
+  </li>
+  <li><strong>Paso «2 Realiza tu pago».</strong> Aquí ves el <strong>precio por tabla</strong> y los datos de la cuenta. Ve al punto 2 de este manual para pagar.</li>
+  <li><strong>Paso «3 Cuéntanos tu pago».</strong> Eliges si pagaste por <em>Consignación</em> o en <em>Efectivo</em>, y escribes cuánto pagaste, la fecha y subes el comprobante. Te lo explico en los puntos 2 y 3.</li>
+  <li><strong>Paso «4 Tus tablas».</strong> La página calcula sola cuántas tablas te tocan según lo que pagaste. Verás el número grande. Si quieres menos tablas de las que pagaste, lee el punto 4.</li>
+  <li>Toca el botón <span class="boton-texto">Enviar mi compra</span>.</li>
+</ol>
+<div class="ok">aparece el mensaje <strong>«¡Gracias! Recibimos tu compra»</strong> y un <strong>código</strong> que empieza por <code>BNG-</code>. Toca <span class="boton-texto">Copiar</span> y guárdalo (por ejemplo, envíatelo por WhatsApp a ti mismo).</div>
+<div class="ojo">Tus tablas <strong>no llegan al instante</strong>. Primero una persona de la organización revisa tu pago. Cuando lo confirme, te enviamos las tablas por WhatsApp (y por correo si lo escribiste). A veces tarda un rato; ten paciencia.</div>
+<div class="nota">Puedes comprar hasta 50 tablas en una sola compra. Si todavía no se abrieron las ventas, el formulario dice «Las compras aún no están abiertas. Vuelve pronto.»</div>
+<p>Una tabla <strong>nunca</strong> se le entrega a dos personas. Además, cada tabla que recibes lleva escrito tu nombre y tu teléfono, y solo sirve para ti.</p>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="a2">2. Cómo hago para pagar</h2>
+<div class="tarjeta">
+<p>En el paso <strong>«2 Realiza tu pago»</strong> de la página verás: el <strong>precio por tabla</strong>, el <strong>titular</strong>, el <strong>banco</strong>, el <strong>tipo de cuenta</strong> (Ahorros o Corriente) y el <strong>número de cuenta</strong>. Si hay, también ves una <strong>llave</strong> y un <strong>código QR</strong>. Elige la forma que te sea más fácil:</p>
+
+<h4>Opción 1 · Consignación en el banco</h4>
+<ol class="pasos">
+  <li>Ve a una sucursal o corresponsal del banco que aparece en la página.</li>
+  <li>Entrega el dinero y da el <strong>número de cuenta</strong> que ves en la página.</li>
+  <li><strong>Guarda el recibo</strong> (el papelito). Le vas a tomar una foto: mira el punto 3.</li>
+</ol>
+
+<h4>Opción 2 · Transferencia con la aplicación del banco</h4>
+<ol class="pasos">
+  <li>Abre la aplicación de tu banco en el celular.</li>
+  <li>Elige transferir y usa el <strong>número de cuenta</strong> de la página.</li>
+  <li>Si tu banco es distinto al de la cuenta, usa la <strong>llave</strong> (si aparece en la página): toca <span class="boton-texto">Copiar</span> al lado de la llave y pégala en tu aplicación del banco, en lugar del número de cuenta.</li>
+  <li>Al terminar, toma una <strong>captura de pantalla</strong> del comprobante.</li>
+</ol>
+
+<h4>Opción 3 · Código QR</h4>
+<ol class="pasos">
+  <li>Abre la aplicación de tu banco y busca la opción <strong>«Pagar con QR»</strong> o <strong>«Escanear»</strong>.</li>
+  <li>Apunta la cámara al QR que está en la página del Bingo. Te lleva directo al pago.</li>
+  <li>Confirma el pago y toma una captura del comprobante.</li>
+</ol>
+
+<h4>Opción 4 · Efectivo</h4>
+<p>Si le entregas el dinero en la mano a una hermana o a alguien de la organización, en el paso 3 elige <strong>«Efectivo»</strong>. <strong>No necesitas comprobante.</strong> Tu compra queda pendiente hasta que alguien confirme que recibió el dinero.</p>
+<div class="ojo">Paga <strong>antes</strong> de enviar el formulario, o inmediatamente después, y escribe el valor exacto que pagaste. Si no pagaste, no se puede entregar ninguna tabla.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="a3">3. Cómo hago para subir el comprobante de pago</h2>
+<div class="tarjeta">
+<p>El comprobante es la <strong>prueba</strong> de que pagaste: la foto del recibo de la consignación o la captura de pantalla de la transferencia.</p>
+<ol class="pasos">
+  <li>En el paso <strong>«3 Cuéntanos tu pago»</strong>, toca <strong>«Consignación»</strong> (si pagaste por banco, transferencia o QR).</li>
+  <li>En <span class="campo">Valor pagado</span> escribe <strong>solo números</strong>, sin puntos ni letras. Ejemplo: <code>40000</code>.</li>
+  <li>En <span class="campo">Fecha del pago</span> toca y elige el día en que pagaste. No puede ser una fecha futura.</li>
+  <li>En <span class="campo">Referencia o número de la consignación</span> escribe el número que aparece en tu recibo. Es <strong>opcional</strong>: si no lo tienes, déjalo vacío.</li>
+  <li>En <span class="campo">Comprobante de la consignación</span> toca el recuadro. Se abre tu celular para elegir:
+    <ul><li>una <strong>foto</strong> que tomes en ese momento del recibo,</li><li>o una <strong>imagen o captura</strong> que ya tengas guardada,</li><li>o un <strong>PDF</strong>.</li></ul>
+    Cada archivo puede pesar <strong>máximo 10 MB</strong>.</li>
+  <li>Espera a que aparezca el nombre del archivo. Ya quedó subido.</li>
+</ol>
+<div class="ok">ves el nombre del archivo debajo del recuadro del comprobante.</div>
+<div class="ojo">Toma la foto con buena luz, de frente, y que se lean bien el <strong>valor</strong>, la <strong>fecha</strong> y el <strong>número</strong>. Si no se lee, quien verifica puede rechazar el pago.</div>
+<div class="nota">Si pagaste <strong>en efectivo</strong>, no hay comprobante que subir.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="a4">4. Qué hago si pagué más de lo que valen mis tablas (sobrante)</h2>
+<div class="tarjeta">
+<p>Ejemplo: cada tabla vale 20.000 y tú pagas 45.000. Con eso te corresponden <strong>2 tablas</strong> (40.000) y <strong>sobran 5.000</strong>. La página te muestra ese sobrante en el paso 4.</p>
+<p>Tú decides qué se hace con el sobrante. Elige una opción:</p>
+<ul>
+  <li><strong>«Lo dono a las Hermanas»</strong>: el sobrante se suma a lo recaudado para la obra benéfica.</li>
+  <li><strong>«Quiero que me lo devuelvan»</strong>: aparece un cuadro <span class="campo">¿Cómo te lo devolvemos? (cuenta, llave, efectivo…)</span>. Escribe ahí cómo quieres recibirlo, por ejemplo: «Nequi 3001234567» o «en efectivo a la Hna. María». La organización lo controla hasta devolvértelo.</li>
+</ul>
+<div class="nota">Esto sirve tanto para pagos por consignación como en efectivo.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="a5">5. Qué hago si pagué menos del valor de una tabla</h2>
+<div class="tarjeta">
+<p>Si lo que pagaste no alcanza ni para una tabla, la página te avisa cuánto vale como mínimo una tabla y te pregunta qué quieres hacer. Elige una:</p>
+<ul>
+  <li><strong>«Lo dono a las Hermanas»</strong>: todo lo que pagaste se convierte en donación. No recibes tablas.</li>
+  <li><strong>«Lo completo con otro pago»</strong>: toca <span class="boton-texto">Agregar otro pago</span>. Aparece una fila nueva para escribir el <span class="campo">valor</span>, la <span class="campo">fecha</span>, la referencia y subir su comprobante. Puedes agregar <strong>hasta 4 pagos más</strong>. Todo se hace en el mismo formulario, no tienes que volver a empezar.</li>
+</ul>
+<div class="ojo">Cuando sumes todos tus pagos, la página muestra cuántas tablas te corresponden. Solo puedes enviar la compra si alcanza para al menos una tabla o si eliges donar.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="a6">6. Cómo hago para donar todo mi dinero sin recibir tablas</h2>
+<div class="tarjeta">
+<p>Si quieres ayudar a las Hermanas pero no quieres tablas:</p>
+<ol class="pasos">
+  <li>Llena tus datos y tu pago normalmente (pasos 1, 2 y 3).</li>
+  <li>En el paso <strong>«4 Tus tablas»</strong> marca la casilla <strong>«Prefiero donar todo este dinero a las Hermanas y no recibir tablas»</strong>.</li>
+  <li>Toca <span class="boton-texto">Enviar mi compra</span>.</li>
+</ol>
+<div class="nota">Si más adelante cambias de opinión, avísale a la organización: ellos pueden enviarte tus tablas.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="a7">7. Cómo hago para saber cómo va mi compra</h2>
+<div class="tarjeta">
+<p>Necesitas tu <strong>código</strong> (el que empieza por <code>BNG-</code> y recibiste al enviar la compra).</p>
+<ol class="pasos">
+  <li>Abre el enlace del Bingo y baja hasta el final de la página.</li>
+  <li>Toca <strong>«¿Ya compraste? Consulta el estado de tu compra»</strong>. Se despliega un recuadro.</li>
+  <li>En <span class="campo">Código de compra</span> escribe tu código completo, con el <code>BNG-</code>.</li>
+  <li>Toca <span class="boton-texto">Consultar</span>.</li>
+</ol>
+<p>Verás tu código, cuántas tablas son y el <strong>estado</strong>:</p>
+<table>
+  <tr><th>Estado</th><th>Qué significa</th></tr>
+  <tr><td>por verificar</td><td>Recibimos tu compra. Falta que alguien revise tu pago.</td></tr>
+  <tr><td>verificada</td><td>Tu pago ya fue confirmado. Están por enviarte las tablas.</td></tr>
+  <tr><td>enviada</td><td>Ya te enviamos tus tablas. Revisa tu WhatsApp (y tu correo).</td></tr>
+  <tr><td>donacion</td><td>Tu dinero se recibió como donación. ¡Gracias!</td></tr>
+  <tr><td>rechazada</td><td>La compra no se pudo aceptar. Comunícate con la organización.</td></tr>
+</table>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="a8">8. Cómo hago para ver, descargar e imprimir mis tablas</h2>
+<div class="tarjeta">
+<p>Cuando tu pago es confirmado, te llega un <strong>mensaje de WhatsApp</strong> con tus números de tabla, un <strong>enlace</strong> y tu código. Si dejaste correo, también te llega allí.</p>
+<ol class="pasos">
+  <li>Abre el mensaje de WhatsApp y toca el <strong>enlace</strong> que dice «Descárgalas aquí». Se abre la página <strong>«Mis tablas del bingo»</strong>.</li>
+  <li>Arriba dice «Hola …, estas son tus tablas. ¡Mucha suerte!». Más abajo ves <strong>cada tabla</strong> con su número: «Tabla N° …».</li>
+  <li>Para <strong>guardar una tabla en el celular</strong>: debajo de la tabla toca <span class="boton-texto">Descargar</span>.</li>
+  <li>Para <strong>imprimirlas</strong> en papel, lo más fácil es el PDF: toca <span class="boton-texto">Descargar PDF para imprimir</span>. El PDF trae <strong>4 tablas por hoja tamaño carta</strong>, con <strong>líneas punteadas para recortarlas</strong>.</li>
+  <li>Si compraste muchas tablas, el PDF viene en partes (cada uno con hasta 20 tablas): verás botones como «PDF 1 · tablas 12 a 31». Descarga todos.</li>
+  <li>También puedes tocar <span class="boton-texto">Imprimir esta página</span> para imprimir directamente lo que ves en pantalla.</li>
+</ol>
+<div class="ok">ves tus tablas con tu nombre y tu teléfono en la banda de abajo y una marca de agua. Eso es normal: así cada tabla es solo tuya.</div>
+<div class="ojo">No compartas tu enlace con otras personas: es privado y es solo tuyo. Si la página dice que las imágenes no están disponibles, verás al menos los <strong>números</strong> de tus tablas y la organización te hará llegar las imágenes.</div>
+<div class="nota">Durante el juego, cuando salgan los números (las balotas), tú marcas en tu tabla (en papel o en la pantalla) los que te salgan. Si completas la figura de la ronda, avisa gritando <strong>«¡Bingo!»</strong> y di el <strong>número de tu tabla</strong>.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="a9">9. Qué hago si no me llegaron mis tablas o perdí mi código</h2>
+<div class="tarjeta">
+<ul>
+  <li><strong>No me llegó el WhatsApp.</strong> Primero consulta el estado (punto 7). Si dice «por verificar», solo falta esperar. Si dice «enviada» y no llegó, avísale a la organización: ellos pueden reenviarlo o enviarte el enlace a mano.</li>
+  <li><strong>Perdí mi código.</strong> Busca el mensaje de WhatsApp o el correo con tus tablas: ahí también viene el código. Si no lo encuentras, dile a la organización tu <strong>nombre</strong> y tu <strong>celular</strong>; ellos pueden buscar tu compra.</li>
+  <li><strong>Me equivoqué al escribir mi celular.</strong> Avísale a la organización lo antes posible, antes de que envíen las tablas.</li>
+  <li><strong>Pagué pero me equivoqué en el valor.</strong> Avísale a la organización: quien verifica pone el valor que realmente recibió.</li>
+</ul>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<!-- =========================== PARTE B =========================== -->
+<div class="parte" id="parte-b">
+  <h2>Parte B · Administro el Bingo</h2>
+  <p>Para las personas de la organización que usan el panel de administración. Aquí se verifica, se envía, se canta y se entrega.</p>
+</div>
+
+<h2 id="b1">10. Cómo hago para entrar y salir del panel de administración</h2>
+<div class="tarjeta">
+<ol class="pasos">
+  <li>Abre en tu navegador la dirección del panel. Es la misma del formulario, pero terminando en <code>/admin.html</code>. Hoy es: <strong><span data-origen>la dirección del Bingo</span>/admin.html</strong>.</li>
+  <li>Verás «Ingreso de administración» y un recuadro <span class="campo">Contraseña</span>.</li>
+  <li>Escribe la contraseña que te dio la persona responsable del sistema.</li>
+  <li>Toca <span class="boton-texto">Entrar</span>.</li>
+</ol>
+<div class="ok">aparece arriba el nombre del Bingo, una fila de pestañas redondeadas y el botón <strong>Salir</strong>.</div>
+<p><strong>Para salir:</strong> toca <span class="boton-texto">Salir</span> arriba a la derecha. Hazlo siempre que uses un computador o celular que no es tuyo.</p>
+<div class="ojo">Si escribes mal la contraseña <strong>10 veces</strong> seguidas, el sistema se bloquea <strong>15 minutos</strong> por seguridad. Espera y vuelve a intentar. Por seguridad, la sesión se cierra sola a las <strong>12 horas</strong>: solo vuelve a entrar.</div>
+<div class="ojo">No le des la contraseña a nadie que no deba verificar pagos. Nunca la escribas en un chat.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b2">11. Cómo hago para conocer el panel (qué hay en cada pestaña)</h2>
+<div class="tarjeta">
+<p>Arriba hay una fila de <span class="pestana">pestañas</span>. Tocas una y abajo cambia la pantalla. Esto hace cada una:</p>
+<table>
+  <tr><th>Pestaña</th><th>Para qué sirve</th></tr>
+  <tr><td><span class="pestana">Resumen</span></td><td>La foto general: el enlace para invitar, el dinero, las tablas y lo pendiente. Es lo primero que ves.</td></tr>
+  <tr><td><span class="pestana">Compras</span></td><td>El trabajo diario: verificar pagos, enviar tablas, rechazar compras, entrega física.</td></tr>
+  <tr><td><span class="pestana">Transacciones</span></td><td>Una lista ordenada de todas las compras para buscar y consultar (solo lectura).</td></tr>
+  <tr><td><span class="pestana">Sobrantes</span></td><td>El dinero pagado de más: donarlo o devolverlo.</td></tr>
+  <tr><td><span class="pestana">Tablas</span></td><td>Todas las tablas del Bingo; ver cuáles están vendidas y a quién.</td></tr>
+  <tr><td><span class="pestana">Sorteo</span></td><td>La pantalla para cantar el Bingo en vivo: el tablero de balotas y la revisión de ganadores.</td></tr>
+  <tr><td><span class="pestana">Premios</span></td><td>Crear las rondas y premios, ver los ganadores y dejar constancia de la entrega.</td></tr>
+  <tr><td><span class="pestana">Gastos</span></td><td>Anotar lo que se gasta en el evento.</td></tr>
+  <tr><td><span class="pestana">Configuración</span></td><td>Nombre, precio, fecha, datos del banco, QR, invitación y opciones del sistema.</td></tr>
+  <tr><td><span class="pestana">Informes</span></td><td>Informes para rendir cuentas: resultados, caja, ventas, gastos. Se pueden imprimir.</td></tr>
+  <tr><td><span class="pestana">Reportes</span></td><td>Descargar listas en Excel.</td></tr>
+  <tr><td><span class="pestana">Bingos</span></td><td>Empezar un Bingo nuevo y ver los anteriores.</td></tr>
+  <tr><td><span class="pestana">Bitácora</span></td><td>El registro de todo lo que se ha hecho en el sistema.</td></tr>
+</table>
+<div class="nota">La pestaña que está en uso aparece resaltada. Si el panel se ve muy ancho en el celular, desliza la fila de pestañas con el dedo.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b3">12. Cómo hago para configurar el Bingo (precio, cuenta, QR, invitación)</h2>
+<div class="tarjeta">
+<p>Entra a la pestaña <span class="pestana">Configuración</span>. Cambia lo que necesites y <strong>al final toca siempre</strong> <span class="boton-texto">Guardar configuración</span>. Si no lo tocas, no se guarda nada.</p>
+
+<h4>Evento</h4>
+<ul>
+  <li><span class="campo">Nombre del evento</span>: por ejemplo «Bingo Virtual Auxiliadoras».</li>
+  <li><span class="campo">Precio por tabla</span>: escribe solo números. <strong>Si lo dejas en 0, las compras quedan cerradas</strong> (nadie puede comprar). Si cambias el precio, solo afecta las compras nuevas; las anteriores no cambian.</li>
+  <li><span class="campo">Moneda</span>: el símbolo, por ejemplo <code>$</code>.</li>
+  <li><span class="campo">Fecha del sorteo</span>: toca y elige el día.</li>
+</ul>
+
+<h4>Datos de pago que ve el comprador</h4>
+<ul>
+  <li><span class="campo">Titular de la cuenta</span>, <span class="campo">Banco</span>, <span class="campo">Tipo de cuenta</span> (Ahorros o Corriente) y <span class="campo">Número de cuenta</span>.</li>
+  <li><span class="campo">Llave</span>: la llave para transferencias desde otros bancos (un celular, correo o código). El comprador la pega en su aplicación en vez del número de cuenta.</li>
+  <li><span class="campo">Instrucciones adicionales</span>: opcional, para cualquier aclaración.</li>
+</ul>
+
+<h4>Código QR de pago</h4>
+<p>Sube la imagen del QR que te dio el banco (formato PNG, JPG o WEBP, que pese <strong>máximo 400 KB</strong>). Toca el botón para elegir el archivo; cuando salga el mensaje «QR listo», toca <span class="boton-texto">Guardar configuración</span>. Para quitarlo: <span class="boton-texto">Quitar QR</span>.</p>
+
+<h4>Invitación: imagen y texto</h4>
+<ul>
+  <li><span class="campo">Texto de la invitación</span>: el mensaje que acompaña la imagen (premios, precio, fecha…). El enlace se agrega solo al final. Si lo dejas vacío, se usa un texto ya preparado.</li>
+  <li><strong>Imagen</strong>: elige la imagen (afiche) de este Bingo. Para quitarla: <span class="boton-texto">Quitar imagen</span>. Cada Bingo tiene su propia invitación.</li>
+</ul>
+
+<h4>Opciones del sistema (casillas)</h4>
+<ul>
+  <li><strong>Enviar las tablas automáticamente al verificar el pago</strong>: mira el punto 31.</li>
+  <li><strong>Exigir que el pago verificado cubra las tablas que se envían</strong>: está marcada y <strong>se recomienda dejarla marcada</strong>. Así nunca se entregan tablas sin haberlas pagado.</li>
+</ul>
+<div class="ok">aparece el mensaje «Configuración guardada.».</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b4">13. Cómo hago para invitar a la gente (compartir el enlace)</h2>
+<div class="tarjeta">
+<p>Todo se hace en la pestaña <span class="pestana">Resumen</span>, arriba, en el cuadro <strong>«Enlace para los benefactores»</strong>.</p>
+
+<h4>Para compartir el enlace solo</h4>
+<ol class="pasos">
+  <li>Toca <span class="boton-texto">Copiar</span> al lado del enlace. Sale el mensaje «Copiado.».</li>
+  <li>Abre WhatsApp, entra al chat o grupo y <strong>pega</strong> (mantén el dedo sobre el recuadro de escribir y elige «Pegar»).</li>
+  <li>Envía. WhatsApp mostrará la imagen del Bingo como vista previa.</li>
+</ol>
+
+<h4>Para compartir la imagen, el texto y el enlace juntos</h4>
+<ol class="pasos">
+  <li>Más abajo, en «Invitación con imagen y texto», toca <span class="boton-texto">Compartir imagen y enlace</span>.</li>
+  <li><strong>En el celular</strong>: se abre la lista de aplicaciones; elige WhatsApp y el chat. Se envían juntos la imagen, el texto y el enlace.</li>
+  <li><strong>En el computador</strong>: se descarga la imagen y se copia el texto. En WhatsApp Web adjunta la imagen y pega el texto.</li>
+  <li>Si el texto no llegó con la imagen, pégalo: ya quedó copiado.</li>
+</ol>
+<div class="nota">Para cambiar la imagen o el texto de la invitación, mira el punto 12 (Configuración). También puedes tocar <span class="boton-texto">Copiar invitación</span> para copiar solo el texto con el enlace.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b5">14. Cómo hago para verificar un pago</h2>
+<div class="tarjeta">
+<p>Es la tarea más importante. Cuando alguien envía una compra, aparece en la pestaña <span class="pestana">Compras</span>.</p>
+<ol class="pasos">
+  <li>Toca la pestaña <span class="pestana">Compras</span>. Arriba hay botones de filtro: <strong>Por verificar</strong>, <strong>Listas para enviar</strong>, <strong>Enviadas</strong>, <strong>Donaciones</strong>, <strong>Rechazadas</strong> y <strong>Todas</strong>.</li>
+  <li>Toca <strong>Por verificar</strong>. Cada compra es una tarjeta con el nombre, el código <code>BNG-…</code>, el celular, la ciudad y si debe o está al día.</li>
+  <li>En cada tarjeta ya viene abierta la sección <strong>«Pagos y comprobantes»</strong>. Verás cuánto <strong>reportó</strong> la persona que pagó.</li>
+  <li>Toca el botón <span class="boton-texto">Ver …</span> (lleva el nombre del archivo) para <strong>abrir el comprobante</strong> y mirarlo.</li>
+  <li><strong>Compara con tu extracto del banco</strong>: ¿el dinero realmente entró? ¿el valor coincide?</li>
+  <li>En <span class="campo">Monto recibido</span> escribe el valor que <strong>realmente</strong> recibiste. Debajo verás «Equivale a N tabla(s)».</li>
+  <li>Si todo está bien, toca <span class="boton-texto">Verificar pago</span>.</li>
+</ol>
+<div class="ok">sale el mensaje «Pago verificado. Ahora define cuántas tablas enviar y por qué canal.» y la compra pasa a <strong>Listas para enviar</strong>.</div>
+<div class="ojo">Si el dinero no entró o el comprobante no es válido, toca <span class="boton-texto">Rechazar</span> (te pregunta «¿Rechazar este pago?»). Mira el punto 18.</div>
+<div class="nota">Si el comprador pagó en <strong>efectivo</strong> no hay comprobante; la tarjeta dice «Sin comprobante (pago en efectivo): confirma que recibiste el dinero.» Verifica solo cuando de verdad tengas el dinero en la mano.</div>
+<div class="nota">Si la compra tiene varios pagos (el comprador agregó «otro pago»), verifica <strong>cada uno</strong>.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b6">15. Cómo hago para enviar las tablas a un benefactor</h2>
+<div class="tarjeta">
+<p>Después de verificar el pago, la compra queda en <strong>Listas para enviar</strong> (si tienes el envío automático activado, esto pasa solo: punto 31).</p>
+<ol class="pasos">
+  <li>En <span class="pestana">Compras</span>, toca el filtro <strong>Listas para enviar</strong>.</li>
+  <li>En la tarjeta verás un cuadro grande con un número. Dice, por ejemplo: «Con $40.000 verificados corresponden <strong>2</strong> tabla(s) a $20.000. El comprador pidió 2.»
+    Ese es el número de tablas que <strong>corresponde</strong> según lo pagado. Si el número es distinto al pedido, el cuadro se resalta para que lo notes.</li>
+  <li>En <span class="campo">Tablas a enviar</span> aparece ya ese número. Puedes cambiarlo, pero <strong>no puedes enviar más de las que cubre el pago</strong> (si la casilla «Exigir pago completo» está marcada).</li>
+  <li>Marca los <strong>canales</strong> por donde se enviarán:
+    <ul>
+      <li><strong>WhatsApp</strong>: viene marcado.</li>
+      <li><strong>Correo</strong>: solo se puede marcar si el comprador escribió su correo; si no, dice «(sin correo)».</li>
+      <li><strong>Entrega física</strong>: márcalo si además le vas a dar las tablas impresas en la mano.</li>
+    </ul>
+  </li>
+  <li>Si hay sobrante, el sistema te lo muestra en un texto pequeño (lo que la persona eligió: donar o devolver).</li>
+  <li>Toca <span class="boton-texto">Asignar y enviar tablas</span>.</li>
+  <li>Te sale una pregunta: «¿Asignar N tabla(s) a … y enviarlas? Esta acción no se puede deshacer.» Si estás segura, toca <strong>Aceptar</strong>.</li>
+</ol>
+<div class="ok">la compra pasa al filtro <strong>Enviadas</strong>. Verás, por cada canal, una etiqueta <strong>enviado</strong>. Las tablas se eligen solas, al azar, y <strong>nunca se repiten</strong> entre personas.</div>
+<div class="ojo">Una vez asignadas, <strong>no se pueden deshacer</strong>. Revisa bien el nombre y la cantidad antes de aceptar.</div>
+<div class="nota">Si dice «Faltan tablas», ya no hay suficientes disponibles: hay que agregarlas desde <span class="pestana">Tablas</span> (punto 22).</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b7">16. Cómo hago para reintentar o enviar a mano un WhatsApp o un correo</h2>
+<div class="tarjeta">
+<p>En una compra <strong>Enviada</strong>, cada canal tiene una etiqueta de estado y botones. Mira qué significa cada etiqueta:</p>
+<table>
+  <tr><th>Etiqueta</th><th>Qué significa</th><th>Qué hago</th></tr>
+  <tr><td><strong>enviado</strong></td><td>El mensaje salió bien.</td><td>Nada.</td></tr>
+  <tr><td><strong>manual</strong></td><td>El sistema no puede enviar solo (aún no está conectado a WhatsApp o al correo). Hay que enviarlo con tus manos.</td><td>Usa <span class="boton-texto">WhatsApp manual</span> o <span class="boton-texto">Correo manual</span> (abajo).</td></tr>
+  <tr><td><strong>fallido</strong></td><td>Se intentó y falló. Al lado verás el motivo en rojo.</td><td>Toca <span class="boton-texto">Reintentar</span>; si sigue fallando, envíalo manual.</td></tr>
+  <tr><td><strong>no enviado</strong></td><td>Ese canal todavía no se ha usado.</td><td>Elige <span class="boton-texto">Reintentar</span>.</td></tr>
+</table>
+
+<h4>Enviar un WhatsApp a mano</h4>
+<ol class="pasos">
+  <li>En la tarjeta toca <span class="boton-texto">WhatsApp manual</span>.</li>
+  <li>Se abre WhatsApp con el mensaje <strong>ya escrito</strong> (nombre, números de tabla, enlace y código) y el número del comprador.</li>
+  <li>Toca enviar en WhatsApp.</li>
+  <li>Vuelve al panel y toca <span class="boton-texto">Marcar enviado</span>, para que quede el registro.</li>
+</ol>
+<p>El <strong>correo manual</strong> es igual: <span class="boton-texto">Correo manual</span> abre tu programa de correo con el mensaje listo; envíalo y luego toca <span class="boton-texto">Marcar enviado</span>.</p>
+
+<h4>Copiar el enlace privado de las tablas</h4>
+<p>Toca <span class="boton-texto">Copiar enlace privado de sus tablas</span> y pégalo donde lo necesites (por ejemplo en otro WhatsApp).</p>
+
+<h4>Entrega física</h4>
+<p>Si le vas a dar las tablas impresas en la mano, toca <span class="boton-texto">Registrar entrega física</span> (queda «pendiente»). Cuando se las entregues, toca <span class="boton-texto">Marcar entregada</span>; te pregunta «¿Quién recibió las tablas y cuándo?» (opcional): escribe, por ejemplo, «la recibió la señora Ana, el sábado».</p>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b8">17. Cómo hago para registrar un pago en efectivo que recibí en mano</h2>
+<div class="tarjeta">
+<p>Para cuando alguien te entrega el dinero directamente o para añadir un pago a una compra que ya existe.</p>
+<ol class="pasos">
+  <li>En <span class="pestana">Compras</span>, busca la tarjeta de esa persona (usa el filtro <strong>Todas</strong> si no la ves).</li>
+  <li>Abre la sección <strong>«Pagos y comprobantes»</strong> (toca esas palabras para desplegarla).</li>
+  <li>Al final verás un formulario con <span class="campo">Monto</span>, <span class="campo">Método</span> (Efectivo, Consignación o Transferencia) y <span class="campo">Referencia</span>.</li>
+  <li>Escribe el monto, elige el método y toca <span class="boton-texto">Registrar pago recibido</span>.</li>
+</ol>
+<div class="ok">sale «Pago registrado.». Este pago queda <strong>ya verificado</strong>, porque tú recibiste el dinero.</div>
+<div class="ojo">Solo registra lo que realmente recibiste.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b9">18. Cómo hago para rechazar un pago o una compra</h2>
+<div class="tarjeta">
+<h4>Rechazar solo un pago</h4>
+<p>En la tarjeta de la compra, dentro de «Pagos y comprobantes», toca <span class="boton-texto">Rechazar</span> y acepta la pregunta «¿Rechazar este pago?». Úsalo cuando el comprobante no sirve o el dinero no entró. La persona puede volver a pagar o reportar otro pago.</p>
+<h4>Rechazar toda la compra</h4>
+<p>En compras <strong>Por verificar</strong> o <strong>Listas para enviar</strong> toca <span class="boton-texto">Rechazar compra</span>. Te pregunta: «¿Rechazar esta compra? Sus tablas quedarán libres para otros compradores.» Acepta si estás segura.</p>
+<div class="ojo">Una compra que ya fue <strong>enviada</strong> no se puede rechazar, porque ya se entregaron las tablas.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b10">19. Cómo hago con el dinero sobrante (donar o devolver)</h2>
+<div class="tarjeta">
+<p>Sobrante es el dinero que alguien pagó de más. Se ve en la pestaña <span class="pestana">Sobrantes</span>. Arriba dos cuadros: <strong>«Pendiente de decidir o devolver»</strong> (cuánto dinero) y <strong>«Casos pendientes»</strong> (cuántas personas). Debajo, cada persona con lo que pagó y cuántas tablas se le enviaron.</p>
+<p>Cada caso tiene un estado:</p>
+<table>
+  <tr><th>Estado</th><th>Significa</th><th>Botones</th></tr>
+  <tr><td>por definir</td><td>La persona no eligió qué hacer con el sobrante.</td><td><span class="boton-texto">Registrar donación</span> o <span class="boton-texto">Marcar por devolver</span></td></tr>
+  <tr><td>donado</td><td>Se suma a lo recaudado.</td><td>—</td></tr>
+  <tr><td>por devolver</td><td>Hay que devolverle el dinero (en las notas ves cómo quiere recibirlo).</td><td><span class="boton-texto">Marcar devuelto</span></td></tr>
+  <tr><td>devuelto</td><td>Ya se le devolvió.</td><td>—</td></tr>
+</table>
+<ol class="pasos">
+  <li>Toca la pestaña <span class="pestana">Sobrantes</span>.</li>
+  <li>Para un caso «por definir», habla con la persona y toca <span class="boton-texto">Registrar donación</span> o <span class="boton-texto">Marcar por devolver</span>. Aparece un cuadro con una pregunta. Para «Registrar donación» pregunta cómo autorizó la donación el comprador (opcional, por ejemplo «por WhatsApp»). Para «Marcar por devolver» pregunta cómo se le devolverá (cuenta, llave, efectivo…). Escribe la respuesta y acepta.</li>
+  <li>Cuando devuelvas el dinero, toca <span class="boton-texto">Marcar devuelto</span>. El sistema te pregunta «¿Cómo se devolvió? (fecha, medio y referencia)»: escribe, por ejemplo, «transferencia el 3 de noviembre, ref. 12345», y acepta.</li>
+</ol>
+<div class="ojo">Marca «devuelto» <strong>solo después</strong> de haber devuelto el dinero. Eso baja el dinero que hay en caja.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b11">20. Cómo hago cuando alguien que donó cambia de opinión y quiere sus tablas</h2>
+<div class="tarjeta">
+<ol class="pasos">
+  <li>En <span class="pestana">Compras</span> toca el filtro <strong>Donaciones</strong> (o <strong>Por verificar</strong> si todavía no se había verificado).</li>
+  <li>Busca a la persona y toca <span class="boton-texto">Quiere sus tablas (cambiar la donación)</span>.</li>
+  <li>Aparece una pregunta: «¿Cuántas tablas se le enviarán? (su pago cubre hasta N)». Escribe la cantidad y acepta.</li>
+  <li>La compra pasa a <strong>Listas para enviar</strong> (si el pago ya estaba verificado) o a <strong>Por verificar</strong> (si faltaba). Sigue como en el punto 15.</li>
+</ol>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b12">21. Cómo hago para buscar una compra o ver quién compró qué (Transacciones)</h2>
+<div class="tarjeta">
+<p>La pestaña <span class="pestana">Transacciones</span> es una <strong>lista ordenada</strong> con una fila por compra. Solo sirve para <strong>consultar</strong>; no cambia nada.</p>
+<ol class="pasos">
+  <li>Toca <span class="pestana">Transacciones</span>.</li>
+  <li>Arriba están los mismos filtros que en Compras (Por verificar, Listas para enviar, Enviadas, Donaciones, Rechazadas, Todas).</li>
+  <li>Para <strong>buscar</strong>, escribe en el recuadro «Buscar por nombre, celular o código» (por ejemplo, el código <code>BNG-…</code> o parte del nombre).</li>
+  <li>Cada fila muestra: el benefactor, el celular, el valor reportado, si pagó en <strong>Efect.</strong> (efectivo) o <strong>Transf.</strong> (transferencia o consignación), cuántas tablas (o «✔ donación»), la fecha de pago y el estado.</li>
+  <li>Toca el <strong>ojito</strong> al final de la fila para ver el detalle completo: datos del benefactor, los pagos, los <strong>documentos adjuntos</strong> (con miniaturas) y los <strong>números de tablas</strong>.</li>
+  <li>Abajo de todo ves los totales: cuántas transacciones, el valor reportado y las tablas. Las rechazadas no se suman.</li>
+  <li>Si necesitas trabajar esa compra (verificar, enviar…), toca <span class="boton-texto">Gestionar en Compras</span>.</li>
+</ol>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b13">22. Cómo hago para ver las tablas y saber a quién se vendió cada una</h2>
+<div class="tarjeta">
+<p>Entra a la pestaña <span class="pestana">Tablas</span>.</p>
+<ul>
+  <li>Arriba ves tres números: <strong>Total</strong>, <strong>Disponibles</strong> y <strong>Vendidas</strong>.</li>
+  <li>Abajo, en «Listado», hay un <strong>botón redondo por cada tabla</strong>, en orden numérico. Las que aparecen <strong>tachadas</strong> ya están vendidas.</li>
+</ul>
+<h4>Para saber a quién pertenece una tabla</h4>
+<ol class="pasos">
+  <li>Toca la tabla (o escribe su número en <strong>«Buscar por número de tabla, nombre, celular o código»</strong>).</li>
+  <li>Si está vendida, aparece un cuadro con el nombre, celular, cédula, correo, ciudad, código y fecha de la compra, y las demás tablas de esa persona.</li>
+  <li>Toca <span class="boton-texto">Ver la transacción</span> para ir a su compra completa. Toca <span class="boton-texto">Cerrar</span> para esconder el cuadro.</li>
+  <li>Si está libre, dice «Disponible: todavía no se ha vendido.»</li>
+</ol>
+<h4>Agregar tablas al sistema (solo cuando haga falta)</h4>
+<p>Las imágenes de las tablas se guardan <strong>primero</strong> en el almacenamiento de Supabase (esto lo hace la persona técnica), y <strong>después</strong> se registran aquí:</p>
+<ol class="pasos">
+  <li>En «Importar tablas existentes», escribe los números de las tablas nuevas, <strong>uno por línea</strong> o separados por coma.</li>
+  <li>Toca <span class="boton-texto">Importar</span>.</li>
+</ol>
+<div class="ojo">No uses «Generar tablas nuevas»: crea números de tabla <strong>sin imagen</strong> y no se podrán entregar bien. Para tener tablas nuevas pídele a la persona técnica que las prepare.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b14">23. Cómo hago para crear los premios (rondas)</h2>
+<div class="tarjeta">
+<p>Cada <strong>ronda</strong> tiene un premio y una <strong>figura</strong> que hay que completar para ganarlo. Se crean en la pestaña <span class="pestana">Premios</span>, en «Nueva ronda».</p>
+<ol class="pasos">
+  <li>Escribe <span class="campo">Ronda</span>: por ejemplo «Línea» o «Cartón lleno».</li>
+  <li>Escribe <span class="campo">Premio</span>: por ejemplo «Canasta navideña».</li>
+  <li>Escribe <span class="campo">Monto</span>: cuánto vale el premio en dinero (si es solo un objeto, puedes poner su valor aproximado o 0).</li>
+  <li>Elige la <span class="campo">Figura que gana</span> en la lista:
+    <ul>
+      <li><strong>Línea (fila, columna o diagonal)</strong>: gana quien complete cualquier línea recta de 5 casillas.</li>
+      <li><strong>Cuatro esquinas</strong>: las cuatro puntas de la tabla.</li>
+      <li><strong>Equis (las dos diagonales)</strong>: forma una X.</li>
+      <li><strong>Marco (todo el borde)</strong>: todas las casillas del contorno.</li>
+      <li><strong>Cartón lleno</strong>: todas las casillas de la tabla.</li>
+    </ul>
+    En todas, la casilla del centro (la estrella o el logo) <strong>ya cuenta como marcada</strong>.</li>
+  <li>Toca <span class="boton-texto">Crear ronda</span>.</li>
+</ol>
+<div class="ok">la ronda aparece en la lista «Rondas» con la etiqueta <strong>sin ganador</strong>.</div>
+<div class="nota">Las rondas que se crean aquí aparecen en la pestaña Sorteo para poder jugarlas, una por una.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b15">24. Cómo hago para cantar el Bingo en vivo (balotas)</h2>
+<div class="tarjeta">
+<p>Esta es la pantalla que se usa el día del evento. Hazla en un computador o una tableta grande, si puedes.</p>
+<ol class="pasos">
+  <li>Toca la pestaña <span class="pestana">Sorteo</span>.</li>
+  <li>En «Ronda que se va a jugar», elige la ronda de la lista (aparece con su premio y su figura).</li>
+  <li>Toca <span class="boton-texto">Iniciar ronda</span>.</li>
+  <li>Aparece el <strong>tablero</strong>: cinco filas (letras <strong>B, I, N, G, O</strong>) con los números del 1 al 75. Fila B: 1–15; I: 16–30; N: 31–45; G: 46–60; O: 61–75.</li>
+  <li>Cada vez que <strong>sale una balota</strong>, toca ese número en el tablero. Se pinta de <strong>azul</strong> y queda marcado. Arriba, en «Última balota», verás la letra y el número, por ejemplo <strong>O-73</strong>, para leerlo en voz alta.</li>
+  <li>Sigue marcando cada balota que salga. También verás cuántas van: «Balotas cantadas: N de 75».</li>
+</ol>
+<div class="ojo"><strong>Me equivoqué y toqué un número que no salió.</strong> Toca <span class="boton-texto">Deshacer última balota</span>: borra la última que marcaste (solo la última). Si te equivocaste hace varias, deshaz una por una.</div>
+<div class="ojo">Un número que ya tocaste no se puede volver a tocar: queda bloqueado y azul.</div>
+<div class="nota"><strong>Pausar:</strong> si necesitas parar (por ejemplo, un descanso), toca <span class="boton-texto">Pausar ronda</span>. Las balotas quedan guardadas; luego en Sorteo eliges la misma ronda y tocas <span class="boton-texto">Iniciar ronda</span> para seguir. Solo <strong>una ronda a la vez</strong> puede estar en juego.</div>
+<div class="nota">Cada ronda empieza con el tablero limpio: las balotas de una ronda no pasan a la siguiente.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b16">25. Cómo hago cuando alguien grita «¡Bingo!»</h2>
+<div class="tarjeta">
+<p>No hay que adivinar: el sistema <strong>revisa la tabla solo</strong>. Sigue estos pasos con la ronda aún en juego:</p>
+<ol class="pasos">
+  <li>Pídele a la persona el <strong>número de su tabla</strong> (el que dice «Tabla N° …»).</li>
+  <li>En la pantalla Sorteo, baja hasta <strong>«¡Alguien cantó Bingo!»</strong>.</li>
+  <li>Escribe el número en <span class="campo">Número de la tabla</span> y toca <span class="boton-texto">Verificar tabla</span>.</li>
+  <li>El sistema muestra la tabla con las casillas ya cantadas en <strong>azul</strong>, el nombre, celular y código del comprador, y una etiqueta:
+    <ul>
+      <li><strong>GANADORA</strong> (verde): «Cumple la figura».</li>
+      <li><strong>no gana</strong> (rojo): «No cumple: le faltan N balota(s)» o «Esa tabla no está vendida: no puede ganar».</li>
+    </ul>
+  </li>
+  <li>Si dice <strong>GANADORA</strong>, toca <span class="boton-texto">Asignar premio a esta tabla</span>. La ronda se cierra sola y te lleva a la pestaña Premios.</li>
+  <li>Si dice <strong>no gana</strong>, avisa a la persona y <strong>sigue cantando</strong>. Puedes verificar cuantas tablas necesites.</li>
+</ol>
+<div class="ok">aparece «Premio asignado. Registra la entrega en la pestaña Premios.»</div>
+<div class="ojo">El sistema <strong>no deja</strong> asignar el premio a una tabla que no cumple la figura, ni a una tabla que no se vendió. Eso protege el juego.</div>
+<div class="nota">Si dos personas cantan Bingo a la vez, el sistema asigna a una tabla por ronda. Decidan cómo resolverlo en el momento (por ejemplo, repartir el premio) y déjenlo anotado en la «Nota» de la entrega.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b17">26. Cómo hago para entregar un premio y dejar constancia</h2>
+<div class="tarjeta">
+<p>El premio tiene tres momentos en la pestaña <span class="pestana">Premios</span>:</p>
+<table>
+  <tr><th>Etiqueta</th><th>Significa</th></tr>
+  <tr><td>sin ganador</td><td>La ronda todavía no se jugó o no se asignó.</td></tr>
+  <tr><td>por entregar</td><td>Ya hay ganador, falta entregarle el premio.</td></tr>
+  <tr><td>entregado</td><td>Ya se entregó y quedó anotado a quién.</td></tr>
+</table>
+<ol class="pasos">
+  <li>Entra a <span class="pestana">Premios</span> y busca la ronda con la etiqueta <strong>por entregar</strong>. Verás el número de tabla, el nombre, la cédula, el teléfono y el código de la persona ganadora.</li>
+  <li>Entrega el premio a la persona (o a quien ella autorice).</li>
+  <li>Escribe en <span class="campo">Quién lo recibe (nombre y documento)</span> el nombre completo y la cédula de quien lo recibió. Es <strong>obligatorio</strong>.</li>
+  <li>En <span class="campo">Nota</span> puedes escribir algo más (por ejemplo, «Entregado en el evento»). Es opcional.</li>
+  <li>Toca <span class="boton-texto">Marcar entregado</span>.</li>
+</ol>
+<div class="ok">la etiqueta cambia a <strong>entregado</strong> y debajo queda escrito «Entregado a … · …». Esto también se cuenta como premio pagado en el dinero del Resumen.</div>
+<h4>Registrar un ganador a mano (sin usar el Sorteo)</h4>
+<p>Si por algún motivo no usaste la pantalla Sorteo, en la ronda escribe el número de la tabla en <span class="campo">Serial ganador</span> y toca <span class="boton-texto">Registrar ganador</span>. Solo se aceptan tablas <strong>vendidas</strong>.</p>
+<h4>Me equivoqué de ganador</h4>
+<p>Mientras el premio <strong>no esté entregado</strong>, toca <span class="boton-texto">Quitar ganador</span>. La ronda vuelve a quedar disponible. Una vez entregado, ya no se puede quitar.</p>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b18">27. Cómo hago para anotar los gastos</h2>
+<div class="tarjeta">
+<ol class="pasos">
+  <li>Toca la pestaña <span class="pestana">Gastos</span>.</li>
+  <li>En «Registrar gasto» escribe <span class="campo">Concepto</span> (en qué se gastó, por ejemplo «Impresión de afiches»).</li>
+  <li>Escribe el <span class="campo">Monto</span>, solo números.</li>
+  <li>Elige la <span class="campo">Categoría</span>: Logística, Impresión, Publicidad, Premios u Otros.</li>
+  <li>Elige la <span class="campo">Fecha</span> (ya viene la de hoy).</li>
+  <li>Toca <span class="boton-texto">Registrar</span>.</li>
+</ol>
+<div class="ok">sale «Gasto registrado.» y aparece en la lista «Gastos» con el total arriba.</div>
+<p><strong>Para borrar un gasto</strong> que escribiste mal: toca <span class="boton-texto">Borrar</span> al lado de ese gasto y acepta «¿Borrar este gasto?». Luego regístralo de nuevo, bien escrito.</p>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b19">28. Cómo hago para entender el Resumen (los números de la primera pestaña)</h2>
+<div class="tarjeta">
+<p>La pestaña <span class="pestana">Resumen</span> es el tablero general. Estos son los cuadros del <strong>Dinero</strong>:</p>
+<table>
+  <tr><th>Cuadro</th><th>Qué quiere decir</th></tr>
+  <tr><td>Cobrado (verificado)</td><td>El dinero cuyos pagos ya revisaste y confirmaste.</td></tr>
+  <tr><td>Por verificar</td><td>El dinero que la gente dice haber pagado pero que aún no revisas.</td></tr>
+  <tr><td>Por cobrar (deuda)</td><td>Lo que falta por pagar en compras que deben dinero.</td></tr>
+  <tr><td>Donaciones (sobrantes donados)</td><td>Lo que la gente regaló a las Hermanas.</td></tr>
+  <tr><td>Por devolver a compradores</td><td>Dinero que hay que devolver (no es de la obra). Se ve en rojo si hay algo.</td></tr>
+  <tr><td>Ya devuelto</td><td>Lo que ya se devolvió.</td></tr>
+  <tr><td>Premios pagados</td><td>Premios ya entregados.</td></tr>
+  <tr><td>Gastos</td><td>Lo gastado en el evento.</td></tr>
+  <tr><td>Balance en caja</td><td>Lo cobrado menos premios entregados, menos gastos, menos lo devuelto. Es el dinero que debería haber en caja.</td></tr>
+</table>
+<p>Debajo, «Cobrado por método» te dice cuánto entró por consignación, efectivo, etc.</p>
+<p>Las <strong>Tablas</strong>:</p>
+<table>
+  <tr><th>Cuadro</th><th>Qué quiere decir</th></tr>
+  <tr><td>Disponibles</td><td>Tablas que nadie ha recibido.</td></tr>
+  <tr><td>Libres para vender</td><td>Las disponibles, menos las que ya pidieron compras que están esperando verificación o envío. Es lo que de verdad queda para nuevas compras.</td></tr>
+  <tr><td>Vendidas</td><td>Tablas ya entregadas a alguien.</td></tr>
+  <tr><td>Por enviar</td><td>Tablas de compras con pago verificado que aún no se envían.</td></tr>
+  <tr><td>Entregadas</td><td>Tablas de compras ya enviadas.</td></tr>
+</table>
+<p>Y la sección <strong>«Pendientes»</strong>: pagos por verificar, compras listas para enviar tablas y compras con deuda. Si hay algo urgente, aparecen avisos con botones como <span class="boton-texto">Ir a compras</span> y <span class="boton-texto">Ver sobrantes</span>.</p>
+<div class="nota">Una buena costumbre: al empezar cada día, mira «Pendientes» en el Resumen. Si «Pagos por verificar» no está en cero, ve a Compras.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b20">29. Cómo hago para sacar informes (imprimir, PDF, Excel)</h2>
+<div class="tarjeta">
+<p>La pestaña <span class="pestana">Informes</span> sirve para <strong>rendir cuentas</strong>: muestra todo ordenado y se puede imprimir.</p>
+<ol class="pasos">
+  <li>Toca <span class="pestana">Informes</span>. Verás el informe del Bingo actual completo.</li>
+  <li><strong>Para un periodo:</strong> en <span class="campo">Desde</span> y <span class="campo">Hasta</span> elige las fechas y toca <span class="boton-texto">Ver informe</span>. Para volver a todo: <span class="boton-texto">Quitar filtros</span>.</li>
+  <li><strong>Para ver un Bingo anterior:</strong> en la lista <span class="campo">Bingo</span> elige el que quieres (los anteriores dicen «cerrado»).</li>
+  <li><strong>Para imprimir o guardar en PDF:</strong> toca <span class="boton-texto">Imprimir / guardar PDF</span>. En la ventana que se abre, elige tu impresora o «Guardar como PDF».</li>
+  <li><strong>Para pasar una sección a Excel:</strong> toca <span class="boton-texto">Descargar CSV</span> en esa sección y abre el archivo con Excel.</li>
+</ol>
+<p>Lo que contiene el informe:</p>
+<ul>
+  <li><strong>Estado de resultados</strong>: lo cobrado, menos sobrantes por devolver o devueltos = <em>ingresos</em> (ventas de tablas + donaciones); menos premios entregados y gastos = <strong>excedente neto</strong> (lo que queda para la obra). También el excedente proyectado, descontando los premios que aún faltan entregar.</li>
+  <li><strong>Caja por día y método de pago</strong>: cuánto entró cada día y por cuál forma de pago.</li>
+  <li><strong>Estado de los pagos</strong>: cuántos verificados, por verificar y rechazados.</li>
+  <li><strong>Ventas por día</strong>, <strong>por referido</strong> (quién trajo al benefactor) y <strong>por ciudad</strong>.</li>
+  <li><strong>Gastos por categoría</strong> y <strong>Premios</strong> (ganador, estado y quién recibió).</li>
+  <li><strong>Control de tablas y entregas</strong>: vendidas, disponibles, por enviar, y cómo fue el envío por WhatsApp, correo y entrega física.</li>
+</ul>
+<div class="nota">Los informes <strong>solo leen</strong> datos: nada de lo que hagas aquí cambia el sistema.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b21">30. Cómo hago para descargar los reportes en Excel</h2>
+<div class="tarjeta">
+<ol class="pasos">
+  <li>Toca la pestaña <span class="pestana">Reportes</span>.</li>
+  <li>Verás una lista. En cada línea, toca <span class="boton-texto">Descargar CSV</span>:
+    <ul>
+      <li><strong>Compras</strong> con pagado, saldo y números de tabla.</li>
+      <li><strong>Pagos</strong>: todos los reportados y verificados.</li>
+      <li><strong>Deudas</strong>: quién debe cuánto.</li>
+      <li><strong>Sobrantes</strong>: donaciones y devoluciones.</li>
+      <li><strong>Tablas</strong>: cada tabla, si está disponible o vendida y a quién.</li>
+      <li><strong>Premios</strong>: rondas, ganadores y pagos.</li>
+      <li><strong>Gastos</strong> del evento.</li>
+    </ul>
+  </li>
+  <li>El archivo se descarga. Ábrelo con Excel (doble clic).</li>
+</ol>
+<div class="ojo">Cada descarga es una <strong>foto del momento</strong> en que la pediste. Si después cambian los datos, vuelve a descargar.</div>
+<div class="nota">Buena práctica: durante el evento, descarga los reportes con frecuencia como <strong>copia de seguridad</strong>.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b22">31. Cómo hago para que las tablas se envíen solas al verificar el pago</h2>
+<div class="tarjeta">
+<p>Normalmente tú verificas el pago y luego envías las tablas (puntos 14 y 15). Con el <strong>envío automático</strong>, al tocar <span class="boton-texto">Verificar pago</span> el sistema <strong>envía solo</strong> las tablas, por WhatsApp y también por correo si la persona dejó su correo.</p>
+<h4>Cómo se activa</h4>
+<ol class="pasos">
+  <li>Entra a <span class="pestana">Configuración</span>.</li>
+  <li>Marca la casilla <strong>«Enviar las tablas automáticamente al verificar el pago»</strong>.</li>
+  <li>Toca <span class="boton-texto">Guardar configuración</span>.</li>
+</ol>
+<h4>Cuándo actúa</h4>
+<ul>
+  <li>Solo cuando <strong>no queda ningún pago por verificar</strong> en esa compra.</li>
+  <li>Y cuando lo pagado cubre <strong>todas las tablas que la persona pidió</strong>. Envía exactamente las tablas pedidas; si pagó de más, el sobrante queda por decidir.</li>
+</ul>
+<p>En cualquier otro caso (por ejemplo, pagó menos de lo que pidió) <strong>no envía solo</strong>: la compra queda en «Listas para enviar» para que tú decidas cuántas tablas enviar.</p>
+<div class="ojo">Para que el envío sea <strong>real</strong>, la persona técnica debe haber conectado el WhatsApp Business (de Meta) y el correo (Resend). Si aún no están conectados, el envío queda en <strong>manual</strong> y tú envías el mensaje con <span class="boton-texto">WhatsApp manual</span> (punto 16).</div>
+<div class="nota">Si el envío automático falla, <strong>el pago queda verificado igual</strong>. Puedes verlo en la Bitácora y reintentar desde la compra.</div>
+<div class="nota">Para apagarlo, quita la marca de la casilla y toca Guardar configuración.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b23">32. Cómo hago para empezar un Bingo nuevo (reiniciar)</h2>
+<div class="tarjeta">
+<p>Cuando termina un Bingo y quieres empezar otro, <strong>no se pierde nada</strong>: el Bingo anterior se guarda en el «Histórico» con todo (compras, pagos, premios, gastos). El nuevo empieza desde cero.</p>
+<h4>Antes de reiniciar, revisa</h4>
+<ul>
+  <li>Todas las compras deben estar <strong>enviadas, rechazadas o donadas</strong>. Si hay compras por verificar o listas para enviar, el sistema no te deja reiniciar. Resuélvelas antes.</li>
+  <li>Descarga los reportes (punto 30) y el informe final (punto 29) como respaldo.</li>
+</ul>
+<h4>Cómo se hace</h4>
+<ol class="pasos">
+  <li>Toca la pestaña <span class="pestana">Bingos</span>.</li>
+  <li>Baja a «Reiniciar Bingo».</li>
+  <li>En <span class="campo">Nombre del nuevo Bingo</span> escribe, por ejemplo, «Bingo Navidad 2026».</li>
+  <li>Marca la casilla «Entiendo que se cerrará el Bingo actual y empezará uno nuevo».</li>
+  <li>Toca <span class="boton-texto">Reiniciar Bingo</span> y acepta la pregunta final.</li>
+</ol>
+<h4>Qué pasa después</h4>
+<ul>
+  <li>Las tablas vuelven a quedar <strong>disponibles</strong> para el nuevo Bingo.</li>
+  <li>Los enlaces de tablas que ya enviaste <strong>siguen funcionando</strong>.</li>
+  <li>El nuevo Bingo empieza con precio 0, o sea <strong>con las compras cerradas</strong>, y sin datos de pago, fecha ni invitación. Ve a <span class="pestana">Configuración</span> (punto 12) y llénalo todo antes de invitar a la gente.</li>
+</ul>
+<p>En «Histórico» ves cada Bingo anterior con su resumen y la opción <strong>«Descargar reportes de este Bingo (CSV)»</strong>.</p>
+<div class="ojo">Piensa bien antes de reiniciar: es un cambio importante. Si tienes dudas, no lo hagas todavía.</div>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b24">33. Cómo hago para ver qué se ha hecho en el sistema (Bitácora)</h2>
+<div class="tarjeta">
+<p>La pestaña <span class="pestana">Bitácora</span> es un <strong>diario automático</strong>: cada acción importante queda anotada con su fecha (pago verificado, tablas asignadas, tablas enviadas, premio entregado, gasto, cambios de configuración, envíos que fallaron, etc.).</p>
+<p>Sirve para saber <strong>quién hizo qué y cuándo</strong>, y para entender qué pasó si algo salió mal. Solo se lee; no se puede borrar ni editar.</p>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="b25">34. Si algo sale mal: qué hago cuando…</h2>
+<div class="tarjeta">
+<table>
+  <tr><th>Problema</th><th>Qué hago</th></tr>
+  <tr><td>No me deja entrar: «Contraseña incorrecta»</td><td>Revisa que esté bien escrita (mayúsculas y minúsculas). Después de 10 fallos seguidos hay que esperar 15 minutos.</td></tr>
+  <tr><td>El panel dice «Inicia sesión como administración»</td><td>La sesión se cerró (pasaron 12 horas). Vuelve a entrar con la contraseña.</td></tr>
+  <tr><td>No me sale el comprobante («Ver …»)</td><td>Puede ser un pago en efectivo (no lleva). Si debía llevarlo, pídele a la persona que lo envíe por WhatsApp, o recházalo y que reporte otro pago.</td></tr>
+  <tr><td>«Faltan tablas»</td><td>No hay suficientes tablas disponibles. Pide a la persona técnica que agregue tablas y las importes (punto 22).</td></tr>
+  <tr><td>«El pago verificado cubre solo N tabla(s)»</td><td>Quieres enviar más tablas de las pagadas. Registra el pago que falta (punto 17) o baja la cantidad.</td></tr>
+  <tr><td>El WhatsApp salió «fallido»</td><td>Mira el motivo en rojo. Toca «Reintentar»; si sigue, usa «WhatsApp manual».</td></tr>
+  <tr><td>El benefactor dice que no le llegó nada</td><td>Revisa en su compra el estado de WhatsApp/correo. Usa «Reintentar», «WhatsApp manual» o «Copiar enlace privado de sus tablas».</td></tr>
+  <tr><td>Toqué una balota por error</td><td>«Deshacer última balota» (punto 24).</td></tr>
+  <tr><td>«La tabla N no cumple la figura»</td><td>Esa tabla no ganó todavía. Sigue cantando.</td></tr>
+  <tr><td>Asigné un premio a la persona equivocada</td><td>Mientras no esté entregado, «Quitar ganador» en Premios (punto 26).</td></tr>
+  <tr><td>«La ronda sigue en juego. Páusala antes de iniciar otra»</td><td>Solo una ronda a la vez. Entra a Sorteo y toca «Pausar ronda», o termina la ronda actual.</td></tr>
+  <tr><td>No me deja reiniciar el Bingo</td><td>Hay compras sin resolver. Envíalas, recházalas o déjalas donadas (punto 32).</td></tr>
+  <tr><td>La página se ve rara o no carga</td><td>Recarga la página (arrastra hacia abajo en el celular o presiona F5 en el computador). Revisa tu internet.</td></tr>
+  <tr><td>Veo un error que no entiendo</td><td>Toma una captura de pantalla y envíasela a la persona técnica, junto con lo que estabas haciendo.</td></tr>
+</table>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+<h2 id="glosario">35. Palabras que aparecen en la aplicación y qué significan</h2>
+<div class="tarjeta">
+<table>
+  <tr><th>Palabra</th><th>Significa</th></tr>
+  <tr><td>Benefactor</td><td>La persona que compra tablas y ayuda a la obra.</td></tr>
+  <tr><td>Tabla</td><td>El cartón de bingo con 25 casillas (5×5). Tiene un número propio. Una tabla nunca se da a dos personas.</td></tr>
+  <tr><td>Balota</td><td>Cada número (del 1 al 75) que se canta durante el juego.</td></tr>
+  <tr><td>Ronda</td><td>Cada vuelta del juego, con su premio y su figura.</td></tr>
+  <tr><td>Figura</td><td>El dibujo que hay que completar en la tabla para ganar (línea, esquinas, equis, marco o cartón lleno).</td></tr>
+  <tr><td>Código de compra (BNG-…)</td><td>El «número de pedido» de cada compra. Sirve para consultar su estado.</td></tr>
+  <tr><td>Comprobante</td><td>La foto o archivo que prueba que se pagó.</td></tr>
+  <tr><td>Verificar</td><td>Revisar que el pago es real y confirmarlo.</td></tr>
+  <tr><td>Consignación</td><td>Pago llevando el dinero al banco o corresponsal.</td></tr>
+  <tr><td>Llave</td><td>Un dato (celular, correo o código) que sirve para transferir entre bancos sin usar el número de cuenta.</td></tr>
+  <tr><td>QR</td><td>El cuadrito con puntos que se escanea con la cámara para pagar.</td></tr>
+  <tr><td>Sobrante</td><td>Dinero pagado de más sobre el valor de las tablas.</td></tr>
+  <tr><td>Donación</td><td>Dinero que se regala a la obra, con o sin tablas.</td></tr>
+  <tr><td>Enlace (link)</td><td>La dirección de una página de internet. Se toca y se abre.</td></tr>
+  <tr><td>Enlace privado</td><td>El enlace personal con las tablas de cada comprador. No se comparte.</td></tr>
+  <tr><td>PDF</td><td>Un archivo listo para imprimir, que se ve igual en cualquier aparato.</td></tr>
+  <tr><td>CSV</td><td>Un archivo de lista que se abre con Excel.</td></tr>
+  <tr><td>Histórico</td><td>Los Bingos anteriores, guardados con todos sus datos.</td></tr>
+  <tr><td>Bitácora</td><td>El diario automático de todo lo que se hace en el sistema.</td></tr>
+  <tr><td>Excedente</td><td>Lo que queda para la obra después de pagar premios y gastos.</td></tr>
+  <tr><td>WhatsApp manual / Correo manual</td><td>Enviar el mensaje tú misma con un botón que lo deja casi listo, cuando el sistema no puede enviarlo solo.</td></tr>
+</table>
+</div>
+<a class="volver" href="#indice">↑ Volver al índice</a>
+
+</div>
+</main>
+
+<footer>
+  Manual del Bingo · Hermanas Auxiliadoras de Cristo Sacerdote<br>
+  Si algo de este manual no coincide con lo que ves en la pantalla, avísale a la persona técnica para corregirlo.
+</footer>
+
+<script>
+  // Tamaño de letra ajustable (se recuerda en este aparato si el navegador lo permite).
+  (function () {
+    var raiz = document.documentElement, tam = 20;
+    try { var g = parseInt(localStorage.getItem('manualLetra'), 10); if (g >= 16 && g <= 36) tam = g; } catch (e) {}
+    function poner(n) {
+      tam = Math.max(16, Math.min(36, n));
+      raiz.style.fontSize = tam + 'px';
+      try { localStorage.setItem('manualLetra', String(tam)); } catch (e) {}
+    }
+    poner(tam);
+    document.getElementById('letra-mas').addEventListener('click', function () { poner(tam + 2); });
+    document.getElementById('letra-menos').addEventListener('click', function () { poner(tam - 2); });
+    // La dirección real del sitio, para que el manual diga siempre la correcta.
+    document.querySelectorAll('[data-origen]').forEach(function (n) { n.textContent = location.origin; });
+  })();
+</script>
+</body>
+</html>

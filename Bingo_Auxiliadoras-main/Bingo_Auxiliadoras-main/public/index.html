@@ -32,6 +32,7 @@
     <h2 style="margin-top:0">¡Gracias por acompañarnos a la actividad «BINGO VIRTUAL AUXILIADORAS DE CRISTO SACERDOTE»!</h2>
     <p style="margin:0 0 8px">Agradecemos diligenciar la siguiente información, la cual es requerida para hacer el envío de tu(s) tabla(s).</p>
     <p class="muted" style="margin:0">Tus datos y el comprobante que subas se usan solo para verificar tu pago y enviarte tus tablas.</p>
+    <p style="margin:10px 0 0"><a href="manual.html#parte-a" target="_blank" rel="noopener"><strong>¿Necesitas ayuda?</strong> Mira la guía paso a paso «Cómo hago…»</a></p>
   </section>
   <p class="card" id="cerrado" hidden>Las compras aún no están abiertas. Vuelve pronto.</p>
 
@@ -526,5 +527,6 @@ $('form-consulta').addEventListener('submit', async e => {
 
 cargar().catch(() => mostrarError($('msg'), 'No se pudo cargar el evento. Intenta de nuevo.'));
 </script>
+<script src="ayuda.js" data-destino="manual.html#parte-a"></script>
 </body>
 </html>
