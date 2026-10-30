@@ -46,6 +46,7 @@ const VISTAS = {
   transacciones: { titulo: 'Transacciones', render: renderTransacciones },
   sobrantes: { titulo: 'Sobrantes', render: renderSobrantes },
   tablas: { titulo: 'Tablas', render: renderTablas },
+  sorteo: { titulo: 'Sorteo', render: renderSorteo },
   premios: { titulo: 'Premios', render: renderPremios },
   gastos: { titulo: 'Gastos', render: renderGastos },
   config: { titulo: 'Configuración', render: renderConfig },
@@ -651,7 +652,7 @@ async function renderTablas() {
 
 // ---------- Premios ----------
 async function renderPremios() {
-  const premios = await api('GET', '/admin/premios');
+  const [premios, { figuras }] = await Promise.all([api('GET', '/admin/premios'), api('GET', '/admin/sorteo')]);
   $('vista').innerHTML = `
     <h2>Nueva ronda</h2>
     <form id="form-premio" class="card">
@@ -659,6 +660,7 @@ async function renderPremios() {
         <label>Ronda <input name="ronda" required maxlength="80" placeholder="Línea, Cartón lleno…"></label>
         <label>Premio <input name="premio" required maxlength="120"></label>
         <label>Monto <input name="monto" type="number" min="0" step="0.01" value="0"></label>
+        <label>Figura que gana <select name="figura">${figuras.map(f => `<option value="${f.id}" ${f.id === 'carton_lleno' ? 'selected' : ''}>${esc(f.nombre)}</option>`).join('')}</select></label>
       </div>
       <div class="actions"><button type="submit">Crear ronda</button></div>
     </form>
@@ -667,14 +669,19 @@ async function renderPremios() {
       <article class="card">
         <div class="row"><strong>${esc(p.ronda)}</strong>
           <span class="pill ${p.pagado ? 'verificado' : p.serial ? 'por_verificar' : ''}">${p.pagado ? 'pagado' : p.serial ? 'pendiente de pago' : 'sin ganador'}</span></div>
-        <p class="muted">${esc(p.premio)} · ${dinero(p.monto)}</p>
+        <p class="muted">${esc(p.premio)} · ${dinero(p.monto)} · ${esc(p.figuraNombre)}</p>
         ${p.serial ? `
           <p class="mono">${esc(p.serial)}</p>
           <p>${esc(p.ganador?.nombre ?? '')} · Cédula ${esc(p.ganador?.cedula ?? '')} · ${esc(p.ganador?.telefono ?? '')} ${p.ganador ? `(${esc(p.ganador.codigo)})` : ''}</p>
           <div class="actions">
-            ${p.pagado ? '' : `<button type="button" data-premio-pagar="${p.id}">Marcar pagado</button>
-            <button type="button" class="ghost" data-premio-quitar="${p.id}">Quitar ganador</button>`}
-          </div>` : `
+            ${p.pagado ? '' : `<button type="button" class="ghost" data-premio-quitar="${p.id}">Quitar ganador</button>`}
+          </div>
+          ${p.pagado ? `<p class="muted">Entregado${p.recibidoPor ? ` a ${esc(p.recibidoPor)}` : ''}${p.entregaNota ? ` · ${esc(p.entregaNota)}` : ''}</p>` : `
+          <form class="row" data-premio-pagar="${p.id}" style="margin-top:8px">
+            <label style="flex:1 1 220px">Quién lo recibe (nombre y documento) <input name="recibidoPor" required maxlength="160"></label>
+            <label style="flex:1 1 200px">Nota <input name="nota" maxlength="500" placeholder="Opcional"></label>
+            <button type="submit">Marcar entregado</button>
+          </form>`}` : `
           <form class="row" data-premio-ganador="${p.id}" style="margin-top:8px">
             <label style="flex:1 1 200px">Serial ganador <input name="serial" required placeholder="BNG-XXXX-XXXX"></label>
             <button type="submit">Registrar ganador</button>
@@ -684,7 +691,7 @@ async function renderPremios() {
   $('form-premio').addEventListener('submit', async e => {
     e.preventDefault();
     try {
-      await api('POST', '/admin/premios', { ronda: e.target.ronda.value, premio: e.target.premio.value, monto: Number(e.target.monto.value) });
+      await api('POST', '/admin/premios', { ronda: e.target.ronda.value, premio: e.target.premio.value, monto: Number(e.target.monto.value), figura: e.target.figura.value });
       msg('Ronda creada.');
       mostrar('premios');
     } catch (err) { msg(err.message, true); }
@@ -697,10 +704,97 @@ async function renderPremios() {
       mostrar('premios');
     } catch (err) { msg(err.message, true); }
   }));
-  $('vista').querySelectorAll('[data-premio-pagar]').forEach(b => b.addEventListener('click', () =>
-    accion(async () => { await api('POST', `/admin/premios/${b.dataset.premioPagar}/pagar`); mostrar('premios'); }, 'Premio marcado como pagado.')));
+  $('vista').querySelectorAll('form[data-premio-pagar]').forEach(f => f.addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      await api('POST', `/admin/premios/${f.dataset.premioPagar}/pagar`, { recibidoPor: f.recibidoPor.value, nota: f.nota.value });
+      msg('Entrega del premio registrada.');
+      mostrar('premios');
+    } catch (err) { msg(err.message, true); }
+  }));
   $('vista').querySelectorAll('[data-premio-quitar]').forEach(b => b.addEventListener('click', () =>
     accion(async () => { await api('DELETE', `/admin/premios/${b.dataset.premioQuitar}/ganador`); mostrar('premios'); }, 'Ganador quitado.')));
+}
+
+// ---------- Sorteo en vivo ----------
+async function renderSorteo() {
+  const [estado, premios] = await Promise.all([api('GET', '/admin/sorteo'), api('GET', '/admin/premios')]);
+  const { ronda, balotas } = estado;
+  const LETRAS = ['B', 'I', 'N', 'G', 'O'];
+
+  if (!ronda) {
+    const disponibles = premios.filter(p => !p.serial);
+    $('vista').innerHTML = `
+      <h2>Sorteo</h2>
+      ${disponibles.length ? `
+      <form id="form-iniciar" class="card">
+        <label>Ronda que se va a jugar
+          <select name="ronda">${disponibles.map(p => `<option value="${p.id}">${esc(p.ronda)} — ${esc(p.premio)} (${esc(p.figuraNombre)})</option>`).join('')}</select>
+        </label>
+        <div class="actions"><button type="submit" class="grande">Iniciar ronda</button></div>
+      </form>` : '<p class="muted">No hay rondas pendientes. Crea una en la pestaña Premios.</p>'}`;
+    const f = $('form-iniciar');
+    if (f) f.addEventListener('submit', async e => {
+      e.preventDefault();
+      try { await api('POST', `/admin/premios/${f.ronda.value}/iniciar`); mostrar('sorteo'); } catch (err) { msg(err.message, true); }
+    });
+    return;
+  }
+
+  const cantadas = new Set(balotas);
+  const ultima = balotas[balotas.length - 1];
+  const fila = (letra, i) => `<div class="balotas-fila"><strong class="balotas-letra">${letra}</strong>${
+    Array.from({ length: 15 }, (_, k) => i * 15 + k + 1).map(n =>
+      `<button type="button" class="balota${cantadas.has(n) ? ' cantada' : ''}${n === ultima ? ' ultima' : ''}" data-balota="${n}" ${cantadas.has(n) ? 'disabled' : ''}>${n}</button>`).join('')}</div>`;
+
+  $('vista').innerHTML = `
+    <div class="row"><h2 style="margin:0">${esc(ronda.ronda)} · ${esc(ronda.premio)}</h2>
+      <span class="pill por_verificar">en juego</span></div>
+    <p class="muted">Figura: <strong>${esc(ronda.figuraNombre)}</strong> · Balotas cantadas: ${balotas.length} de 75</p>
+    <div class="card">
+      <p style="font-size:1.4rem;margin:0 0 10px">Última balota: <strong>${ultima ? `${LETRAS[Math.floor((ultima - 1) / 15)]}-${ultima}` : '—'}</strong></p>
+      <div class="balotas">${LETRAS.map(fila).join('')}</div>
+      <div class="actions">
+        <button type="button" class="ghost" id="deshacer" ${ultima ? '' : 'disabled'}>Deshacer última balota</button>
+        <button type="button" class="ghost" id="pausar">Pausar ronda</button>
+      </div>
+    </div>
+    <h2>¡Alguien cantó Bingo!</h2>
+    <form id="form-verificar" class="card row">
+      <label style="flex:1 1 200px">Número de la tabla <input name="serial" required autocomplete="off" inputmode="numeric"></label>
+      <button type="submit" class="grande">Verificar tabla</button>
+    </form>
+    <div id="resultado"></div>`;
+
+  $('vista').querySelectorAll('[data-balota]').forEach(b => b.addEventListener('click', async () => {
+    try { await api('POST', `/admin/premios/${ronda.id}/balotas`, { numero: Number(b.dataset.balota) }); mostrar('sorteo'); } catch (err) { msg(err.message, true); }
+  }));
+  $('deshacer').addEventListener('click', () => accion(async () => { await api('DELETE', `/admin/premios/${ronda.id}/balotas/${ultima}`); mostrar('sorteo'); }, 'Balota deshecha.'));
+  $('pausar').addEventListener('click', () => accion(async () => { await api('POST', `/admin/premios/${ronda.id}/pausar`); mostrar('sorteo'); }, 'Ronda en pausa.'));
+
+  $('form-verificar').addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      const v = await api('POST', `/admin/premios/${ronda.id}/verificar-tabla`, { serial: e.target.serial.value });
+      const cuadricula = v.numeros ? `<div class="tabla-bingo">${LETRAS.map(l => `<strong>${l}</strong>`).join('')}${
+        v.numeros.map((n, i) => `<span class="${v.marcadas[i] ? 'marcada' : ''}">${n === 0 ? '★' : n}</span>`).join('')}</div>` : '';
+      $('resultado').innerHTML = `
+        <article class="card">
+          <div class="row"><strong>Tabla ${esc(v.serial)}</strong>
+            <span class="pill ${v.cumple ? 'verificado' : 'rechazado'}">${v.cumple ? 'GANADORA' : 'no gana'}</span></div>
+          <p>${esc(v.motivo)}</p>
+          ${v.comprador ? `<p class="muted">${esc(v.comprador.nombre)} · ${esc(v.comprador.telefono)} · ${esc(v.comprador.codigo)}</p>` : ''}
+          ${cuadricula}
+          ${v.cumple ? '<div class="actions"><button type="button" class="grande" id="asignar">Asignar premio a esta tabla</button></div>' : ''}
+        </article>`;
+      const a = $('asignar');
+      if (a) a.addEventListener('click', () => accion(async () => {
+        await api('PUT', `/admin/premios/${ronda.id}/ganador`, { serial: v.serial });
+        msg('Premio asignado. Registra la entrega en la pestaña Premios.');
+        mostrar('premios');
+      }, null));
+    } catch (err) { $('resultado').innerHTML = ''; msg(err.message, true); }
+  });
 }
 
 // ---------- Gastos ----------

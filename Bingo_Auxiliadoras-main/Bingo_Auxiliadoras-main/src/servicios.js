@@ -1,5 +1,6 @@
 const crypto = require('node:crypto');
 const { crearCorreo } = require('./correo');
+const { FIGURAS, FIGURA_POR_DEFECTO, evaluarTabla } = require('./figuras');
 
 const ALFABETO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const MAX_TABLAS_POR_COMPRA = 50;
@@ -798,6 +799,11 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       serial: p.serial,
       pagado: Boolean(p.pagado),
       pagadoEn: p.pagado_en,
+      figura: p.figura,
+      figuraNombre: FIGURAS[p.figura]?.nombre ?? p.figura,
+      rondaEstado: p.ronda_estado,
+      recibidoPor: p.recibido_por ?? '',
+      entregaNota: p.entrega_nota ?? '',
       ganador: p.compra_id
         ? { compraId: p.compra_id, codigo: p.codigo, nombre: p.nombre, cedula: p.cedula, telefono: p.telefono }
         : null,
@@ -824,7 +830,9 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const premio = texto(datos.premio, 'Premio', 120);
     const monto = redondear(datos.monto || 0);
     if (monto < 0) throw new ErrorApp('El monto del premio no puede ser negativo.');
-    const [{ id }] = await q(`INSERT INTO premios (ronda, premio, monto, creado_en, bingo_id) VALUES ($1, $2, $3, $4, ${ACTIVO}) RETURNING id`, [ronda, premio, monto, ahora()]);
+    const figura = datos.figura ?? FIGURA_POR_DEFECTO;
+    if (!FIGURAS[figura]) throw new ErrorApp('Esa figura no existe.');
+    const [{ id }] = await q(`INSERT INTO premios (ronda, premio, monto, figura, creado_en, bingo_id) VALUES ($1, $2, $3, $4, $5, ${ACTIVO}) RETURNING id`, [ronda, premio, monto, figura, ahora()]);
     await bitacora('ronda creada', `${ronda}: ${premio}`);
     return premioPorId(id);
   }
@@ -838,7 +846,12 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const tabla = await uno('SELECT * FROM tablas WHERE serial = $1', [serial]);
     if (!tabla) throw new ErrorApp('Esa tabla no existe.', 404);
     if (tabla.estado !== 'vendida' || !tabla.compra_id) throw new ErrorApp('Esa tabla no está vendida.', 409);
-    await q('UPDATE premios SET serial = $1, compra_id = $2 WHERE id = $3', [serial, tabla.compra_id, premioId]);
+    // En una ronda en juego solo gana una tabla que cumple la figura con las balotas cantadas; al asignar, la ronda se cierra.
+    if (p.ronda_estado === 'en_juego') {
+      const r = await evaluarPremio(p, tabla);
+      if (!r.cumple) throw new ErrorApp(`La tabla ${serial} no cumple la figura "${FIGURAS[p.figura].nombre}": le faltan ${r.faltan} balota(s).`, 409);
+    }
+    await q("UPDATE premios SET serial = $1, compra_id = $2, ronda_estado = CASE WHEN ronda_estado = 'en_juego' THEN 'cerrada' ELSE ronda_estado END WHERE id = $3", [serial, tabla.compra_id, premioId]);
     const compra = await uno('SELECT nombre FROM compras WHERE id = $1', [tabla.compra_id]);
     await bitacora('ganador', `${p.ronda}: ${serial} (${compra.nombre})`);
     return premioPorId(premioId);
@@ -847,19 +860,103 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
   async function quitarGanador(premioId) {
     const p = await uno('SELECT bingo_id FROM premios WHERE id = $1', [premioId]);
     if (p) await exigirActivo(p.bingo_id, 'Este premio');
-    await q('UPDATE premios SET serial = NULL, compra_id = NULL WHERE id = $1 AND pagado = false', [premioId]);
+    await q("UPDATE premios SET serial = NULL, compra_id = NULL, ronda_estado = CASE WHEN ronda_estado = 'cerrada' THEN 'pendiente' ELSE ronda_estado END WHERE id = $1 AND pagado = false", [premioId]);
     return premioPorId(premioId);
   }
 
-  async function pagarPremio(premioId) {
+  // Entrega del premio: queda registrado quién lo recibió (nombre y documento) y una nota.
+  async function pagarPremio(premioId, { recibidoPor, nota } = {}) {
     const p = await uno('SELECT * FROM premios WHERE id = $1', [premioId]);
     if (!p) throw new ErrorApp('Premio no encontrado.', 404);
     if (!p.serial) throw new ErrorApp('Primero registra la tabla ganadora.', 409);
     if (p.pagado) throw new ErrorApp('Este premio ya fue pagado.', 409);
     await exigirActivo(p.bingo_id, 'Este premio');
-    await q('UPDATE premios SET pagado = true, pagado_en = $1 WHERE id = $2', [ahora(), premioId]);
-    await bitacora('premio pagado', `${p.ronda}: ${p.monto}`);
+    await q('UPDATE premios SET pagado = true, pagado_en = $1, recibido_por = $2, entrega_nota = $3 WHERE id = $4', [ahora(), String(recibidoPor ?? '').trim().slice(0, 160), String(nota ?? '').trim().slice(0, 500), premioId]);
+    await bitacora('premio pagado', `${p.ronda}: ${p.monto}${recibidoPor ? ` (recibió ${String(recibidoPor).trim().slice(0, 160)})` : ''}`);
     return premioPorId(premioId);
+  }
+
+  // ---------- Sorteo en vivo ----------
+  const numeroBalota = v => {
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 1 || n > 75) throw new ErrorApp('La balota debe ser un número del 1 al 75.');
+    return n;
+  };
+
+  async function balotasDe(premioId) {
+    return (await q('SELECT numero FROM balotas WHERE premio_id = $1 ORDER BY id', [premioId])).map(r => r.numero);
+  }
+
+  async function premioActivo(premioId) {
+    const p = await uno('SELECT * FROM premios WHERE id = $1', [premioId]);
+    if (!p) throw new ErrorApp('Premio no encontrado.', 404);
+    await exigirActivo(p.bingo_id, 'Esta ronda');
+    return p;
+  }
+
+  async function enJuego(premioId) {
+    const p = await premioActivo(premioId);
+    if (p.ronda_estado !== 'en_juego') throw new ErrorApp('Esta ronda no está en juego. Inicia la ronda primero.', 409);
+    return p;
+  }
+
+  // Ronda en juego con sus balotas, para pintar el tablero. Sin ronda en juego devuelve ronda: null.
+  async function estadoSorteo() {
+    const p = await uno("SELECT * FROM premios WHERE ronda_estado = 'en_juego' AND bingo_id = " + ACTIVO);
+    const figuras = Object.entries(FIGURAS).map(([id, f]) => ({ id, nombre: f.nombre }));
+    if (!p) return { ronda: null, balotas: [], figuras };
+    return { ronda: await premioPorId(p.id), balotas: await balotasDe(p.id), figuras };
+  }
+
+  async function iniciarRonda(premioId) {
+    const p = await premioActivo(premioId);
+    if (p.serial) throw new ErrorApp('Esta ronda ya tiene ganador.', 409);
+    const otra = await uno("SELECT ronda FROM premios WHERE ronda_estado = 'en_juego' AND id <> $1", [premioId]);
+    if (otra) throw new ErrorApp(`La ronda "${otra.ronda}" sigue en juego. Páusala antes de iniciar otra.`, 409);
+    await q("UPDATE premios SET ronda_estado = 'en_juego' WHERE id = $1", [premioId]);
+    await bitacora('ronda iniciada', p.ronda);
+    return estadoSorteo();
+  }
+
+  async function pausarRonda(premioId) {
+    const p = await premioActivo(premioId);
+    if (p.ronda_estado === 'en_juego') await q("UPDATE premios SET ronda_estado = 'pendiente' WHERE id = $1", [premioId]);
+    await bitacora('ronda en pausa', p.ronda);
+    return estadoSorteo();
+  }
+
+  async function cantarBalota(premioId, valor) {
+    const numero = numeroBalota(valor);
+    await enJuego(premioId);
+    const r = await q('INSERT INTO balotas (premio_id, numero, cantada_en) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING id', [premioId, numero, ahora()]);
+    if (!r.length) throw new ErrorApp(`La balota ${numero} ya fue cantada en esta ronda.`, 409);
+    return estadoSorteo();
+  }
+
+  async function deshacerBalota(premioId, valor) {
+    const numero = numeroBalota(valor);
+    await enJuego(premioId);
+    await q('DELETE FROM balotas WHERE premio_id = $1 AND numero = $2', [premioId, numero]);
+    return estadoSorteo();
+  }
+
+  async function evaluarPremio(p, tabla) {
+    if (!tabla.numeros) throw new ErrorApp(`La tabla ${tabla.serial} no tiene sus números cargados: corre la migración del sorteo.`, 409);
+    return evaluarTabla(p.figura, JSON.parse(tabla.numeros), await balotasDe(p.id));
+  }
+
+  // Cuando alguien canta "¡Bingo!": revisa la tabla contra las balotas de la ronda sin asignar nada.
+  async function verificarTabla(premioId, serialRaw) {
+    const p = await premioActivo(premioId);
+    const serial = String(serialRaw ?? '').trim().toUpperCase();
+    const tabla = await uno('SELECT * FROM tablas WHERE serial = $1', [serial]);
+    if (!tabla) throw new ErrorApp('Esa tabla no existe.', 404);
+    const compra = tabla.compra_id ? await uno('SELECT codigo, nombre, telefono FROM compras WHERE id = $1', [tabla.compra_id]) : null;
+    const base = { serial, figura: p.figura, figuraNombre: FIGURAS[p.figura].nombre, comprador: compra };
+    if (tabla.estado !== 'vendida' || !compra) return { ...base, cumple: false, motivo: 'Esa tabla no está vendida: no puede ganar.' };
+    const r = await evaluarPremio(p, tabla);
+    return { ...base, numeros: JSON.parse(tabla.numeros), marcadas: r.marcadas, faltan: r.faltan, cumple: r.cumple,
+      motivo: r.cumple ? 'Cumple la figura.' : `No cumple: le faltan ${r.faltan} balota(s).` };
   }
 
   // ---------- Gastos ----------
@@ -994,6 +1091,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       // El trigger de control estricto solo permite liberar tablas vendidas dentro de esta transacción.
       await t("SELECT set_config('app.reinicio', '1', true)");
       await t("UPDATE tablas SET estado = 'disponible', compra_id = NULL, vendida_en = NULL WHERE compra_id IS NOT NULL");
+      await t("UPDATE premios SET ronda_estado = 'cerrada' WHERE ronda_estado = 'en_juego'");
       await t("UPDATE bingos SET estado = 'cerrado', config = $2, resumen = $3, cerrado_en = $4 WHERE id = $1",
         [b.id, JSON.stringify(eventoDeFila(evento, false)), JSON.stringify(resumenCierre), ahora()]);
       const [nuevo] = await t("INSERT INTO bingos (nombre, iniciado_en) VALUES ($1, $2) RETURNING id", [nombre, ahora()]);
@@ -1080,6 +1178,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     gestionarSobrante, listarSobrantes, datosSelloEntrega,
     comprobanteDe,
     listarPremios, crearPremio, asignarGanador, quitarGanador, pagarPremio,
+    estadoSorteo, iniciarRonda, pausarRonda, cantarBalota, deshacerBalota, verificarTabla,
     listarGastos, crearGasto, eliminarGasto,
     resumen, bitacoraLista, reporte, listarBingos, reiniciarBingo,
   };

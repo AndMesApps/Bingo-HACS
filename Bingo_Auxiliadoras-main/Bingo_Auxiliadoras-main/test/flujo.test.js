@@ -971,3 +971,76 @@ test('al reiniciar el Bingo, la invitación del nuevo empieza sin imagen ni text
   assert.equal(historico[0].config.textoInvitacion, 'Invitación del bingo 1');
   assert.equal(JSON.stringify(historico[0].config).includes('base64'), false);
 });
+
+// ---------- Sorteo en vivo ----------
+const { evaluarTabla } = require('../src/figuras');
+const FILA1 = [1, 16, 31, 46, 61, 2, 17, 32, 47, 62, 3, 18, 0, 48, 63, 4, 19, 33, 49, 64, 5, 20, 34, 50, 65];
+
+test('figuras: línea, esquinas, equis, marco y cartón lleno', () => {
+  assert.equal(evaluarTabla('linea', FILA1, [1, 16, 31, 46, 61]).cumple, true);
+  assert.equal(evaluarTabla('linea', FILA1, [1, 16, 31, 46]).faltan, 1);
+  assert.equal(evaluarTabla('linea', FILA1, [3, 18, 48, 63]).cumple, true, 'la fila del centro usa la casilla libre');
+  assert.equal(evaluarTabla('linea', FILA1, [1, 2, 3, 4, 5]).cumple, true, 'columna');
+  assert.equal(evaluarTabla('cuatro_esquinas', FILA1, [1, 61, 5, 65]).cumple, true);
+  assert.equal(evaluarTabla('equis', FILA1, [1, 17, 49, 65, 61, 47, 19, 5]).cumple, true);
+  assert.equal(evaluarTabla('marco', FILA1, FILA1.filter(n => n && ![17, 32, 47, 18, 48, 19, 33, 49].includes(n))).cumple, true);
+  assert.equal(evaluarTabla('carton_lleno', FILA1, FILA1.slice(0, 24)).cumple, false);
+  assert.equal(evaluarTabla('carton_lleno', FILA1, FILA1).cumple, true);
+});
+
+async function ronda(s, figura) {
+  await tablas(s, 3);
+  const c = await comprar(s, 1);
+  await verificarTodo(s, c.id);
+  const e = await s.enviarTablas(c.id);
+  const serial = e.tablas[0];
+  await s.db.query('UPDATE tablas SET numeros = $1 WHERE serial = $2', [JSON.stringify(FILA1), serial]);
+  const p = await s.crearPremio({ ronda: 'Línea', premio: 'Canasta', monto: 5, figura });
+  return { p, serial, compra: c };
+}
+
+test('sorteo: cantar balotas, verificar tabla y asignar ganador cierra la ronda', async () => {
+  const s = await nuevo();
+  const { p, serial } = await ronda(s, 'linea');
+  await assert.rejects(() => s.cantarBalota(p.id, 1), /no está en juego/);
+  await s.iniciarRonda(p.id);
+  for (const n of [1, 16, 31, 46]) await s.cantarBalota(p.id, n);
+  await assert.rejects(() => s.cantarBalota(p.id, 16), /ya fue cantada/);
+  await assert.rejects(() => s.cantarBalota(p.id, 76), /1 al 75/);
+  let v = await s.verificarTabla(p.id, serial);
+  assert.equal(v.cumple, false);
+  assert.equal(v.faltan, 1);
+  await assert.rejects(() => s.asignarGanador(p.id, serial), /no cumple/);
+  await s.cantarBalota(p.id, 61);
+  v = await s.verificarTabla(p.id, serial);
+  assert.equal(v.cumple, true);
+  assert.equal(v.comprador.nombre, 'Ana Pérez');
+  const g = await s.asignarGanador(p.id, serial);
+  assert.equal(g.rondaEstado, 'cerrada');
+  assert.equal((await s.estadoSorteo()).ronda, null);
+});
+
+test('sorteo: deshacer balota, una sola ronda en juego, tabla no vendida no gana', async () => {
+  const s = await nuevo();
+  const { p } = await ronda(s, 'linea');
+  const p2 = await s.crearPremio({ ronda: 'Otra', premio: 'X', monto: 1 });
+  await s.iniciarRonda(p.id);
+  await assert.rejects(() => s.iniciarRonda(p2.id), /sigue en juego/);
+  await s.cantarBalota(p.id, 7);
+  assert.deepEqual((await s.deshacerBalota(p.id, 7)).balotas, []);
+  const libre = (await s.listarTablas()).find(t => t.estado === 'disponible').serial;
+  const v = await s.verificarTabla(p.id, libre);
+  assert.equal(v.cumple, false);
+  assert.match(v.motivo, /no está vendida/);
+  await s.pausarRonda(p.id);
+  await s.iniciarRonda(p2.id);
+});
+
+test('premio: la entrega registra quién recibió', async () => {
+  const s = await nuevo();
+  const { p, serial } = await ronda(s, 'carton_lleno');
+  await s.asignarGanador(p.id, serial);
+  const e = await s.pagarPremio(p.id, { recibidoPor: 'Ana Pérez CC 123', nota: 'Entregado en el evento' });
+  assert.equal(e.pagado, true);
+  assert.equal(e.recibidoPor, 'Ana Pérez CC 123');
+});
