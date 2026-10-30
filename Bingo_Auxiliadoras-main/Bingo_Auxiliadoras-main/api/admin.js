@@ -104,18 +104,29 @@ module.exports = async (req, res) => {
       { metodo: 'DELETE', patron: /^\/gastos\/(\d+)$/, handler: admin(async (p, req, res) => res.json(await servicios.eliminarGasto(id(p)))) },
 
       {
-        metodo: 'GET', patron: /^\/reportes\/([a-z]+)\.csv$/,
+        // Reportes en Excel: uno solo (compras, pagos…) o "completo" con todos en hojas separadas.
+        metodo: 'GET', patron: /^\/reportes\/([a-z]+)\.xlsx$/,
         handler: admin(async ([nombre], req, res) => {
-          const { encabezados, filas } = await servicios.reporte(nombre, req.query.bingo);
-          const celda = v => {
-            let s = v == null ? '' : String(v);
-            if (/^[=+\-@]/.test(s)) s = "'" + s;
-            return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-          };
-          const csv = '﻿' + [encabezados, ...filas].map(f => f.map(celda).join(',')).join('\r\n');
-          res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-          res.setHeader('Content-Disposition', `attachment; filename="${nombre}${req.query.bingo ? '-bingo' + Number(req.query.bingo) : ''}-${new Date().toISOString().slice(0, 10)}.csv"`);
-          res.status(200).send(csv);
+          const { libroDeReportes, TIPO_XLSX, TITULOS_REPORTE } = require('../src/excel');
+          const claves = nombre === 'completo' ? Object.keys(TITULOS_REPORTE) : [nombre];
+          const items = [];
+          for (const clave of claves) items.push({ clave, data: await servicios.reporte(clave, req.query.bingo) });
+          const archivo = `Bingo-${nombre}${req.query.bingo ? '-bingo' + Number(req.query.bingo) : ''}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+          res.setHeader('Content-Type', TIPO_XLSX);
+          res.setHeader('Content-Disposition', `attachment; filename="${archivo}"`);
+          res.status(200).send(await libroDeReportes(items));
+        }),
+      },
+      {
+        // Informe completo (estado de resultados, caja, ventas…) en Excel, con los mismos filtros de la pantalla.
+        metodo: 'GET', patron: /^\/informes\.xlsx$/,
+        handler: admin(async (_p, req, res) => {
+          const { libroDeInformes, TIPO_XLSX } = require('../src/excel');
+          const inf = await servicios.informes({ bingoId: req.query.bingo, desde: req.query.desde, hasta: req.query.hasta });
+          const archivo = `Bingo-informe-${new Date().toISOString().slice(0, 10)}.xlsx`;
+          res.setHeader('Content-Type', TIPO_XLSX);
+          res.setHeader('Content-Disposition', `attachment; filename="${archivo}"`);
+          res.status(200).send(await libroDeInformes(inf));
         }),
       },
     ];

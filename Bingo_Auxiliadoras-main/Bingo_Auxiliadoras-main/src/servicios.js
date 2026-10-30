@@ -1177,7 +1177,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       fisica: await canal('c.fisica_estado'),
     };
 
-    return { bingo: { id: bingo.id, nombre: bingo.nombre, estado: bingo.estado }, desde: d, hasta: h, resultados, caja, ventasPorDia, porReferido, porCiudad, gastosPorCategoria, pagosEstado, premios, tablas };
+    return { bingo: { id: bingo.id, nombre: bingo.nombre, estado: bingo.estado }, moneda: await monedaDe(bingo), desde: d, hasta: h, resultados, caja, ventasPorDia, porReferido, porCiudad, gastosPorCategoria, pagosEstado, premios, tablas };
   }
 
   // ---------- Varios bingos: histórico y reinicio ----------
@@ -1241,7 +1241,19 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     return q('SELECT * FROM bitacora ORDER BY id DESC LIMIT $1', [limite]);
   }
 
+  // Moneda de un Bingo: la del evento si está activo; si está cerrado, la que quedó guardada al cerrarlo.
+  async function monedaDe(bingo) {
+    if (bingo.estado === 'activo') return (await evento({ conQr: false })).moneda;
+    try { return JSON.parse(bingo.config || '{}').moneda ?? ''; } catch { return ''; }
+  }
+
   async function reporte(nombre, bingoId) {
+    const datos = await reporteSinContexto(nombre, bingoId);
+    const bingo = await uno(`SELECT * FROM bingos WHERE id = ${DE_BINGO(1)}`, [bingoId ? Number(bingoId) : null]);
+    return { ...datos, bingo: bingo.nombre, moneda: await monedaDe(bingo) };
+  }
+
+  async function reporteSinContexto(nombre, bingoId) {
     const bingo = await uno(`SELECT * FROM bingos WHERE id = ${DE_BINGO(1)}`, [bingoId ? Number(bingoId) : null]);
     if (!bingo) throw new ErrorApp('Ese Bingo no existe.', 404);
     const bid = bingo.id;
@@ -1287,8 +1299,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     }
     if (nombre === 'premios') {
       return {
-        encabezados: ['Ronda', 'Premio', 'Monto', 'Serial', 'Ganador', 'Cédula', 'Teléfono', 'Pagado'],
-        filas: (await listarPremios(bid)).map(p => [p.ronda, p.premio, p.monto, p.serial ?? '', p.ganador?.nombre ?? '', p.ganador?.cedula ?? '', p.ganador?.telefono ?? '', p.pagado ? 'sí' : 'no']),
+        encabezados: ['Ronda', 'Premio', 'Figura', 'Monto', 'Tabla ganadora', 'Ganador', 'Cédula', 'Teléfono', 'Entrega', 'Recibió', 'Nota'],
+        filas: (await listarPremios(bid)).map(p => [p.ronda, p.premio, p.figuraNombre, p.monto, p.serial ?? '', p.ganador?.nombre ?? '', p.ganador?.cedula ?? '', p.ganador?.telefono ?? '', p.pagado ? 'entregado' : p.serial ? 'por entregar' : 'sin ganador', p.recibidoPor, p.entregaNota]),
       };
     }
     if (nombre === 'gastos') {

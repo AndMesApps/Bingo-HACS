@@ -1121,3 +1121,52 @@ test('informes: estado de resultados, caja, ventas por referido/ciudad, gastos y
   await assert.rejects(() => s.informes({ desde: 'ayer' }), /no es válida/);
   await assert.rejects(() => s.informes({ desde: '2026-02-02', hasta: '2026-01-01' }), /posterior/);
 });
+
+// ---------- Excel ----------
+test('Excel: los reportes salen en un libro con hojas, encabezados, totales y formatos', async () => {
+  const ExcelJS = require('exceljs');
+  const { libroDeReportes, libroDeInformes, TITULOS_REPORTE } = require('../src/excel');
+  const s = await nuevo();
+  await tablas(s, 6);
+  const a = await comprar(s, 2, { referidoPor: 'Hna. María', ciudad: 'Medellín' });
+  const b = await comprar(s, 1, { ciudad: 'Cali' });
+  await verificarTodo(s, a.id);
+  await verificarTodo(s, b.id);
+  await s.enviarTablas(a.id);
+  await s.enviarTablas(b.id);
+  await s.crearGasto({ fecha: new Date().toISOString().slice(0, 10), concepto: 'Impresión', categoria: 'Impresión', monto: 8 });
+  await s.crearPremio({ ronda: 'R1', premio: 'Canasta', monto: 12, figura: 'linea' });
+
+  const items = [];
+  for (const clave of Object.keys(TITULOS_REPORTE)) items.push({ clave, data: await s.reporte(clave) });
+  const buf = await libroDeReportes(items);
+  assert.equal(buf.subarray(0, 2).toString(), 'PK', 'es un .xlsx (zip)');
+
+  const libro = new ExcelJS.Workbook();
+  await libro.xlsx.load(buf);
+  assert.deepEqual(libro.worksheets.map(w => w.name), Object.values(TITULOS_REPORTE));
+  const compras = libro.getWorksheet('Compras');
+  assert.match(String(compras.getCell('B1').value), /Prueba — Compras/);
+  assert.equal(compras.getCell('A4').value, 'Código');
+  assert.equal(compras.getCell('K4').value, 'Total');
+  assert.equal(compras.getCell('N5').value, 'Enviada', 'el estado sale en español');
+  assert.equal(compras.getCell('K5').numFmt.includes('#,##0'), true);
+  const totalFila = compras.getRow(7); // 2 compras: filas 5 y 6, total en la 7
+  assert.equal(totalFila.getCell(1).value, 'TOTAL');
+  assert.equal(totalFila.getCell(11).value.result, 30, 'suma de totales: 20 + 10');
+  assert.equal(compras.views[0].ySplit, 4, 'encabezado congelado');
+  assert.ok(compras.autoFilter, 'tiene filtros');
+  assert.equal(libro.getWorksheet('Gastos').getCell('D5').value, 8);
+  assert.equal(libro.getWorksheet('Premios').getCell('E4').value, 'Tabla ganadora');
+
+  const inf = new ExcelJS.Workbook();
+  await inf.xlsx.load(await libroDeInformes(await s.informes({})));
+  assert.deepEqual(inf.worksheets.map(w => w.name), ['Estado de resultados', 'Caja por día', 'Pagos', 'Ventas por día', 'Por referido', 'Por ciudad', 'Gastos', 'Premios', 'Tablas y entregas']);
+  assert.equal(inf.getWorksheet('Estado de resultados').getCell('B8').value, 30, 'ingresos = cobrado');
+
+  // Un reporte vacío no rompe el libro.
+  const vacio = new ExcelJS.Workbook();
+  const s2 = await nuevo();
+  await vacio.xlsx.load(await libroDeReportes([{ clave: 'deudas', data: await s2.reporte('deudas') }]));
+  assert.match(String(vacio.getWorksheet('Deudas').getCell('A5').value), /Todavía no hay datos/);
+});

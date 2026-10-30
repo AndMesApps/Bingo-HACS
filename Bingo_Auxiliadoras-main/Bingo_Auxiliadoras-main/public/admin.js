@@ -814,15 +814,12 @@ async function renderInformes() {
   const ESTADO_PAGO = { verificado: 'Verificados', por_verificar: 'Por verificar', rechazado: 'Rechazados' };
   const ESTADO_CANAL = { no_enviado: 'No enviado', enviado: 'Enviado', manual: 'Manual pendiente', fallido: 'Fallido', no: 'No aplica', pendiente: 'Pendiente', entregada: 'Entregada' };
 
-  // Cada sección se dibuja como tabla y puede bajarse en CSV (con el mismo contenido que se ve).
-  const secciones = [];
+  // Cada sección se dibuja como tabla.
   const tabla = (id, titulo, encabezados, filas, pie, esDinero = h => h === 'Valor') => {
-    secciones.push({ id, titulo, encabezados, filas });
     const cuerpo = filas.length
       ? filas.map(f => `<tr>${f.map((c, k) => typeof c === 'number' ? `<td class="num">${esc(esDinero(encabezados[k]) ? dinero(c) : c)}</td>` : `<td>${esc(c)}</td>`).join('')}</tr>`).join('')
       : `<tr><td colspan="${encabezados.length}" class="muted">Sin datos en este rango.</td></tr>`;
-    return `<section class="informe-seccion"><div class="row"><h3>${esc(titulo)}</h3>
-      <button type="button" class="ghost no-print" data-csv="${id}">Descargar CSV</button></div>
+    return `<section class="informe-seccion"><div class="row"><h3>${esc(titulo)}</h3></div>
       <div class="tabla-scroll"><table class="informe"><thead><tr>${encabezados.map(e => `<th>${esc(e)}</th>`).join('')}</tr></thead>
       <tbody>${cuerpo}</tbody>${pie ? `<tfoot><tr>${pie.map(c => `<td>${esc(c)}</td>`).join('')}</tr></tfoot>` : ''}</table></div></section>`;
   };
@@ -842,7 +839,6 @@ async function renderInformes() {
     ['(−) Premios aún por entregar', -m.premiosPendientes],
     ['Excedente proyectado', m.excedenteProyectado],
   ];
-  secciones.push({ id: 'resultados', titulo: 'Estado de resultados', encabezados: ['Concepto', 'Valor'], filas: resultadosFilas });
 
   const cajaEnc = ['Día', ...i.caja.metodos, 'Total del día', 'Pagos'];
   const cajaFilas = i.caja.dias.map(x => [x.dia, ...i.caja.metodos.map(mt => x.porMetodo[mt] || 0), x.total, x.pagos]);
@@ -862,6 +858,7 @@ async function renderInformes() {
         <button type="submit">Ver informe</button>
         <button type="button" class="ghost" id="limpiar-filtros">Quitar filtros</button>
         <button type="button" class="ghost" id="imprimir">Imprimir / guardar PDF</button>
+        <a class="btn" id="excel" href="#">Descargar Excel</a>
       </form>
     </div>
     <div class="informe-encabezado"><h2 style="margin:0">Informe del Bingo — ${esc(i.bingo.nombre)}</h2>
@@ -869,7 +866,6 @@ async function renderInformes() {
 
     <section class="informe-seccion"><h3>Estado de resultados</h3>
       <div class="tabla-scroll"><table class="informe"><tbody>${resultadosFilas.map(([c, v], k) => `<tr class="${[3, 8, 10].includes(k) ? 'total' : ''}"><td>${esc(c)}</td><td class="num">${esc(d(v))}</td></tr>`).join('')}</tbody></table></div>
-      <div class="actions no-print"><button type="button" class="ghost" data-csv="resultados">Descargar CSV</button></div>
       <p class="muted">Cobrado = pagos verificados cuya fecha de pago cae en el periodo. Los premios pendientes no dependen del periodo.</p></section>
 
     ${tabla('caja', 'Caja por día y método de pago (pagos verificados)', cajaEnc, cajaFilas, cajaPie, h => h !== 'Día' && h !== 'Pagos')}
@@ -904,16 +900,8 @@ async function renderInformes() {
   });
   $('limpiar-filtros').addEventListener('click', () => { Object.assign(filtroInformes, { bingo: '', desde: '', hasta: '' }); mostrar('informes'); });
   $('imprimir').addEventListener('click', () => window.print());
-  $('vista').querySelectorAll('[data-csv]').forEach(b => b.addEventListener('click', () => {
-    const s = secciones.find(x => x.id === b.dataset.csv);
-    const celda = c => { const t = String(c ?? ''); return /[",\n;]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
-    const csv = '﻿' + [s.encabezados, ...s.filas].map(r => r.map(celda).join(',')).join('\r\n');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    a.download = `informe-${s.id}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }));
+  // El Excel lleva el Bingo y las fechas que estén elegidas (lo último que se vio con «Ver informe»).
+  $('excel').href = `/api/admin/informes.xlsx${params.toString() ? '?' + params : ''}`;
 }
 
 // ---------- Manual ----------
@@ -1142,9 +1130,14 @@ function renderReportes() {
     ['premios', 'Rondas, ganadores y pagos'],
     ['gastos', 'Gastos del evento'],
   ];
-  $('vista').innerHTML = `<div class="card">${reportes.map(([k, t]) =>
-    `<div class="kv"><span>${esc(t)}</span><a class="btn ghost" href="/api/admin/reportes/${k}.csv">Descargar CSV</a></div>`).join('')}</div>
-    <p class="muted">Los CSV se abren en Excel. Cada descarga es un corte en el momento que la pides.</p>`;
+  $('vista').innerHTML = `
+    <div class="card">
+      <div class="kv"><span><strong>Todos los reportes en un solo Excel</strong><br><span class="muted">Un archivo con una hoja por cada reporte.</span></span>
+        <a class="btn" href="/api/admin/reportes/completo.xlsx">Descargar Excel completo</a></div>
+    </div>
+    <div class="card">${reportes.map(([k, t]) =>
+      `<div class="kv"><span>${esc(t)}</span><a class="btn ghost" href="/api/admin/reportes/${k}.xlsx">Descargar Excel</a></div>`).join('')}</div>
+    <p class="muted">Los archivos Excel (.xlsx) se abren directamente, con títulos, colores y totales. Cada descarga es un corte en el momento que la pides.</p>`;
 }
 
 // ---------- Transacciones: una fila por compra, con el detalle completo en el ojito ----------
@@ -1284,9 +1277,9 @@ async function renderBingos() {
         <div class="kv"><span>Premios pagados</span><strong>${esc(din(r.dinero.premiosPagados, m))}</strong></div>
         <div class="kv"><span>Gastos</span><strong>${esc(din(r.dinero.gastos, m))}</strong></div>
         <div class="kv"><span>Balance en caja</span><strong>${esc(din(r.dinero.balance, m))}</strong></div>` : ''}
-      <details style="margin-top:10px"><summary class="muted">Descargar reportes de este Bingo (CSV)</summary>
-        <div class="actions">${REPORTES_BINGO.map(([k, t]) =>
-          `<a class="btn ghost" href="/api/admin/reportes/${k}.csv?bingo=${b.id}">${esc(t)}</a>`).join('')}</div>
+      <details style="margin-top:10px"><summary class="muted">Descargar reportes de este Bingo (Excel)</summary>
+        <div class="actions"><a class="btn" href="/api/admin/reportes/completo.xlsx?bingo=${b.id}">Todo en un solo Excel</a>${REPORTES_BINGO.map(([k, t]) =>
+          `<a class="btn ghost" href="/api/admin/reportes/${k}.xlsx?bingo=${b.id}">${esc(t)}</a>`).join('')}</div>
       </details>
     </article>`;
   };

@@ -1,7 +1,7 @@
 {
   "outputDirectory": "public",
   "functions": {
-    "api/*.js": { "maxDuration": 30, "includeFiles": "{assets/**,public/img/pieza-invitacion.jpg}" }
+    "api/*.js": { "maxDuration": 30, "includeFiles": "{assets/**,public/img/pieza-invitacion.jpg,public/img/logo-hacs.jpg}" }
   },
   "rewrites": [
     { "source": "/api/publico/:ruta*", "destination": "/api/publico?ruta=:ruta*" },
