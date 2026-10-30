@@ -44,6 +44,8 @@ const SQL_COMPRAS = `
   SELECT c.*,
     COALESCE((SELECT SUM(p.monto_verificado) FROM pagos p WHERE p.compra_id = c.id AND p.estado = 'verificado'), 0) AS pagado,
     COALESCE((SELECT SUM(p.monto_reportado) FROM pagos p WHERE p.compra_id = c.id AND p.estado <> 'rechazado'), 0) AS reportado,
+    (SELECT string_agg(DISTINCT p.metodo, ', ') FROM pagos p WHERE p.compra_id = c.id AND p.estado <> 'rechazado') AS metodos,
+    (SELECT MAX(p.fecha_pago) FROM pagos p WHERE p.compra_id = c.id AND p.estado <> 'rechazado') AS fecha_pago,
     COALESCE((SELECT array_agg(x.serial ORDER BY x.serial) FROM (
       SELECT t.serial FROM tablas t WHERE t.compra_id = c.id
       UNION ALL SELECT h.serial FROM tablas_historial h WHERE h.compra_id = c.id) x), '{}') AS tablas
@@ -239,6 +241,9 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       // Lo que cubre el dinero ya verificado y lo que cubre lo reportado por el comprador.
       tablasSugeridas: tablasPorMonto(pagado, precio),
       tablasReportadas: tablasPorMonto(num(c.reportado), precio),
+      reportado: redondear(num(c.reportado)),
+      metodos: c.metodos || '',
+      fechaPago: c.fecha_pago || '',
       precioUnitario: precio,
       total,
       pagado,

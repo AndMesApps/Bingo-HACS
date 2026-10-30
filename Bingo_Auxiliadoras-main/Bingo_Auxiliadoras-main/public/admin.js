@@ -43,6 +43,7 @@ function mostrarLogin() {
 const VISTAS = {
   resumen: { titulo: 'Resumen', render: renderResumen },
   compras: { titulo: 'Compras', render: renderCompras },
+  transacciones: { titulo: 'Transacciones', render: renderTransacciones },
   sobrantes: { titulo: 'Sobrantes', render: renderSobrantes },
   tablas: { titulo: 'Tablas', render: renderTablas },
   premios: { titulo: 'Premios', render: renderPremios },
@@ -767,6 +768,124 @@ function renderReportes() {
     `<div class="kv"><span>${esc(t)}</span><a class="btn ghost" href="/api/admin/reportes/${k}.csv">Descargar CSV</a></div>`).join('')}</div>
     <p class="muted">Los CSV se abren en Excel. Cada descarga es un corte en el momento que la pides.</p>`;
 }
+
+// ---------- Transacciones: una fila por compra, con el detalle completo en el ojito ----------
+let filtroTx = '';
+let busquedaTx = '';
+const ICONO_OJO = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+
+// Consignación y transferencia se ven como "Transf."; el efectivo, como "Efect.".
+const formaPago = metodos => [...new Set(String(metodos || '').split(', ').filter(Boolean)
+  .map(m => (/efectivo/i.test(m) ? 'Efect.' : 'Transf.')))].join(' + ') || '—';
+const esDonacion = c => c.cantidad === 0 || c.estado === 'donacion';
+
+async function renderTransacciones() {
+  const compras = await api('GET', '/admin/compras' + (filtroTx ? `?estado=${filtroTx}` : ''));
+  const validas = compras.filter(c => c.estado !== 'rechazada');
+  const totalValor = validas.reduce((s, c) => s + c.reportado, 0);
+  const totalTablas = validas.reduce((s, c) => s + (esDonacion(c) ? 0 : (c.tablasAprobadas ?? c.cantidad)), 0);
+  const fila = c => `
+    <tr class="tx-fila" data-tx="${c.id}" data-texto="${esc([c.nombre, c.telefono, c.codigo].join(' ').toLowerCase())}">
+      <td class="tx-nombre"><strong>${esc(c.nombre)}</strong><br><span class="muted mono">${esc(c.codigo)}</span></td>
+      <td>${esc(c.telefono)}</td>
+      <td class="num" title="Verificado: ${esc(dinero(c.pagado))}">${esc(dinero(c.reportado))}</td>
+      <td>${esc(formaPago(c.metodos))}</td>
+      <td class="num">${esDonacion(c) ? '<span class="tx-chulo" title="Donación, sin tablas">✔ <span class="muted">donación</span></span>' : (c.tablasAprobadas ?? c.cantidad)}</td>
+      <td>${esc(c.fechaPago || '')}</td>
+      <td><span class="pill ${esc(c.estado)}">${esc(c.estado === 'donacion' ? 'donación' : c.estado.replace('_', ' '))}</span></td>
+      <td><button type="button" class="ghost tx-ojo" data-tx-ver="${c.id}" aria-expanded="false"
+        aria-label="Ver el detalle de ${esc(c.nombre)}" title="Ver el detalle">${ICONO_OJO}</button></td>
+    </tr>
+    <tr class="tx-detalle" data-tx-detalle="${c.id}" hidden><td colspan="8">Cargando…</td></tr>`;
+  $('vista').innerHTML = `
+    <div class="tabs">${ESTADOS_COMPRA.map(([k, t]) =>
+      `<button type="button" class="${filtroTx === k ? '' : 'ghost'}" data-ftx="${k}">${t}</button>`).join('')}</div>
+    <input type="search" id="tx-buscar" placeholder="Buscar por nombre, celular o código" value="${esc(busquedaTx)}" style="margin-bottom:12px" aria-label="Buscar transacciones">
+    <div class="tx-wrap"><table class="tx">
+      <thead><tr><th>Benefactor</th><th>Celular</th><th class="num">Valor</th><th>Forma de pago</th><th class="num">Tablas</th><th>Fecha pago</th><th>Estado</th><th><span class="sr">Detalle</span></th></tr></thead>
+      <tbody>${compras.map(fila).join('') || '<tr><td colspan="8" class="muted">No hay transacciones en esta lista.</td></tr>'}</tbody>
+    </table></div>
+    <p class="muted">${validas.length} transacción(es) · Valor reportado ${esc(dinero(totalValor))} · ${totalTablas} tabla(s). Las rechazadas no se suman.</p>`;
+
+  const filtrar = () => {
+    const q = $('tx-buscar').value.trim().toLowerCase();
+    busquedaTx = $('tx-buscar').value;
+    $('vista').querySelectorAll('tr.tx-fila').forEach(tr => {
+      const oculta = q && !tr.dataset.texto.includes(q);
+      tr.hidden = Boolean(oculta);
+      if (oculta) $('vista').querySelector(`[data-tx-detalle="${tr.dataset.tx}"]`).hidden = true;
+    });
+  };
+  $('tx-buscar').addEventListener('input', filtrar);
+  filtrar();
+  $('vista').querySelectorAll('[data-ftx]').forEach(b => b.addEventListener('click', () => { filtroTx = b.dataset.ftx; mostrar('transacciones'); }));
+  $('vista').querySelectorAll('[data-tx-ver]').forEach(b => b.addEventListener('click', () => alternarDetalleTx(b)));
+}
+
+async function alternarDetalleTx(btn) {
+  const id = btn.dataset.txVer;
+  const det = $('vista').querySelector(`[data-tx-detalle="${id}"]`);
+  const abrir = det.hidden;
+  det.hidden = !abrir;
+  btn.setAttribute('aria-expanded', String(abrir));
+  if (!abrir || det.dataset.cargado) return;
+  try {
+    det.firstElementChild.innerHTML = detalleTx(await api('GET', `/admin/compras/${id}`));
+    det.dataset.cargado = '1';
+  } catch (err) {
+    det.firstElementChild.textContent = err.message;
+  }
+}
+
+function detalleTx(d) {
+  const kv = (k, v) => (v === '' || v == null ? '' : `<div class="kv"><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`);
+  const donacion = esDonacion(d);
+  const entrega = d.estado === 'enviada'
+    ? kv('WhatsApp', d.whatsappEstado) + kv('Correo', d.correoEstado) + kv('Entrega física', d.fisicaEstado === 'no' ? '' : d.fisicaEstado)
+    : '';
+  const docs = d.pagos.flatMap(p => p.comprobantes.map(c => {
+    const url = `/api/admin/comprobantes/${c.id}/archivo`;
+    return /^image\//.test(c.tipo)
+      ? `<a href="${url}" target="_blank" rel="noopener" title="${esc(c.nombre)}"><img loading="lazy" src="${url}" alt="Comprobante ${esc(c.nombre)}"></a>`
+      : `<a class="btn ghost" href="${url}" target="_blank" rel="noopener">Abrir ${esc(c.nombre)}</a>`;
+  }));
+  return `
+    <div class="tx-grid">
+      <div>
+        <h3>Benefactor</h3>
+        ${kv('Código', d.codigo)}${kv('Nombre', d.nombre)}${kv('Cédula', d.cedula)}${kv('Celular', d.telefono)}
+        ${kv('Correo', d.correo)}${kv('Ciudad', d.ciudad)}${kv('Se enteró por', d.referidoPor)}
+        ${kv('Registrada', fecha(d.creadaEn))}${kv('Verificada', fecha(d.verificadaEn))}${kv('Enviada', fecha(d.enviadaEn))}
+      </div>
+      <div>
+        <h3>${donacion ? 'Donación' : 'Compra'}</h3>
+        ${donacion
+          ? kv('Tipo', 'Donación sin tablas') + kv('Con su pago le corresponderían', `${d.estado === 'donacion' ? d.tablasSugeridas : d.tablasReportadas} tabla(s)`)
+          : kv('Tablas pedidas', d.cantidad) + kv('Tablas enviadas', d.tablasAprobadas) + kv('Precio por tabla', dinero(d.precioUnitario)) + kv('Total', dinero(d.total))}
+        ${kv('Pagado (verificado)', dinero(d.pagado))}${donacion ? '' : kv('Saldo', dinero(d.saldo))}
+        ${kv('Sobrante', d.sobranteMonto > 0 ? `${dinero(d.sobranteMonto)} (${String(d.sobranteEstado).replace('_', ' ')})` : '')}
+        ${entrega}
+      </div>
+    </div>
+    <h3>Pagos</h3>
+    ${d.pagos.map(p => `<div class="kv"><span>${esc(p.fechaPago)} · ${esc(p.metodo)}${p.referencia ? ' · ' + esc(p.referencia) : ''}</span>
+      <span>${esc(dinero(p.montoReportado))}${p.montoVerificado != null ? ` (verificado ${esc(dinero(p.montoVerificado))})` : ''}
+      <span class="pill ${esc(p.estado)}">${esc(p.estado.replace('_', ' '))}</span></span></div>`).join('') || '<p class="muted">Sin pagos.</p>'}
+    <h3>Documentos adjuntos</h3>
+    ${docs.length ? `<div class="tx-docs">${docs.join('')}</div>` : '<p class="muted">Sin documentos (pago en efectivo o sin comprobante).</p>'}
+    <h3>Números de tablas</h3>
+    ${d.tablas.length ? `<div class="tx-chips">${d.tablas.map(t => `<span class="mono">${esc(t)}</span>`).join('')}</div>`
+      : `<p class="muted">${donacion ? 'Donación: no se asignaron tablas.' : 'Todavía no se han asignado tablas.'}</p>`}
+    <div class="actions"><button type="button" class="ghost" data-tx-gestionar="${esc(d.estado)}">Gestionar en Compras</button></div>`;
+}
+
+// "Gestionar en Compras" lleva a la lista del mismo estado, donde están verificar, enviar, rechazar y los demás botones.
+$('vista').addEventListener('click', e => {
+  const b = e.target.closest('[data-tx-gestionar]');
+  if (!b) return;
+  filtroCompras = b.dataset.txGestionar;
+  mostrar('compras');
+});
 
 // ---------- Bingos: histórico y reinicio ----------
 const REPORTES_BINGO = [['compras', 'Compras'], ['pagos', 'Pagos'], ['deudas', 'Deudas'], ['sobrantes', 'Sobrantes'], ['tablas', 'Tablas vendidas'], ['premios', 'Premios'], ['gastos', 'Gastos']];
