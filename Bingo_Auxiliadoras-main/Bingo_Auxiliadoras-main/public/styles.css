@@ -129,7 +129,7 @@ button.grande { width: 100%; padding: 14px 18px; font-size: 1.05rem; background:
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 16px; }
 .tabs button { background: var(--card); color: var(--fg); border-color: var(--line); border-radius: 999px; padding: 8px 14px; }
 .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
-.tabs button[data-filtro]:not(.ghost) { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.tabs button[data-filtro]:not(.ghost), .tabs button[data-ftx]:not(.ghost) { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 .stats { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .stat { border-top: 3px solid var(--azul); }
 .stat strong { display: block; font-size: 1.25rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
@@ -168,3 +168,26 @@ button.grande { width: 100%; padding: 14px 18px; font-size: 1.05rem; background:
 
 [hidden] { display: none !important; }
 @media print { .hero, .no-print { display: none !important; } body { background: #fff; } .tabla-item { break-inside: avoid; } }
+
+/* ---- Transacciones: una fila por compra con detalle desplegable ---- */
+.tx-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--sombra); }
+.tx { width: 100%; border-collapse: collapse; font-size: .92rem; min-width: 780px; }
+.tx th { text-align: left; font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.tx td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
+.tx th.num, .tx td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tx tbody tr:last-child td { border-bottom: 0; }
+.tx tr.tx-fila:hover { background: var(--azul-claro); }
+.tx td.tx-nombre { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.tx-chulo { color: var(--ok); font-weight: 700; }
+.tx-ojo { padding: 6px 9px; line-height: 0; border-radius: 10px; }
+.tx-ojo[aria-expanded="true"] { background: var(--accent); color: var(--accent-fg); }
+.tx tr.tx-detalle td { white-space: normal; background: var(--input-bg); padding: 16px; }
+.tx-detalle h3 { font-size: .95rem; margin: 18px 0 6px; color: var(--azul-oscuro); }
+.tx-detalle h3:first-child, .tx-grid h3:first-child { margin-top: 0; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tx-detalle h3 { color: var(--fg); } }
+.tx-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 28px; }
+.tx-docs { display: flex; flex-wrap: wrap; gap: 10px; }
+.tx-docs img { width: 120px; height: 120px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); display: block; }
+.tx-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tx-chips span { border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 2px 10px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

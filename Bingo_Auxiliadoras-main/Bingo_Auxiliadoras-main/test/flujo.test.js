@@ -887,3 +887,17 @@ test('convertir una donación: no más tablas de las que paga, ni de un Bingo ce
   await s.reiniciarBingo({ nombre: 'Otro', confirmar: true });
   await assert.rejects(() => s.convertirDonacion(r.id), err => err.status === 409 && /cerrado/.test(err.message));
 });
+
+test('la lista de compras trae forma de pago, fecha del pago y valor reportado', async () => {
+  const s = await nuevo();
+  await tablas(s, 3);
+  const hoy = new Date().toISOString().slice(0, 10);
+  await s.crearCompra(datos(1, { metodo: 'Efectivo', fechaPago: hoy }), []);
+  await s.crearCompra(datos(1), comprobante());
+  const filas = await s.listarCompras();
+  const ef = filas.find(c => c.metodos === 'Efectivo');
+  const tr = filas.find(c => c.metodos === 'Consignación');
+  assert.ok(ef && tr);
+  assert.equal(ef.reportado, 10);
+  assert.equal(tr.fechaPago, hoy);
+});
