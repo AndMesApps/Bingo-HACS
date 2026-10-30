@@ -322,3 +322,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS tablas_numeros_clave_uq ON tablas (numeros_cla
 
 -- Enlace de la reunión virtual (Zoom, Meet…) que va en el mensaje con las tablas.
 ALTER TABLE evento ADD COLUMN IF NOT EXISTS enlace_conexion TEXT NOT NULL DEFAULT '';
+
+-- Texto del mensaje con las tablas, editable desde Configuración ('' = el texto original).
+ALTER TABLE evento ADD COLUMN IF NOT EXISTS texto_mensaje TEXT NOT NULL DEFAULT '';

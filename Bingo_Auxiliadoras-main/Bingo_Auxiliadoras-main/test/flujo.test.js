@@ -1349,7 +1349,7 @@ test('mensaje: saludo por hora, nombre, fecha, cantidad, números, enlaces y dó
   assert.match(t, /Bingo de las Hermanas Auxiliadoras de Cristo Sacerdote, a realizarse el domingo 24 de mayo del 2026\./);
   assert.match(t, /enumeradas en la parte superior, en el óvalo dorado que dice «TABLA N° …»/);
   assert.match(t, /va marcada con su nombre: en la franja azul de abajo/);
-  assert.match(t, /Anexo enlace para conexión: https:\/\/meet\.google\.com\/abc-defg-hij\./);
+  assert.match(t, /Anexo enlace para conexión: https:\/\/meet\.google\.com\/abc-defg-hij\nNo es requerido/);
   assert.match(t, /Anexo: 2 tablas \(N° 12 y 87\)\./);
   assert.match(t, /Descárguelas aquí: https:\/\/x\.test\/tablas\.html\?t=abc/);
   assert.match(t, /Código de su compra: BNG-AB12CD/);
@@ -1431,4 +1431,67 @@ https://us06web.zoom.us/meetings/83195604774/invitations?signature=Rg-hdtv7IdOzH
   await s.actualizarEvento({ enlaceConexion: compacto });
   assert.equal((await s.evento()).enlaceConexion, compacto);
   await assert.rejects(() => s.actualizarEvento({ enlaceConexion: invitacion }), /demasiado largos/);
+});
+
+test('texto editable: etiquetas, líneas sin datos, validación y vista previa', async () => {
+  const { renderizar, valoresDelMensaje, validarPlantilla, PLANTILLA_ORIGINAL, textoWhatsApp, mensajeCorreo, nombreCompleto } = require('../src/mensajes');
+  const datos = { nombre: 'TERESITA PÉREZ', seriales: ['12', '87'], enlace: 'https://x.test/t?t=1', codigo: 'BNG-1', fechaSorteo: '2026-11-22', ahora: new Date('2026-11-22T20:00:00Z') };
+  assert.equal(nombreCompleto('TERESITA PÉREZ'), 'Teresita Pérez');
+
+  // Un texto propio con etiquetas.
+  const propio = 'Hola {nombre_completo}: tienes {cantidad} ({numeros}). Fecha: {fecha}.\n{enlace}';
+  assert.equal(textoWhatsApp({ ...datos, plantilla: propio }), 'Hola Teresita Pérez: tienes 2 tablas (12 y 87). Fecha: domingo 22 de noviembre del 2026.\nhttps://x.test/t?t=1');
+
+  // Una línea con una etiqueta sin datos se quita entera; {fecha_frase} vacío solo se omite.
+  const v = valoresDelMensaje({ ...datos, codigo: '', fechaSorteo: '' });
+  assert.equal(renderizar('Gracias{fecha_frase}.\nCódigo: {codigo}\nFin {enlace}', v), 'Gracias.\nFin https://x.test/t?t=1');
+
+  // Validación: etiquetas desconocidas y {enlace} obligatorio.
+  assert.equal(validarPlantilla(PLANTILLA_ORIGINAL), '');
+  assert.match(validarPlantilla('Hola {nombr} {enlace}'), /\{nombr\}/);
+  assert.match(validarPlantilla('Hola {nombre}'), /\{enlace\}/);
+
+  // Correo: viñetas en lista, negrita y enlaces; el texto plano no lleva asteriscos.
+  const c = mensajeCorreo(datos);
+  assert.match(c.html, /<ul><li>Las tablas están enumeradas/);
+  assert.match(c.html, /<strong>¡Tus tablas de bingo!<\/strong>/);
+  assert.match(c.html, /<a href="https:\/\/x\.test\/t\?t=1">/);
+  assert.ok(!c.texto.includes('*'));
+  assert.match(c.html, /No es requerido/, 'la línea sin viñeta continúa la viñeta anterior');
+
+  // Guardar: igual al original se guarda vacío; uno propio se guarda; uno con errores se rechaza.
+  const s = await nuevo();
+  assert.equal((await s.evento()).textoMensaje, '');
+  const m0 = await s.mensajeActual();
+  assert.equal(m0.esPropio, false);
+  assert.equal(m0.actual, PLANTILLA_ORIGINAL);
+  await s.actualizarEvento({ textoMensaje: PLANTILLA_ORIGINAL.replace(/\n/g, '\r\n') });
+  assert.equal((await s.evento()).textoMensaje, '', 'igual al original: sigue usando el original');
+  await assert.rejects(() => s.actualizarEvento({ textoMensaje: 'Hola {nombr} {enlace}' }), /etiquetas que no existen/);
+  await assert.rejects(() => s.actualizarEvento({ textoMensaje: 'Hola sin enlace' }), /\{enlace\}/);
+  await s.actualizarEvento({ textoMensaje: 'Hola {nombre}, tus tablas {cantidad}: {enlace}' });
+  assert.equal((await s.mensajeActual()).esPropio, true);
+  await s.actualizarEvento({ nombre: 'Otro nombre' }); // otros cambios no borran el texto propio
+  assert.equal((await s.evento()).textoMensaje, 'Hola {nombre}, tus tablas {cantidad}: {enlace}');
+
+  // Vista previa con datos de ejemplo.
+  const vp = await s.vistaPreviaMensaje('Hola {nombre}: {numeros} {enlace}');
+  assert.match(vp, /^Hola Teresita: 12 y 87 https:\/\//);
+  assert.match(await s.vistaPreviaMensaje(''), /Gracias, feliz día\.$/, 'vacío = texto original');
+  await assert.rejects(() => s.vistaPreviaMensaje('sin enlace'), /\{enlace\}/);
+
+  // El texto propio llega al WhatsApp manual; volver al original lo quita.
+  await tablas(s, 2);
+  const compra = await comprar(s, 1, { nombre: 'Luis Gómez' });
+  await verificarTodo(s, compra.id);
+  await s.enviarTablas(compra.id, { baseUrl: 'https://bingo.test' });
+  const wa = decodeURIComponent((await s.enlaceWhatsapp(compra.id, 'https://bingo.test')).split('?text=')[1]);
+  assert.match(wa, /^Hola Luis, tus tablas 1 tabla: https:\/\/bingo\.test\/tablas\.html\?t=/);
+  await s.actualizarEvento({ textoMensaje: '' });
+  assert.match(decodeURIComponent((await s.enlaceWhatsapp(compra.id, 'https://bingo.test')).split('?text=')[1]), /Gracias, feliz día\.$/);
+
+  // Al empezar un Bingo nuevo, el texto del mensaje se conserva (es redacción, no datos del evento).
+  await s.actualizarEvento({ textoMensaje: 'Hola {nombre}: {enlace}' });
+  await s.reiniciarBingo({ nombre: 'Siguiente', confirmar: true });
+  assert.equal((await s.evento()).textoMensaje, 'Hola {nombre}: {enlace}');
 });

@@ -1,6 +1,6 @@
 // Mensaje que recibe cada benefactor con sus tablas (WhatsApp manual y correo). Un solo texto para los dos canales.
-// Datos que se completan solos: saludo según la hora, nombre, fecha del bingo, cantidad y números de tabla,
-// enlace privado de las tablas, código de la compra y enlace de conexión a la reunión (si está configurado).
+// El texto es una plantilla editable desde Configuración: lo que va entre llaves, como {nombre} o {fecha}, se reemplaza
+// por los datos de cada compra. Si no se ha cambiado, se usa PLANTILLA_ORIGINAL.
 
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -22,10 +22,16 @@ function saludoDe(ahora = new Date()) {
   return h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches';
 }
 
+const capitalizar = p => (p ? p.charAt(0).toLocaleUpperCase('es') + p.slice(1).toLocaleLowerCase('es') : '');
+
 // 'TERESITA PÉREZ' -> 'Teresita'
 function primerNombre(nombre) {
-  const p = String(nombre ?? '').trim().split(/\s+/)[0] || '';
-  return p ? p.charAt(0).toLocaleUpperCase('es') + p.slice(1).toLocaleLowerCase('es') : '';
+  return capitalizar(String(nombre ?? '').trim().split(/\s+/)[0] || '');
+}
+
+// 'TERESITA PÉREZ' -> 'Teresita Pérez'
+function nombreCompleto(nombre) {
+  return String(nombre ?? '').trim().split(/\s+/).filter(Boolean).map(capitalizar).join(' ');
 }
 
 // ['12'] -> '12'; ['12','87'] -> '12 y 87'; ['1','2','3'] -> '1, 2 y 3'
@@ -64,63 +70,126 @@ function compactarInvitacion(texto) {
 // Deja los datos de conexión en líneas limpias (sin espacios ni líneas vacías de más).
 const limpiarConexion = t => String(t ?? '').split(/\r?\n/).map(l => l.trim()).filter(Boolean).join('\n');
 
-// Un solo enlace va en la misma línea; con varios datos (enlace, ID, hora) cada uno va en su línea.
-function conexionDe(conexion) {
-  const aviso = 'No es requerido que tenga cámara abierta; es importante que tenga facilidad para escribir por el chat de la reunión, para cantar bingo, si corresponde.';
-  if (!conexion) return `El enlace para conexión se lo enviaremos antes del bingo. ${aviso}`;
-  return conexion.includes('\n') ? `Anexo enlace para conexión:\n${conexion}\n${aviso}` : `Anexo enlace para conexión: ${conexion}. ${aviso}`;
+// ---------- Plantilla editable ----------
+// Etiquetas que se pueden usar en el texto, con lo que significan (para mostrarlas en Configuración).
+const ETIQUETAS = [
+  { nombre: 'saludo', descripcion: 'Buenos días, Buenas tardes o Buenas noches, según la hora' },
+  { nombre: 'nombre', descripcion: 'El primer nombre del benefactor (Teresita)' },
+  { nombre: 'nombre_completo', descripcion: 'El nombre completo del benefactor (Teresita Pérez)' },
+  { nombre: 'fecha_frase', descripcion: 'La frase «, a realizarse el domingo 22 de noviembre del 2026» (no sale si no hay fecha)' },
+  { nombre: 'fecha', descripcion: 'La fecha del bingo (domingo 22 de noviembre del 2026)' },
+  { nombre: 'cantidad', descripcion: 'Cuántas tablas son (2 tablas)' },
+  { nombre: 'numeros', descripcion: 'Los números de sus tablas (12 y 87)' },
+  { nombre: 'enlace', descripcion: 'El enlace privado para descargar sus tablas' },
+  { nombre: 'codigo', descripcion: 'El código de la compra (BNG-AB12CD)' },
+  { nombre: 'conexion_bloque', descripcion: 'Los datos de la reunión (enlace, ID y hora), o un aviso si todavía no están' },
+];
+const NOMBRES_ETIQUETAS = new Set(ETIQUETAS.map(e => e.nombre));
+// Etiquetas que pueden quedar vacías sin que se borre la línea donde están.
+const ETIQUETAS_OPCIONALES = new Set(['fecha_frase']);
+
+const PLANTILLA_ORIGINAL = `{saludo} {nombre}, esperando estén super bien.
+
+*¡Tus tablas de bingo!*
+
+Agradecemos su participación en el Bingo de las Hermanas Auxiliadoras de Cristo Sacerdote{fecha_frase}.
+
+A continuación le anexamos información que le puede servir para tener un buen juego:
+• Las tablas están enumeradas en la parte superior, en el óvalo dorado que dice «TABLA N° …», debajo del logo. Por fa tenga el número ubicado porque es importante en el juego.
+• Cada tabla va marcada con su nombre: en la franja azul de abajo, donde dice «Válida únicamente para …», y como marca de agua en toda la tabla. Es solo para usted y no se puede transferir.
+• Le recomendamos tener sus tablas impresas o hacerlas a mano antes del bingo para que sea fácil jugar tapando con papelitos que previamente se tengan preparados.
+• {conexion_bloque}
+No es requerido que tenga cámara abierta; es importante que tenga facilidad para escribir por el chat de la reunión, para cantar bingo, si corresponde.
+
+Anexo: {cantidad} (N° {numeros}).
+Descárguelas aquí: {enlace}
+Código de su compra: {codigo} (guárdelo para consultar el estado).
+
+Gracias, feliz día.`;
+
+// Devuelve '' si la plantilla sirve, o el motivo por el que no. Se valida al guardar para que un error de tipeo
+// (por ejemplo {nombr}) no llegue a los benefactores.
+function validarPlantilla(texto) {
+  const t = String(texto ?? '');
+  if (t.length > 4000) return 'El texto del mensaje es demasiado largo (máximo 4000 caracteres).';
+  const desconocidas = [...new Set((t.match(/\{[^{}\n]*\}/g) || []).map(x => x.slice(1, -1)).filter(x => !NOMBRES_ETIQUETAS.has(x)))];
+  if (desconocidas.length) {
+    return `Hay etiquetas que no existen: ${desconocidas.map(x => `{${x}}`).join(', ')}. Las permitidas son: ${ETIQUETAS.map(e => `{${e.nombre}}`).join(', ')}.`;
+  }
+  if (!t.includes('{enlace}')) return 'El mensaje debe incluir la etiqueta {enlace}: es por donde cada benefactor descarga sus tablas.';
+  return '';
 }
 
-// Devuelve las partes del mensaje; cada canal las arma a su manera (texto de WhatsApp, texto y HTML de correo).
-function partesDelMensaje({ nombre, seriales = [], enlace, codigo, fechaSorteo, enlaceConexion, ahora } = {}) {
+// Valores con los que se reemplaza cada etiqueta.
+function valoresDelMensaje({ nombre, seriales = [], enlace, codigo, fechaSorteo, enlaceConexion, ahora } = {}) {
   const fecha = fechaLarga(fechaSorteo);
   const cantidad = seriales.length;
   const conexion = limpiarConexion(enlaceConexion);
   return {
-    asunto: ASUNTO,
-    saludo: `${saludoDe(ahora)} ${primerNombre(nombre)}, esperando estén super bien.`.replace(/ ,/, ','),
-    titulo: ASUNTO,
-    intro: `Agradecemos su participación en el Bingo de las Hermanas Auxiliadoras de Cristo Sacerdote${fecha ? `, a realizarse el ${fecha}` : ''}.`,
-    presentacion: 'A continuación le anexamos información que le puede servir para tener un buen juego:',
-    puntos: [
-      'Las tablas están enumeradas en la parte superior, en el óvalo dorado que dice «TABLA N° …», debajo del logo. Por fa tenga el número ubicado porque es importante en el juego.',
-      'Cada tabla va marcada con su nombre: en la franja azul de abajo, donde dice «Válida únicamente para …», y como marca de agua en toda la tabla. Es solo para usted y no se puede transferir.',
-      'Le recomendamos tener sus tablas impresas o hacerlas a mano antes del bingo para que sea fácil jugar tapando con papelitos que previamente se tengan preparados.',
-      conexionDe(conexion),
-    ],
-    anexo: cantidad ? `Anexo: ${cantidad} ${cantidad === 1 ? 'tabla' : 'tablas'} (N° ${lista(seriales)}).` : '',
-    descarga: enlace ? `Descárguelas aquí: ${enlace}` : '',
-    codigo: codigo ? `Código de su compra: ${codigo} (guárdelo para consultar el estado).` : '',
-    cierre: 'Gracias, feliz día.',
+    saludo: saludoDe(ahora),
+    nombre: primerNombre(nombre),
+    nombre_completo: nombreCompleto(nombre),
+    fecha,
+    fecha_frase: fecha ? `, a realizarse el ${fecha}` : '',
+    cantidad: cantidad ? `${cantidad} ${cantidad === 1 ? 'tabla' : 'tablas'}` : '',
+    numeros: lista(seriales),
+    enlace: enlace || '',
+    codigo: codigo || '',
+    conexion_bloque: !conexion ? 'El enlace para conexión se lo enviaremos antes del bingo.'
+      : conexion.includes('\n') ? `Anexo enlace para conexión:\n${conexion}` : `Anexo enlace para conexión: ${conexion}`,
   };
 }
 
-// Texto para WhatsApp: el título va en negrita y la lista con viñetas (así ningún asterisco se confunde con formato).
-function textoWhatsApp(datos) {
-  const p = partesDelMensaje(datos);
-  return [
-    p.saludo, '', `*${p.titulo}*`, '', p.intro, '', p.presentacion,
-    ...p.puntos.map(x => `• ${x}`), '',
-    [p.anexo, p.descarga, p.codigo].filter(Boolean).join('\n'), '', p.cierre,
-  ].join('\n').replace(/\n{3,}/g, '\n\n');
+// Reemplaza las etiquetas. Una línea que tenga alguna etiqueta sin datos (por ejemplo {codigo} vacío) se quita entera.
+function renderizar(plantilla, valores) {
+  const lineas = [];
+  for (const linea of String(plantilla).split(/\r?\n/)) {
+    const etiquetas = linea.match(/\{[a-z_]+\}/g) || [];
+    const vacia = etiquetas.some(e => {
+      const nombre = e.slice(1, -1);
+      return NOMBRES_ETIQUETAS.has(nombre) && !ETIQUETAS_OPCIONALES.has(nombre) && !valores[nombre];
+    });
+    if (vacia) continue;
+    lineas.push(linea.replace(/\{([a-z_]+)\}/g, (todo, nombre) => (NOMBRES_ETIQUETAS.has(nombre) ? valores[nombre] : todo)));
+  }
+  return lineas.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+const textoDeMensaje = datos => renderizar((datos && datos.plantilla) || PLANTILLA_ORIGINAL, valoresDelMensaje(datos));
+
+// Texto para WhatsApp (el *texto* entre asteriscos sale en negrita).
+const textoWhatsApp = datos => textoDeMensaje(datos);
+
+// ---------- Correo ----------
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // Convierte las direcciones web del texto en enlaces.
 const conEnlaces = s => esc(s).replace(/(https?:\/\/[^\s<]+?)(?=[.,;]?(?:\s|$))/g, '<a href="$1">$1</a>');
+const formato = s => conEnlaces(s).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
 
-function mensajeCorreo(datos) {
-  const p = partesDelMensaje(datos);
-  const texto = [
-    p.saludo, '', p.titulo, '', p.intro, '', p.presentacion,
-    ...p.puntos.map(x => `• ${x}`), '',
-    [p.anexo, p.descarga, p.codigo].filter(Boolean).join('\n'), '', p.cierre,
-  ].join('\n').replace(/\n{3,}/g, '\n\n');
-  const html = `<p>${esc(p.saludo)}</p><h2 style="margin:0 0 8px">${esc(p.titulo)}</h2><p>${esc(p.intro)}</p><p>${esc(p.presentacion)}</p>`
-    + `<ul>${p.puntos.map(x => `<li>${conEnlaces(x).replace(/\n/g, '<br>')}</li>`).join('')}</ul>`
-    + [p.anexo, p.descarga, p.codigo].filter(Boolean).map(x => `<p>${conEnlaces(x)}</p>`).join('')
-    + `<p>${esc(p.cierre)}</p>`;
-  return { asunto: p.asunto, texto, html };
+// Párrafos separados por línea en blanco; las líneas con «• » forman una lista (las líneas siguientes sin viñeta
+// continúan la viñeta anterior).
+function textoAHtml(texto) {
+  return texto.split(/\n{2,}/).map(bloque => {
+    const lineas = bloque.split('\n');
+    if (!lineas.some(l => l.startsWith('• '))) return `<p>${formato(bloque)}</p>`;
+    const previas = [];
+    const items = [];
+    for (const l of lineas) {
+      if (l.startsWith('• ')) items.push([l.slice(2)]);
+      else if (items.length) items[items.length - 1].push(l);
+      else previas.push(l);
+    }
+    return (previas.length ? `<p>${formato(previas.join('\n'))}</p>` : '') + `<ul>${items.map(i => `<li>${formato(i.join('\n'))}</li>`).join('')}</ul>`;
+  }).join('');
 }
 
-module.exports = { fechaLarga, saludoDe, primerNombre, lista, partesDelMensaje, textoWhatsApp, mensajeCorreo, compactarInvitacion, limpiarConexion, ASUNTO };
+function mensajeCorreo(datos) {
+  const texto = textoDeMensaje(datos);
+  return { asunto: ASUNTO, texto: texto.replace(/\*([^*\n]+)\*/g, '$1'), html: textoAHtml(texto) };
+}
+
+module.exports = {
+  fechaLarga, saludoDe, primerNombre, nombreCompleto, lista, textoWhatsApp, mensajeCorreo, textoAHtml,
+  compactarInvitacion, limpiarConexion, validarPlantilla, valoresDelMensaje, renderizar,
+  PLANTILLA_ORIGINAL, ETIQUETAS, ASUNTO,
+};

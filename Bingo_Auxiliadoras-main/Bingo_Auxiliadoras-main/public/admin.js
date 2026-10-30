@@ -1001,12 +1001,17 @@ function renderManual() {
   $('vista').innerHTML = `
     <h2>Manual «Cómo hago…»</h2>
     <div class="card">
+      <p style="margin-top:0"><strong>¿Qué quieres saber?</strong> Escríbelo con tus palabras y te muestro dónde se explica.</p>
+      <div id="buscador-panel"></div>
+    </div>
+    <div class="card">
       <p>Explica paso a paso todo lo que se puede hacer en el Bingo, con letra grande y lenguaje sencillo.</p>
       <div class="actions"><a class="btn" href="/manual.html#parte-b" target="_blank" rel="noopener">Abrir el manual completo</a>
         <a class="btn ghost" href="/manual.html#parte-a" target="_blank" rel="noopener">Guía para el benefactor</a></div>
     </div>
     <h2>Ir directo a una pregunta</h2>
     <div class="card">${temas.map(([id, t]) => `<div class="kv"><span>Cómo hago: ${esc(t)}</span><a class="btn ghost" href="/manual.html#${id}" target="_blank" rel="noopener">Ver</a></div>`).join('')}</div>`;
+  if (window.ayudaMontarBuscador) window.ayudaMontarBuscador($('buscador-panel'), '/manual.html');
 }
 
 // ---------- Gastos ----------
@@ -1049,7 +1054,7 @@ async function renderGastos() {
 
 // ---------- Configuración ----------
 async function renderConfig() {
-  const e = await api('GET', '/admin/evento');
+  const [e, mensaje] = await Promise.all([api('GET', '/admin/evento'), api('GET', '/admin/mensaje')]);
   let qr = e.qrPago; // '' = sin QR; solo se envía si el administrador lo cambia
   let qrCambiado = false;
   $('vista').innerHTML = `
@@ -1110,6 +1115,32 @@ async function renderConfig() {
         <div id="pieza-vista" style="margin:10px 0"></div>
         <input type="file" id="pieza-archivo" accept="image/png,image/jpeg,image/webp">
         <div class="actions"><button type="button" class="ghost danger" id="pieza-quitar">Quitar imagen</button></div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0">Mensaje que reciben los benefactores con sus tablas</h2>
+        <p class="muted" style="margin-top:-6px">Es el texto que va por WhatsApp y por correo. Lo que está entre llaves, como <strong>{nombre}</strong>, el sistema lo cambia solo por el dato de cada benefactor. Escribe o cambia las frases como quieras.</p>
+        <label class="full">Texto del mensaje
+          <textarea name="textoMensaje" id="texto-mensaje" rows="18" style="font-family:inherit;line-height:1.45">${esc(mensaje.actual)}</textarea>
+        </label>
+        <p class="muted" style="margin:8px 0 4px">Toca una etiqueta para ponerla donde tengas el cursor:</p>
+        <div class="actions" id="etiquetas-mensaje" style="margin-top:0">${mensaje.etiquetas.map(t =>
+          `<button type="button" class="ghost" data-etiqueta="${esc(t.nombre)}" title="${esc(t.descripcion)}">{${esc(t.nombre)}}</button>`).join('')}</div>
+        <details style="margin-top:8px"><summary class="muted">¿Qué significa cada etiqueta?</summary>
+          ${mensaje.etiquetas.map(t => `<div class="kv"><span><strong>{${esc(t.nombre)}}</strong></span><span class="muted">${esc(t.descripcion)}</span></div>`).join('')}
+        </details>
+        <ul class="muted" style="margin:10px 0 0;padding-left:20px">
+          <li>El texto <strong>*así*</strong> entre asteriscos sale en <strong>negrita</strong> en WhatsApp y en el correo.</li>
+          <li>Una línea que lleve una etiqueta sin datos (por ejemplo, sin código) <strong>se omite sola</strong>.</li>
+          <li>Debe llevar siempre <strong>{enlace}</strong>: es por donde descargan sus tablas.</li>
+        </ul>
+        <div class="actions">
+          <button type="button" class="ghost" id="mensaje-previa">Ver cómo queda</button>
+          <button type="button" class="ghost" id="mensaje-original">Volver al texto original</button>
+        </div>
+        <p class="muted" id="mensaje-estado" style="margin:6px 0 0">${mensaje.esPropio ? 'Estás usando un texto propio.' : 'Estás usando el texto original.'}</p>
+        <div id="mensaje-vista" style="display:none;white-space:pre-wrap;margin-top:10px;padding:12px;border:1px dashed var(--line);border-radius:10px"></div>
+        <p class="muted" style="margin:8px 0 0">Los cambios se aplican con <strong>«Guardar configuración»</strong>, al final de la página. Los mensajes ya enviados no cambian.</p>
       </div>
 
       <div class="card">
@@ -1185,6 +1216,30 @@ async function renderConfig() {
   });
   $('qr-quitar').addEventListener('click', () => { qr = ''; qrCambiado = true; $('qr-archivo').value = ''; pintarQr(); });
 
+  const cajaTexto = $('texto-mensaje');
+  $('etiquetas-mensaje').addEventListener('click', ev => {
+    const b = ev.target.closest('[data-etiqueta]');
+    if (!b) return;
+    const ini = cajaTexto.selectionStart ?? cajaTexto.value.length;
+    const fin = cajaTexto.selectionEnd ?? ini;
+    const etiqueta = `{${b.dataset.etiqueta}}`;
+    cajaTexto.setRangeText(etiqueta, ini, fin, 'end');
+    cajaTexto.focus();
+  });
+  $('mensaje-previa').addEventListener('click', async () => {
+    const caja = $('mensaje-vista');
+    try {
+      const previa = (await api('POST', '/admin/mensaje/vista-previa', { texto: cajaTexto.value })).texto;
+      caja.innerHTML = esc(previa).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>');
+      caja.style.display = 'block';
+      msg('Así se vería con datos de ejemplo (Teresita Pérez, tablas 12 y 87).');
+    } catch (err) { caja.style.display = 'none'; msg(err.message, true); }
+  });
+  $('mensaje-original').addEventListener('click', () => {
+    cajaTexto.value = mensaje.original;
+    $('mensaje-estado').textContent = 'Volviste al texto original. Pulsa «Guardar configuración» para aplicarlo.';
+    msg('Texto original restaurado. Pulsa «Guardar configuración».');
+  });
   $('compactar-conexion').addEventListener('click', async () => {
     const campo = $('conexion-texto');
     try { campo.value = (await api('POST', '/admin/conexion/compactar', { texto: campo.value })).compacto; msg('Listo: quedó solo lo necesario. Pulsa "Guardar configuración".'); } catch (err) { msg(err.message, true); }
@@ -1201,6 +1256,7 @@ async function renderConfig() {
         moneda: f.moneda.value,
         fechaSorteo: f.fechaSorteo.value,
         enlaceConexion: f.enlaceConexion.value,
+        textoMensaje: f.textoMensaje.value,
         titularCuenta: f.titularCuenta.value,
         banco: f.banco.value,
         tipoCuenta: f.tipoCuenta.value,
