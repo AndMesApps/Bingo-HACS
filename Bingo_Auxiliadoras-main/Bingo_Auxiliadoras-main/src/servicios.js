@@ -1077,6 +1077,109 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     };
   }
 
+  // ---------- Informes ----------
+  // Un solo cálculo con todo lo que pide la administración: estado de resultados, caja por día y método, ventas por día,
+  // por referido y por ciudad, gastos por categoría, premios, estado de pagos y control de entregas.
+  // desde / hasta (AAAA-MM-DD, opcionales) acotan por la fecha propia de cada dato: fecha del pago, del envío, del gasto…
+  async function informes({ bingoId, desde, hasta } = {}) {
+    const fecha = (v, nombre) => {
+      if (v == null || v === '') return null;
+      if (!FECHA_ISO.test(String(v))) throw new ErrorApp(`La fecha "${nombre}" no es válida (usa AAAA-MM-DD).`);
+      return String(v);
+    };
+    const d = fecha(desde, 'desde');
+    const h = fecha(hasta, 'hasta');
+    if (d && h && d > h) throw new ErrorApp('La fecha "desde" no puede ser posterior a "hasta".');
+    const bingo = await uno(`SELECT * FROM bingos WHERE id = ${DE_BINGO(1)}`, [bingoId ? Number(bingoId) : null]);
+    if (!bingo) throw new ErrorApp('Ese Bingo no existe.', 404);
+    const p = [bingo.id, d, h];
+    // Condición de rango sobre una columna de texto ISO (se compara solo la parte de la fecha).
+    const R = col => `($2::text IS NULL OR substr(${col}, 1, 10) >= $2::text) AND ($3::text IS NULL OR substr(${col}, 1, 10) <= $3::text)`;
+    const filas = sql => q(sql, p);
+    // Consultas que no dependen del rango de fechas.
+    const filasBingo = sql => q(sql, [bingo.id]);
+    const total = async sql => redondear(num((await filas(sql))[0].n));
+
+    // --- Estado de resultados ---
+    const cobrado = await total(`SELECT COALESCE(SUM(p.monto_verificado), 0) AS n FROM pagos p JOIN compras c ON c.id = p.compra_id
+      WHERE p.estado = 'verificado' AND c.bingo_id = $1 AND ${R('p.fecha_pago')}`);
+    const sobranteEn = est => total(`SELECT COALESCE(SUM(sobrante_monto), 0) AS n FROM compras
+      WHERE bingo_id = $1 AND sobrante_estado IN (${est}) AND ${R('sobrante_en')}`);
+    const donaciones = await sobranteEn("'donado'");
+    const porDevolver = await sobranteEn("'por_devolver','por_definir'");
+    const devuelto = await sobranteEn("'devuelto'");
+    const premiosPagados = await total(`SELECT COALESCE(SUM(monto), 0) AS n FROM premios WHERE bingo_id = $1 AND pagado = true AND ${R('pagado_en')}`);
+    const premiosPendientes = redondear(num((await filasBingo('SELECT COALESCE(SUM(monto), 0) AS n FROM premios WHERE bingo_id = $1 AND pagado = false'))[0].n));
+    const gastos = await total(`SELECT COALESCE(SUM(monto), 0) AS n FROM gastos WHERE bingo_id = $1 AND ${R('fecha')}`);
+    const ingresos = redondear(cobrado - porDevolver - devuelto);
+    const resultados = {
+      cobrado, porDevolver, devuelto, donaciones,
+      ventasTablas: redondear(ingresos - donaciones),
+      ingresos, premiosPagados, gastos,
+      excedente: redondear(ingresos - premiosPagados - gastos),
+      premiosPendientes,
+      excedenteProyectado: redondear(ingresos - premiosPagados - gastos - premiosPendientes),
+    };
+
+    // --- Caja por día y método (pagos verificados, por fecha de pago) ---
+    const cajaFilas = await filas(`SELECT p.fecha_pago AS dia, p.metodo, SUM(p.monto_verificado) AS monto, COUNT(*)::int AS pagos
+      FROM pagos p JOIN compras c ON c.id = p.compra_id
+      WHERE p.estado = 'verificado' AND c.bingo_id = $1 AND ${R('p.fecha_pago')} GROUP BY p.fecha_pago, p.metodo ORDER BY p.fecha_pago, p.metodo`);
+    const metodos = [...new Set(cajaFilas.map(r => r.metodo))].sort();
+    const dias = [...new Set(cajaFilas.map(r => r.dia))].sort();
+    const caja = {
+      metodos,
+      dias: dias.map(dia => {
+        const delDia = cajaFilas.filter(r => r.dia === dia);
+        return { dia, porMetodo: Object.fromEntries(delDia.map(r => [r.metodo, redondear(r.monto)])), total: redondear(delDia.reduce((s, r) => s + num(r.monto), 0)), pagos: delDia.reduce((s, r) => s + r.pagos, 0) };
+      }),
+    };
+
+    // --- Ventas: compras con tablas enviadas, por fecha de envío ---
+    const enviada = `c.estado = 'enviada' AND c.bingo_id = $1 AND ${R('c.enviada_en')}`;
+    const agrupado = async (expr, orden) => (await filas(
+      `SELECT ${expr} AS clave, COUNT(*)::int AS compras, COALESCE(SUM(c.tablas_aprobadas), 0)::int AS tablas, COALESCE(SUM(c.total), 0) AS monto
+       FROM compras c WHERE ${enviada} GROUP BY 1 ORDER BY ${orden}`,
+    )).map(r => ({ clave: r.clave, compras: r.compras, tablas: r.tablas, monto: redondear(r.monto) }));
+    const ventasPorDia = await agrupado('substr(c.enviada_en, 1, 10)', '1');
+    const porReferido = await agrupado("COALESCE(NULLIF(TRIM(c.referido_por), ''), '(sin referido)')", '4 DESC, 1');
+    const porCiudad = await agrupado("COALESCE(NULLIF(TRIM(c.ciudad), ''), '(sin ciudad)')", '4 DESC, 1');
+
+    // --- Gastos por categoría ---
+    const gastosPorCategoria = (await filas(`SELECT categoria AS clave, COUNT(*)::int AS cantidad, SUM(monto) AS monto
+      FROM gastos WHERE bingo_id = $1 AND ${R('fecha')} GROUP BY categoria ORDER BY SUM(monto) DESC`))
+      .map(r => ({ clave: r.clave, cantidad: r.cantidad, monto: redondear(r.monto) }));
+
+    // --- Estado de los pagos ---
+    const pagosEstado = (await filas(`SELECT p.estado AS clave, COUNT(*)::int AS cantidad, SUM(COALESCE(p.monto_verificado, p.monto_reportado)) AS monto
+      FROM pagos p JOIN compras c ON c.id = p.compra_id WHERE c.bingo_id = $1 AND ${R('p.fecha_pago')} GROUP BY p.estado ORDER BY p.estado`))
+      .map(r => ({ clave: r.clave, cantidad: r.cantidad, monto: redondear(r.monto) }));
+
+    // --- Premios ---
+    const premios = (await listarPremios(bingoId)).map(x => ({
+      ronda: x.ronda, premio: x.premio, monto: x.monto, figura: x.figuraNombre,
+      ganador: x.ganador?.nombre ?? '', serial: x.serial ?? '', estado: x.pagado ? 'entregado' : x.serial ? 'por entregar' : 'sin ganador',
+      recibidoPor: x.recibidoPor,
+    }));
+
+    // --- Tablas y entregas (estado actual, no depende del rango) ---
+    const vendidasHistorial = bingo.estado === 'activo'
+      ? num((await q("SELECT COUNT(*) AS n FROM tablas WHERE estado = 'vendida'"))[0].n)
+      : num((await q('SELECT COUNT(*) AS n FROM tablas_historial WHERE bingo_id = $1', [bingo.id]))[0].n);
+    const canal = col => filasBingo(`SELECT ${col} AS clave, COUNT(*)::int AS cantidad FROM compras c
+      WHERE c.estado = 'enviada' AND c.bingo_id = $1 GROUP BY 1 ORDER BY 1`).then(r => r.map(x => ({ clave: x.clave, cantidad: x.cantidad })));
+    const tablas = {
+      vendidas: vendidasHistorial,
+      disponibles: bingo.estado === 'activo' ? await tablasDisponibles() : null,
+      porEnviar: num((await filasBingo("SELECT COALESCE(SUM(COALESCE(tablas_aprobadas, cantidad)), 0) AS n FROM compras c WHERE c.estado = 'verificada' AND c.bingo_id = $1"))[0].n),
+      whatsapp: await canal('c.whatsapp_estado'),
+      correo: await canal('c.correo_estado'),
+      fisica: await canal('c.fisica_estado'),
+    };
+
+    return { bingo: { id: bingo.id, nombre: bingo.nombre, estado: bingo.estado }, desde: d, hasta: h, resultados, caja, ventasPorDia, porReferido, porCiudad, gastosPorCategoria, pagosEstado, premios, tablas };
+  }
+
   // ---------- Varios bingos: histórico y reinicio ----------
   const sinQr = config => { const { qrPago, qr_pago, ...resto } = config || {}; return resto; };
 
@@ -1208,7 +1311,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     listarPremios, crearPremio, asignarGanador, quitarGanador, pagarPremio,
     estadoSorteo, iniciarRonda, pausarRonda, cantarBalota, deshacerBalota, verificarTabla,
     listarGastos, crearGasto, eliminarGasto,
-    resumen, bitacoraLista, reporte, listarBingos, reiniciarBingo,
+    resumen, informes, bitacoraLista, reporte, listarBingos, reiniciarBingo,
   };
 }
 

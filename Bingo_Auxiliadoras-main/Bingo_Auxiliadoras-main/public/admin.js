@@ -50,6 +50,7 @@ const VISTAS = {
   premios: { titulo: 'Premios', render: renderPremios },
   gastos: { titulo: 'Gastos', render: renderGastos },
   config: { titulo: 'Configuración', render: renderConfig },
+  informes: { titulo: 'Informes', render: renderInformes },
   reportes: { titulo: 'Reportes', render: renderReportes },
   bingos: { titulo: 'Bingos', render: renderBingos },
   bitacora: { titulo: 'Bitácora', render: renderBitacora },
@@ -668,7 +669,7 @@ async function renderPremios() {
     ${premios.map(p => `
       <article class="card">
         <div class="row"><strong>${esc(p.ronda)}</strong>
-          <span class="pill ${p.pagado ? 'verificado' : p.serial ? 'por_verificar' : ''}">${p.pagado ? 'pagado' : p.serial ? 'pendiente de pago' : 'sin ganador'}</span></div>
+          <span class="pill ${p.pagado ? 'verificado' : p.serial ? 'por_verificar' : ''}">${p.pagado ? 'entregado' : p.serial ? 'por entregar' : 'sin ganador'}</span></div>
         <p class="muted">${esc(p.premio)} · ${dinero(p.monto)} · ${esc(p.figuraNombre)}</p>
         ${p.serial ? `
           <p class="mono">${esc(p.serial)}</p>
@@ -795,6 +796,123 @@ async function renderSorteo() {
       }, null));
     } catch (err) { $('resultado').innerHTML = ''; msg(err.message, true); }
   });
+}
+
+// ---------- Informes ----------
+// Filtros que se recuerdan mientras la pestaña esté abierta.
+const filtroInformes = { bingo: '', desde: '', hasta: '' };
+
+async function renderInformes() {
+  const { actual, historico } = await api('GET', '/admin/bingos');
+  const params = new URLSearchParams();
+  if (filtroInformes.bingo) params.set('bingo', filtroInformes.bingo);
+  if (filtroInformes.desde) params.set('desde', filtroInformes.desde);
+  if (filtroInformes.hasta) params.set('hasta', filtroInformes.hasta);
+  const i = await api('GET', `/admin/informes${params.toString() ? '?' + params : ''}`);
+  const m = i.resultados;
+  const ESTADO_PAGO = { verificado: 'Verificados', por_verificar: 'Por verificar', rechazado: 'Rechazados' };
+  const ESTADO_CANAL = { no_enviado: 'No enviado', enviado: 'Enviado', manual: 'Manual pendiente', fallido: 'Fallido', no: 'No aplica', pendiente: 'Pendiente', entregada: 'Entregada' };
+
+  // Cada sección se dibuja como tabla y puede bajarse en CSV (con el mismo contenido que se ve).
+  const secciones = [];
+  const tabla = (id, titulo, encabezados, filas, pie, esDinero = h => h === 'Valor') => {
+    secciones.push({ id, titulo, encabezados, filas });
+    const cuerpo = filas.length
+      ? filas.map(f => `<tr>${f.map((c, k) => typeof c === 'number' ? `<td class="num">${esc(esDinero(encabezados[k]) ? dinero(c) : c)}</td>` : `<td>${esc(c)}</td>`).join('')}</tr>`).join('')
+      : `<tr><td colspan="${encabezados.length}" class="muted">Sin datos en este rango.</td></tr>`;
+    return `<section class="informe-seccion"><div class="row"><h3>${esc(titulo)}</h3>
+      <button type="button" class="ghost no-print" data-csv="${id}">Descargar CSV</button></div>
+      <div class="tabla-scroll"><table class="informe"><thead><tr>${encabezados.map(e => `<th>${esc(e)}</th>`).join('')}</tr></thead>
+      <tbody>${cuerpo}</tbody>${pie ? `<tfoot><tr>${pie.map(c => `<td>${esc(c)}</td>`).join('')}</tr></tfoot>` : ''}</table></div></section>`;
+  };
+  const d = n => dinero(n);
+  const suma = (arr, k) => arr.reduce((t, x) => t + (x[k] || 0), 0);
+
+  const resultadosFilas = [
+    ['Cobrado (pagos verificados)', m.cobrado],
+    ['(−) Sobrantes por devolver', -m.porDevolver],
+    ['(−) Sobrantes ya devueltos', -m.devuelto],
+    ['Ingresos del Bingo', m.ingresos],
+    ['   de los cuales: ventas de tablas', m.ventasTablas],
+    ['   de los cuales: donaciones', m.donaciones],
+    ['(−) Premios entregados', -m.premiosPagados],
+    ['(−) Gastos', -m.gastos],
+    ['EXCEDENTE NETO', m.excedente],
+    ['(−) Premios aún por entregar', -m.premiosPendientes],
+    ['Excedente proyectado', m.excedenteProyectado],
+  ];
+  secciones.push({ id: 'resultados', titulo: 'Estado de resultados', encabezados: ['Concepto', 'Valor'], filas: resultadosFilas });
+
+  const cajaEnc = ['Día', ...i.caja.metodos, 'Total del día', 'Pagos'];
+  const cajaFilas = i.caja.dias.map(x => [x.dia, ...i.caja.metodos.map(mt => x.porMetodo[mt] || 0), x.total, x.pagos]);
+  const cajaPie = i.caja.dias.length ? ['Total', ...i.caja.metodos.map(mt => d(i.caja.dias.reduce((t, x) => t + (x.porMetodo[mt] || 0), 0))), d(suma(i.caja.dias, 'total')), String(suma(i.caja.dias, 'pagos'))] : null;
+
+  const listaEstados = (arr, mapa) => arr.map(x => [mapa[x.clave] || x.clave, x.cantidad]);
+  const periodo = i.desde || i.hasta ? `${i.desde || 'inicio'} a ${i.hasta || 'hoy'}` : 'todo el Bingo';
+
+  $('vista').innerHTML = `
+    <div class="no-print">
+      <h2>Informes</h2>
+      <form id="form-informes" class="card row" style="align-items:flex-end">
+        <label>Bingo <select name="bingo"><option value="">${esc(actual.nombre)} (actual)</option>${
+          historico.map(b => `<option value="${b.id}" ${String(b.id) === String(filtroInformes.bingo) ? 'selected' : ''}>${esc(b.nombre)} (cerrado)</option>`).join('')}</select></label>
+        <label>Desde <input type="date" name="desde" value="${esc(filtroInformes.desde)}"></label>
+        <label>Hasta <input type="date" name="hasta" value="${esc(filtroInformes.hasta)}"></label>
+        <button type="submit">Ver informe</button>
+        <button type="button" class="ghost" id="limpiar-filtros">Quitar filtros</button>
+        <button type="button" class="ghost" id="imprimir">Imprimir / guardar PDF</button>
+      </form>
+    </div>
+    <div class="informe-encabezado"><h2 style="margin:0">Informe del Bingo — ${esc(i.bingo.nombre)}</h2>
+      <p class="muted">Periodo: ${esc(periodo)} · Generado el ${esc(new Date().toLocaleString('es'))}</p></div>
+
+    <section class="informe-seccion"><h3>Estado de resultados</h3>
+      <div class="tabla-scroll"><table class="informe"><tbody>${resultadosFilas.map(([c, v], k) => `<tr class="${[3, 8, 10].includes(k) ? 'total' : ''}"><td>${esc(c)}</td><td class="num">${esc(d(v))}</td></tr>`).join('')}</tbody></table></div>
+      <div class="actions no-print"><button type="button" class="ghost" data-csv="resultados">Descargar CSV</button></div>
+      <p class="muted">Cobrado = pagos verificados cuya fecha de pago cae en el periodo. Los premios pendientes no dependen del periodo.</p></section>
+
+    ${tabla('caja', 'Caja por día y método de pago (pagos verificados)', cajaEnc, cajaFilas, cajaPie, h => h !== 'Día' && h !== 'Pagos')}
+    ${tabla('pagos', 'Estado de los pagos', ['Estado', 'Cantidad', 'Valor'], i.pagosEstado.map(x => [ESTADO_PAGO[x.clave] || x.clave, x.cantidad, x.monto]))}
+    ${tabla('ventas-dia', 'Ventas por día (tablas enviadas)', ['Día', 'Compras', 'Tablas', 'Valor'], i.ventasPorDia.map(x => [x.clave, x.compras, x.tablas, x.monto]),
+      ['Total', String(suma(i.ventasPorDia, 'compras')), String(suma(i.ventasPorDia, 'tablas')), d(suma(i.ventasPorDia, 'monto'))])}
+    ${tabla('referidos', 'Ventas por referido (quién trajo al benefactor)', ['Referido por', 'Compras', 'Tablas', 'Valor'], i.porReferido.map(x => [x.clave, x.compras, x.tablas, x.monto]))}
+    ${tabla('ciudades', 'Ventas por ciudad', ['Ciudad', 'Compras', 'Tablas', 'Valor'], i.porCiudad.map(x => [x.clave, x.compras, x.tablas, x.monto]))}
+    ${tabla('gastos', 'Gastos por categoría', ['Categoría', 'Registros', 'Valor'], i.gastosPorCategoria.map(x => [x.clave, x.cantidad, x.monto]),
+      ['Total', String(suma(i.gastosPorCategoria, 'cantidad')), d(suma(i.gastosPorCategoria, 'monto'))])}
+    ${tabla('premios', 'Premios', ['Ronda', 'Premio', 'Figura', 'Valor', 'Tabla', 'Ganador', 'Estado', 'Recibió'],
+      i.premios.map(x => [x.ronda, x.premio, x.figura, x.monto, x.serial, x.ganador, x.estado, x.recibidoPor]))}
+
+    <section class="informe-seccion"><h3>Control de tablas y entregas</h3>
+      <div class="grid">
+        <div class="card stat"><span class="muted">Vendidas</span><strong>${i.tablas.vendidas}</strong></div>
+        ${i.tablas.disponibles == null ? '' : `<div class="card stat"><span class="muted">Disponibles</span><strong>${i.tablas.disponibles}</strong></div>`}
+        <div class="card stat"><span class="muted">Por enviar</span><strong>${i.tablas.porEnviar}</strong></div>
+      </div>
+      ${tabla('entregas', 'Entregas por canal (compras con tablas enviadas)', ['Canal', 'Estado', 'Compras'], [
+        ...listaEstados(i.tablas.whatsapp, ESTADO_CANAL).map(([e, n]) => ['WhatsApp', e, n]),
+        ...listaEstados(i.tablas.correo, ESTADO_CANAL).map(([e, n]) => ['Correo', e, n]),
+        ...listaEstados(i.tablas.fisica, ESTADO_CANAL).map(([e, n]) => ['Entrega física', e, n]),
+      ])}
+    </section>`;
+
+  const f = $('form-informes');
+  f.addEventListener('submit', e => {
+    e.preventDefault();
+    Object.assign(filtroInformes, { bingo: f.bingo.value, desde: f.desde.value, hasta: f.hasta.value });
+    mostrar('informes');
+  });
+  $('limpiar-filtros').addEventListener('click', () => { Object.assign(filtroInformes, { bingo: '', desde: '', hasta: '' }); mostrar('informes'); });
+  $('imprimir').addEventListener('click', () => window.print());
+  $('vista').querySelectorAll('[data-csv]').forEach(b => b.addEventListener('click', () => {
+    const s = secciones.find(x => x.id === b.dataset.csv);
+    const celda = c => { const t = String(c ?? ''); return /[",\n;]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+    const csv = '﻿' + [s.encabezados, ...s.filas].map(r => r.map(celda).join(',')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = `informe-${s.id}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }));
 }
 
 // ---------- Gastos ----------

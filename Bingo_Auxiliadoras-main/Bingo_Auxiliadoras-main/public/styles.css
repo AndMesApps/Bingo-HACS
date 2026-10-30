@@ -206,3 +206,15 @@ button.grande { width: 100%; padding: 14px 18px; font-size: 1.05rem; background:
 .tabla-bingo strong { color: var(--accent); }
 .tabla-bingo span { padding: 8px 0; border: 1px solid var(--line); border-radius: 6px; }
 .tabla-bingo span.marcada { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* Informes */
+.informe-seccion { margin: 18px 0; }
+.tabla-scroll { overflow-x: auto; }
+table.informe { width: 100%; border-collapse: collapse; font-size: .92rem; }
+table.informe th, table.informe td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+table.informe th { color: var(--muted, inherit); font-weight: 600; }
+table.informe td.num, table.informe tr.total td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+table.informe tr.total td { font-weight: 700; border-top: 2px solid var(--line); }
+table.informe tfoot td { font-weight: 700; border-top: 2px solid var(--line); }
+.informe-encabezado { margin: 8px 0 4px; }
+@media print { .tabs, .no-print, #msg { display: none !important; } .informe-seccion { break-inside: avoid; } table.informe { font-size: .8rem; } }
