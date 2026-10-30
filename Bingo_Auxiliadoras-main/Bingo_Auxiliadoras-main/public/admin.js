@@ -102,12 +102,41 @@ async function entrar() {
 }
 
 // ---------- Resumen ----------
+// Envía la imagen de invitación junto con el texto y el enlace. En el celular abre el menú de compartir (WhatsApp, etc.);
+// donde el navegador no puede compartir archivos (PC), descarga la imagen y copia el texto para pegarlo en WhatsApp Web.
+async function compartirPieza(texto) {
+  const blob = await (await fetch('/api/publico/invitacion.jpg')).blob();
+  const archivo = new File([blob], 'invitacion-bingo.jpg', { type: blob.type || 'image/jpeg' });
+  if (navigator.canShare?.({ files: [archivo] })) {
+    const copiado = await copiarRespaldo(texto);
+    try { await navigator.share({ files: [archivo], text: texto }); } catch (err) { if (err.name !== 'AbortError') throw err; }
+    if (copiado) msg('Si WhatsApp no trae el texto junto a la imagen, pégalo: ya quedó copiado.');
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'invitacion-bingo.jpg';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  try { await navigator.clipboard.writeText(texto); } catch { /* el usuario puede copiar el texto aparte */ }
+  msg('Se descargó la imagen y se copió el texto. En WhatsApp adjunta la imagen y pega el texto.');
+}
+
+// Copia de respaldo del texto: algunos celulares abren WhatsApp con la imagen pero sin el texto.
+async function copiarRespaldo(texto) {
+  try { await navigator.clipboard.writeText(texto); return true; } catch { return false; }
+}
+
 async function renderResumen() {
   const r = await api('GET', '/admin/resumen');
   const d = r.dinero;
   const t = r.tablas;
   const enlace = location.origin + '/';
-  const invitacion = `Te invitamos a ${r.evento.nombre || 'nuestro bingo'} de las Hermanas Auxiliadoras de Cristo Sacerdote. Compra tus tablas aquí: ${enlace}`;
+  // Texto configurable por Bingo; el enlace siempre va incluido (si el texto no lo trae, se agrega en una línea aparte).
+  const personal = (r.evento.textoInvitacion || '').trim();
+  const invitacion = personal
+    ? (personal.includes(enlace) ? personal : `${personal}\n\n${enlace}`)
+    : `Te invitamos a ${r.evento.nombre || 'nuestro bingo'} de las Hermanas Auxiliadoras de Cristo Sacerdote. Compra tus tablas aquí: ${enlace}`;
   const pct = t.total ? Math.round((t.vendidas / t.total) * 100) : 0;
   const pendientes = r.compras.porVerificar + r.compras.listasParaEnviar;
   const sobrantesPend = r.dinero.porDevolver > 0;
@@ -124,6 +153,19 @@ async function renderResumen() {
         <a class="btn ghost" href="https://wa.me/?text=${encodeURIComponent(invitacion)}" target="_blank" rel="noopener">Compartir por WhatsApp</a>
         <button type="button" class="ghost" data-copiar="${esc(invitacion)}">Copiar invitación</button>
       </div>
+      <h3 style="margin:18px 0 6px">Invitación con imagen y texto</h3>
+      <p class="muted" style="margin-top:0">Con el botón se envían juntos la imagen, el texto y el enlace. Los cambias en Configuración. Al pegar solo el enlace, WhatsApp muestra la imagen como vista previa.</p>
+      <pre class="invitacion-texto">${esc(invitacion)}</pre>
+      ${r.evento.pieza === 'ninguna'
+        ? '<p class="muted">Este Bingo todavía no tiene imagen de invitación. Súbela en Configuración.</p>'
+        : `<div class="row" style="flex-wrap:nowrap;gap:14px;align-items:flex-start">
+            <a href="/api/publico/invitacion.jpg" target="_blank" rel="noopener"><img src="/api/publico/invitacion.jpg?v=${Date.now()}" alt="Imagen de invitación"
+              style="width:150px;border-radius:10px;border:1px solid var(--line)"></a>
+            <div class="actions" style="margin-top:0">
+              <button type="button" id="compartir-pieza" data-texto="${esc(invitacion)}">Compartir imagen y enlace</button>
+              <a class="btn ghost" href="/api/publico/invitacion.jpg" download="invitacion-bingo.jpg">Descargar imagen</a>
+            </div>
+          </div>`}
     </div>
     ${pendientes ? `<div class="note"><strong>${pendientes}</strong> compra(s) esperan tu atención:
       ${r.compras.porVerificar} por verificar y ${r.compras.listasParaEnviar} lista(s) para enviar.
@@ -378,6 +420,8 @@ $('vista').addEventListener('click', async e => {
     try { await navigator.clipboard.writeText(cp.dataset.copiar); msg('Copiado.'); } catch { msg('No se pudo copiar. Selecciónalo y cópialo a mano.', true); }
     return;
   }
+  const compartir = e.target.closest('#compartir-pieza');
+  if (compartir) { compartir.disabled = true; try { await compartirPieza(compartir.dataset.texto); } catch (err) { msg(err.message, true); } compartir.disabled = false; return; }
   const ir = e.target.closest('button[data-vista-ir]');
   if (ir) { filtroCompras = 'por_verificar'; return mostrar(ir.dataset.vistaIr); }
   const f = e.target.closest('button[data-filtro]');
@@ -745,6 +789,19 @@ async function renderConfig() {
       </div>
 
       <div class="card">
+        <h2 style="margin-top:0">Invitación: imagen y texto</h2>
+        <p class="muted" style="margin-top:-6px">Se envían juntos con el enlace del formulario desde el botón "Compartir imagen y enlace" del Resumen. La imagen también es la vista previa al pegar el enlace en WhatsApp. Cada Bingo tiene los suyos.</p>
+        <label class="full">Texto de la invitación
+          <textarea name="textoInvitacion" rows="6" maxlength="1500" placeholder="Te invitamos a ${esc(e.nombre || 'nuestro bingo')} de las Hermanas Auxiliadoras de Cristo Sacerdote. Compra tus tablas aquí:">${esc(e.textoInvitacion)}</textarea>
+          <span class="muted" style="font-weight:400">Escribe el mensaje que acompañará a la imagen (premios, precio, fecha, cuenta…). El enlace se agrega solo al final. Déjalo vacío para usar el texto predeterminado.</span>
+        </label>
+        <h3 style="margin:16px 0 4px">Imagen</h3>
+        <div id="pieza-vista" style="margin:10px 0"></div>
+        <input type="file" id="pieza-archivo" accept="image/png,image/jpeg,image/webp">
+        <div class="actions"><button type="button" class="ghost danger" id="pieza-quitar">Quitar imagen</button></div>
+      </div>
+
+      <div class="card">
         <label class="full" style="flex-direction:row;align-items:center;gap:8px">
           <input type="checkbox" name="exigirPagoCompleto" style="width:auto" ${e.exigirPagoCompleto ? 'checked' : ''}>
           Exigir que el pago verificado cubra las tablas que se envían (recomendado: nunca se entregan tablas sin pagar)
@@ -752,6 +809,44 @@ async function renderConfig() {
       </div>
       <div class="actions"><button type="submit" class="grande">Guardar configuración</button></div>
     </form>`;
+
+  // Imagen de invitación: se reduce a 1280 px y se guarda como JPG para que pese poco (la vista previa de WhatsApp pide menos de 300 KB).
+  let pieza = null; // null = sin cambios; '' = quitar; data URL = nueva imagen
+  const pintarPieza = () => {
+    const estado = pieza === null ? e.pieza : (pieza === '' ? 'ninguna' : 'propia');
+    $('pieza-vista').innerHTML = estado === 'ninguna'
+      ? '<p class="muted">Este Bingo no tiene imagen de invitación.</p>'
+      : `<img src="${pieza ? esc(pieza) : '/api/publico/invitacion.jpg?v=' + Date.now()}" alt="Imagen de invitación"
+          style="max-width:240px;width:100%;border-radius:12px;border:1px solid var(--line)">
+         <p class="muted" style="margin:6px 0 0">${estado === 'predeterminada' ? 'Es la imagen del bingo actual. Sube otra para reemplazarla.' : pieza ? 'Imagen nueva: pulsa "Guardar configuración".' : 'Imagen propia de este Bingo.'}</p>`;
+    $('pieza-quitar').hidden = estado === 'ninguna';
+  };
+  pintarPieza();
+  $('pieza-archivo').addEventListener('change', ev => {
+    const archivo = ev.target.files[0];
+    if (!archivo) return;
+    if (!/^image\/(png|jpeg|webp)$/.test(archivo.type)) { ev.target.value = ''; return msg('La imagen debe ser PNG, JPG o WEBP.', true); }
+    const img = new Image();
+    img.onload = () => {
+      const escala = Math.min(1, 1280 / Math.max(img.width, img.height));
+      const lienzo = document.createElement('canvas');
+      lienzo.width = Math.round(img.width * escala);
+      lienzo.height = Math.round(img.height * escala);
+      const ctx = lienzo.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, lienzo.width, lienzo.height);
+      ctx.drawImage(img, 0, 0, lienzo.width, lienzo.height);
+      let calidad = 0.85;
+      let url = lienzo.toDataURL('image/jpeg', calidad);
+      while (url.length > 1400000 && calidad > 0.4) { calidad -= 0.1; url = lienzo.toDataURL('image/jpeg', calidad); }
+      pieza = url;
+      pintarPieza();
+      msg('Imagen lista. Pulsa "Guardar configuración".');
+    };
+    img.onerror = () => { ev.target.value = ''; msg('No se pudo leer la imagen.', true); };
+    img.src = URL.createObjectURL(archivo);
+  });
+  $('pieza-quitar').addEventListener('click', () => { pieza = ''; $('pieza-archivo').value = ''; pintarPieza(); });
 
   const pintarQr = () => {
     $('qr-vista').innerHTML = qr
@@ -787,8 +882,10 @@ async function renderConfig() {
         numeroCuenta: f.numeroCuenta.value,
         llavePago: f.llavePago.value,
         cuentasPago: f.cuentasPago.value,
+        textoInvitacion: f.textoInvitacion.value,
         exigirPagoCompleto: f.exigirPagoCompleto.checked,
         ...(qrCambiado ? { qrPago: qr } : {}),
+        ...(pieza !== null ? { piezaInvitacion: pieza } : {}),
       });
       await entrar();
       msg('Configuración guardada.');

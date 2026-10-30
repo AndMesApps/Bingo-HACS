@@ -920,3 +920,54 @@ test('el listado de tablas dice a quién se vendió cada una y va en orden numé
   }
   assert.equal(lista.find(t => t.estado === 'disponible').compraNombre, null);
 });
+
+// ---------- Invitación configurable: imagen y texto por Bingo ----------
+const PNG_1X1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+test('la invitación empieza con la pieza predeterminada y sin texto propio', async () => {
+  const s = await nuevo();
+  const e = await s.evento();
+  assert.equal(e.pieza, 'predeterminada');
+  assert.equal(e.textoInvitacion, '');
+  assert.equal((await s.piezaInvitacion()).origen, 'predeterminada');
+});
+
+test('se puede cargar la imagen y el texto de la invitación, y quitar la imagen', async () => {
+  const s = await nuevo();
+  const e = await s.actualizarEvento({ piezaInvitacion: PNG_1X1, textoInvitacion: '  ¡Bingo! Premio mayor $400.000  ' });
+  assert.equal(e.pieza, 'propia');
+  assert.equal(e.textoInvitacion, '¡Bingo! Premio mayor $400.000');
+  const p = await s.piezaInvitacion();
+  assert.equal(p.origen, 'propia');
+  assert.equal(p.tipo, 'image/png');
+  assert.ok(Buffer.isBuffer(p.buffer) && p.buffer.length > 20);
+  // guardar otra cosa no borra la imagen ni el texto
+  const e2 = await s.actualizarEvento({ precioTabla: 12 });
+  assert.equal(e2.pieza, 'propia');
+  assert.equal(e2.textoInvitacion, '¡Bingo! Premio mayor $400.000');
+  // quitar la imagen
+  assert.equal((await s.actualizarEvento({ piezaInvitacion: '' })).pieza, 'ninguna');
+  assert.equal((await s.piezaInvitacion()).origen, 'ninguna');
+});
+
+test('la imagen y el texto de la invitación se validan', async () => {
+  const s = await nuevo();
+  await assert.rejects(() => s.actualizarEvento({ piezaInvitacion: 'data:text/html;base64,AAAA' }), err => err instanceof ErrorApp);
+  await assert.rejects(() => s.actualizarEvento({ piezaInvitacion: 'no es una imagen' }), err => err instanceof ErrorApp);
+  await assert.rejects(() => s.actualizarEvento({ textoInvitacion: 'x'.repeat(1501) }), err => err instanceof ErrorApp);
+  assert.equal((await s.evento()).pieza, 'predeterminada');
+});
+
+test('al reiniciar el Bingo, la invitación del nuevo empieza sin imagen ni texto propios', async () => {
+  const s = await nuevo();
+  await s.actualizarEvento({ piezaInvitacion: PNG_1X1, textoInvitacion: 'Invitación del bingo 1' });
+  await tablas(s, 2);
+  await s.reiniciarBingo({ nombre: 'Bingo 2', confirmar: true });
+  const e = await s.evento();
+  assert.equal(e.pieza, 'ninguna');
+  assert.equal(e.textoInvitacion, '');
+  // la configuración guardada del Bingo cerrado no arrastra la imagen
+  const { historico } = await s.listarBingos();
+  assert.equal(historico[0].config.textoInvitacion, 'Invitación del bingo 1');
+  assert.equal(JSON.stringify(historico[0].config).includes('base64'), false);
+});
