@@ -238,3 +238,9 @@ CREATE TABLE IF NOT EXISTS tablas_historial (
 CREATE INDEX IF NOT EXISTS idx_tablas_historial_compra ON tablas_historial(compra_id);
 ALTER TABLE bingos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tablas_historial ENABLE ROW LEVEL SECURITY;
+
+-- ---------- Pieza de invitación (imagen) de cada Bingo ----------
+-- NULL = la pieza predeterminada de la app; '' = sin imagen; si no, la imagen propia del Bingo como data URL.
+ALTER TABLE evento ADD COLUMN IF NOT EXISTS pieza_invitacion TEXT;
+-- Texto que acompaña al enlace y a la imagen al compartir la invitación ('' = el texto predeterminado).
+ALTER TABLE evento ADD COLUMN IF NOT EXISTS texto_invitacion TEXT NOT NULL DEFAULT '';

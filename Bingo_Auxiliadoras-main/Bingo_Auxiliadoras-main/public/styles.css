@@ -170,6 +170,8 @@ button.grande { width: 100%; padding: 14px 18px; font-size: 1.05rem; background:
 [hidden] { display: none !important; }
 @media print { .hero, .no-print { display: none !important; } body { background: #fff; } .tabla-item { break-inside: avoid; } }
 
+.invitacion-texto { white-space: pre-wrap; word-break: break-word; font: inherit; background: var(--input-bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 8px 0 12px; }
+
 /* ---- Transacciones: una fila por compra con detalle desplegable ---- */
 .tx-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--sombra); }
 .tx { width: 100%; border-collapse: collapse; font-size: .92rem; min-width: 780px; }

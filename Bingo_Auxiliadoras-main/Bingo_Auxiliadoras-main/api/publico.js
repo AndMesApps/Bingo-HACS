@@ -4,6 +4,8 @@ const { ErrorApp } = require('../src/servicios');
 const { sellarTabla } = require('../src/sello');
 const { armarPdf } = require('../src/pdf');
 const { PAISES } = require('../src/paises');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const TABLAS_POR_PDF = 20;
 
@@ -36,6 +38,33 @@ module.exports = async (req, res) => {
             titularCuenta: e.titularCuenta, llavePago: e.llavePago, qrPago: e.qrPago,
             paises: PAISES, paisPorDefecto: env.CODIGO_PAIS || '57',
           });
+        },
+      },
+      {
+        // Imagen de invitación del Bingo: la que usa la vista previa del enlace (og:image) y el botón de compartir.
+        metodo: 'GET', patron: /^\/invitacion(\.jpg)?$/,
+        handler: async (_p, _req, res) => {
+          const p = await servicios.piezaInvitacion();
+          res.setHeader('Cache-Control', 'public, max-age=300');
+          if (p.origen === 'propia') {
+            res.setHeader('Content-Type', p.tipo);
+            return res.status(200).send(p.buffer);
+          }
+          if (p.origen === 'predeterminada') {
+            try {
+              const archivo = fs.readFileSync(path.join(__dirname, '..', 'public', 'img', 'pieza-invitacion.jpg'));
+              res.setHeader('Content-Type', 'image/jpeg');
+              return res.status(200).send(archivo);
+            } catch {
+              res.statusCode = 302;
+              res.setHeader('Location', '/img/pieza-invitacion.jpg');
+              return res.end();
+            }
+          }
+          // Sin imagen: el enlace se comparte con el logo.
+          res.statusCode = 302;
+          res.setHeader('Location', '/img/logo-hacs.jpg');
+          res.end();
         },
       },
       {

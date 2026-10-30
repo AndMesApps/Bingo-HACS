@@ -93,6 +93,9 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       titularCuenta: e.titular_cuenta ?? '',
       llavePago: e.llave_pago ?? '',
       tieneQr: Boolean(e.qr_pago),
+      // 'predeterminada' (la de la app), 'propia' (subida para este Bingo) o 'ninguna'.
+      textoInvitacion: e.texto_invitacion ?? '',
+      pieza: e.pieza_invitacion == null ? 'predeterminada' : e.pieza_invitacion === '' ? 'ninguna' : 'propia',
       ...(conQr ? { qrPago: e.qr_pago ?? '' } : {}),
     };
   };
@@ -102,6 +105,18 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
 
   const QR_VALIDO = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/;
   const QR_MAX_CARACTERES = 600000; // ~450 KB de imagen
+
+  const PIEZA_VALIDA = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/;
+  const PIEZA_MAX_CARACTERES = 1500000; // ~1.1 MB de imagen
+
+  // La imagen que acompaña al enlace de invitación: { origen, tipo, buffer } (sin tipo ni buffer si no hay propia).
+  async function piezaInvitacion() {
+    const v = (await uno('SELECT * FROM evento WHERE id = 1')).pieza_invitacion;
+    if (v == null) return { origen: 'predeterminada' };
+    if (v === '') return { origen: 'ninguna' };
+    const m = v.match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/);
+    return { origen: 'propia', tipo: m[1], buffer: Buffer.from(m[2], 'base64') };
+  }
 
   async function actualizarEvento(datos) {
     const actual = await evento();
@@ -127,6 +142,13 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       qrPago,
     };
     if (!(nuevo.precioTabla >= 0)) throw new ErrorApp('El precio no puede ser negativo.');
+    const textoInvitacion = datos.textoInvitacion === undefined ? undefined : String(datos.textoInvitacion).trim();
+    if (textoInvitacion && textoInvitacion.length > 1500) throw new ErrorApp('El texto de la invitación es demasiado largo (máximo 1500 caracteres).');
+    // undefined conserva la pieza actual; una cadena vacía deja al Bingo sin imagen de invitación.
+    const pieza = datos.piezaInvitacion === undefined ? undefined : String(datos.piezaInvitacion);
+    if (pieza && (pieza.length > PIEZA_MAX_CARACTERES || !PIEZA_VALIDA.test(pieza))) {
+      throw new ErrorApp('La pieza de invitación debe ser una imagen PNG, JPG o WEBP de máximo 1 MB.');
+    }
     await q(
       `UPDATE evento SET nombre=$1, precio_tabla=$2, moneda=$3, fecha_sorteo=$4, cuentas_pago=$5, exigir_pago_completo=$6,
          banco=$7, tipo_cuenta=$8, numero_cuenta=$9, titular_cuenta=$10, llave_pago=$11, qr_pago=$12 WHERE id = 1`,
@@ -134,6 +156,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
         nuevo.banco, nuevo.tipoCuenta, nuevo.numeroCuenta, nuevo.titularCuenta, nuevo.llavePago, nuevo.qrPago],
     );
     await q("UPDATE bingos SET nombre = $1 WHERE estado = 'activo'", [nuevo.nombre || 'Bingo']);
+    if (pieza !== undefined) await q('UPDATE evento SET pieza_invitacion = $1 WHERE id = 1', [pieza]);
+    if (textoInvitacion !== undefined) await q('UPDATE evento SET texto_invitacion = $1 WHERE id = 1', [textoInvitacion]);
     await bitacora('configuración', `Precio ${nuevo.precioTabla} ${nuevo.moneda}`);
     return evento();
   }
@@ -976,7 +1000,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       // Invitación y pago propios de cada Bingo: el nuevo empieza vacío (precio 0 = compras cerradas hasta configurarlo).
       await t(
         `UPDATE evento SET nombre = $1, precio_tabla = 0, fecha_sorteo = '', cuentas_pago = '', exigir_pago_completo = true,
-           banco = '', tipo_cuenta = '', numero_cuenta = '', titular_cuenta = '', llave_pago = '', qr_pago = '' WHERE id = 1`, [nombre]);
+           banco = '', tipo_cuenta = '', numero_cuenta = '', titular_cuenta = '', llave_pago = '', qr_pago = '',
+           pieza_invitacion = '', texto_invitacion = '' WHERE id = 1`, [nombre]);
       await bitacora('bingo reiniciado', `"${b.nombre}" pasó al histórico (${vendidas} tabla(s) vendidas). Nuevo Bingo: "${nombre}"`, t);
       return { cerrado: { id: b.id, nombre: b.nombre }, nuevo: { id: nuevo.id, nombre } };
     });
@@ -1047,7 +1072,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
   }
 
   return {
-    evento, actualizarEvento,
+    evento, actualizarEvento, piezaInvitacion,
     tablasDisponibles, tablasLibresParaVender, generarTablas, importarTablas, listarTablas,
     crearCompra, estadoPublico, detalleCompra, listarCompras,
     registrarPagoManual, verificarPago, rechazarPago, convertirDonacion,
