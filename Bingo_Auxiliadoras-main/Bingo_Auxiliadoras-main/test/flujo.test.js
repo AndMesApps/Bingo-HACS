@@ -140,7 +140,7 @@ test('premio: solo tabla vendida y de compra real', async () => {
   await assert.rejects(s.asignarGanador(p.id, 'NO-EXISTE'), /no existe/);
   const enviada = await s.enviarTablas(c.id);
   const g = await s.asignarGanador(p.id, enviada.tablas[0]);
-  assert.equal(g.ganador.nombre, 'Ana Pérez');
+  assert.equal(g.ganadores[0].ganador.nombre, 'Ana Pérez');
   await s.pagarPremio(p.id);
   assert.equal((await s.resumen()).dinero.premiosPagados, 50);
 });
@@ -711,7 +711,7 @@ test('reiniciar el Bingo: lo vendido pasa al histórico y el nuevo Bingo empieza
   assert.equal((await s.listarCompras({ bingoId: viejoId })).length, 1);
   assert.equal((await s.listarGastos(viejoId)).length, 1);
   const premios = await s.listarPremios(viejoId);
-  assert.equal(premios[0].ganador.nombre, 'Ana Pérez');
+  assert.equal(premios[0].ganadores[0].ganador.nombre, 'Ana Pérez');
   const repTablas = await s.reporte('tablas', viejoId);
   assert.equal(repTablas.filas.length, 2);
   assert.equal((await s.reporte('compras', viejoId)).filas[0][17].split(' ').length, 2);
@@ -1042,7 +1042,7 @@ test('premio: la entrega registra quién recibió', async () => {
   await s.asignarGanador(p.id, serial);
   const e = await s.pagarPremio(p.id, { recibidoPor: 'Ana Pérez CC 123', nota: 'Entregado en el evento' });
   assert.equal(e.pagado, true);
-  assert.equal(e.recibidoPor, 'Ana Pérez CC 123');
+  assert.equal(e.ganadores[0].recibidoPor, 'Ana Pérez CC 123');
 });
 
 test('envío automático: al verificar el pago se asignan y envían las tablas pedidas', async () => {
@@ -1169,4 +1169,126 @@ test('Excel: los reportes salen en un libro con hojas, encabezados, totales y fo
   const s2 = await nuevo();
   await vacio.xlsx.load(await libroDeReportes([{ clave: 'deudas', data: await s2.reporte('deudas') }]));
   assert.match(String(vacio.getWorksheet('Deudas').getCell('A5').value), /Todavía no hay datos/);
+});
+
+// ---------- Empates y unicidad de tablas ----------
+const TABLA_A = FILA1; // fila superior: 1, 16, 31, 46, 61
+const TABLA_B = [1, 16, 32, 47, 62, 2, 17, 33, 48, 63, 3, 18, 0, 49, 64, 4, 19, 34, 50, 65, 5, 20, 35, 51, 66]; // columna B: 1-5
+
+async function dosCompradores() {
+  const s = await nuevo();
+  await tablas(s, 6);
+  const a = await comprar(s, 1);
+  const b = await comprar(s, 1, { nombre: 'Luis Gómez' });
+  for (const c of [a, b]) { await verificarTodo(s, c.id); await s.enviarTablas(c.id); }
+  const sa = (await s.detalleCompra(a.id)).tablas[0];
+  const sb = (await s.detalleCompra(b.id)).tablas[0];
+  await s.db.query('UPDATE tablas SET numeros = $1 WHERE serial = $2', [JSON.stringify(TABLA_A), sa]);
+  await s.db.query('UPDATE tablas SET numeros = $1 WHERE serial = $2', [JSON.stringify(TABLA_B), sb]);
+  return { s, sa, sb };
+}
+
+test('empate: dos tablas completan la figura con la misma balota y se reparten el premio', async () => {
+  const { s, sa, sb } = await dosCompradores();
+  const p = await s.crearPremio({ ronda: 'Línea', premio: 'Canasta', monto: 100, figura: 'linea' });
+  await s.iniciarRonda(p.id);
+  for (const n of [16, 31, 46, 61, 2, 3, 4, 5]) await s.cantarBalota(p.id, n);
+  await s.cantarBalota(p.id, 1); // la última balota completa las dos tablas
+
+  const va = await s.verificarTabla(p.id, sa);
+  assert.equal(va.cumple, true);
+  assert.equal(va.aTiempo, true);
+  const a = await s.asignarGanador(p.id, sa, { cerrar: false });
+  assert.equal(a.estado, 'en revisión');
+  assert.equal(a.rondaEstado, 'en_juego', 'la ronda sigue abierta para registrar el empate');
+
+  const vb = await s.verificarTabla(p.id, sb);
+  assert.equal(vb.cumple, true);
+  assert.match(vb.motivo, /empate/);
+  assert.deepEqual(vb.ganadoras, [sa]);
+  await assert.rejects(() => s.asignarGanador(p.id, sa, { cerrar: false }), /ya está registrada/);
+  await s.asignarGanador(p.id, sb, { cerrar: false });
+  await assert.rejects(() => s.pagarPremio(p.id), /2 tablas ganadoras/);
+  await assert.rejects(() => s.entregarPremio(a.ganadores[0].id, {}), /Cierra la ronda/);
+
+  const c = await s.cerrarRonda(p.id);
+  assert.equal(c.rondaEstado, 'cerrada');
+  assert.equal(c.empate, true);
+  assert.equal(c.estado, 'por entregar');
+  assert.deepEqual(c.ganadores.map(g => g.monto), [50, 50], 'el premio se reparte en partes iguales');
+  assert.equal((await s.estadoSorteo()).ronda, null);
+
+  const [g1, g2] = c.ganadores;
+  const e1 = await s.entregarPremio(g1.id, { recibidoPor: 'Ana Pérez CC 1' });
+  assert.equal(e1.estado, 'entrega parcial');
+  await assert.rejects(() => s.entregarPremio(g1.id, {}), /ya fue entregado/);
+  await assert.rejects(() => s.quitarGanadora(g1.id), /ya se le entregó/);
+  await assert.rejects(() => s.asignarGanador(p.id, sb), /Ya se entregó parte/);
+  assert.equal((await s.resumen()).dinero.premiosPagados, 50);
+  const e2 = await s.entregarPremio(g2.id, { recibidoPor: 'Luis Gómez CC 2', nota: 'En el evento' });
+  assert.equal(e2.estado, 'entregado');
+  assert.equal((await s.resumen()).dinero.premiosPagados, 100);
+});
+
+test('empate: el reparto con centavos suma exactamente el premio y quitar una ganadora lo recalcula', async () => {
+  const s = await nuevo();
+  await tablas(s, 8);
+  const seriales = [];
+  for (let i = 0; i < 3; i++) {
+    const c = await comprar(s, 1, { nombre: `Persona ${i}` });
+    await verificarTodo(s, c.id);
+    seriales.push((await s.enviarTablas(c.id)).tablas[0]);
+  }
+  const p = await s.crearPremio({ ronda: 'R', premio: 'P', monto: 100 });
+  for (const sr of seriales) await s.asignarGanador(p.id, sr); // manual: la ronda no está en juego
+  let d = (await s.listarPremios())[0];
+  assert.deepEqual(d.ganadores.map(g => g.monto), [33.34, 33.33, 33.33]);
+  assert.equal(d.ganadores.reduce((t, g) => t + g.monto, 0).toFixed(2), '100.00');
+  d = await s.quitarGanadora(d.ganadores[2].id);
+  assert.deepEqual(d.ganadores.map(g => g.monto), [50, 50]);
+  d = await s.quitarGanador(p.id);
+  assert.equal(d.ganadores.length, 0);
+  assert.equal(d.rondaEstado, 'pendiente', 'sin ganadoras la ronda vuelve a quedar disponible');
+});
+
+test('sorteo: avisa si una tabla ya estaba completa antes de la última balota', async () => {
+  const { s, sa } = await dosCompradores();
+  const p = await s.crearPremio({ ronda: 'Línea', premio: 'Canasta', monto: 10, figura: 'linea' });
+  await s.iniciarRonda(p.id);
+  for (const n of [1, 16, 31, 46, 61, 40]) await s.cantarBalota(p.id, n); // la tabla A se completó con la 61; después salió el 40
+  const v = await s.verificarTabla(p.id, sa);
+  assert.equal(v.cumple, true);
+  assert.equal(v.aTiempo, false);
+  assert.match(v.motivo, /antes de la última balota/);
+});
+
+test('garantía: la base de datos impide dos tablas con los mismos números (misma distribución o mismo conjunto)', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  const poner = (serial, numeros) => s.db.query('UPDATE tablas SET numeros = $1 WHERE serial = $2', [JSON.stringify(numeros), serial]);
+  const lista = (await s.listarTablas()).map(t => t.serial);
+  await poner(lista[0], TABLA_A);
+  await poner(lista[0], TABLA_A); // la misma tabla puede repetir sus propios números
+  await assert.rejects(() => poner(lista[1], TABLA_A), /duplicate key|unique/i, 'misma distribución');
+  await assert.rejects(() => poner(lista[1], [...TABLA_A].reverse()), /duplicate key|unique/i, 'mismos números en otra disposición');
+  await assert.rejects(() => poner(lista[1], TABLA_A.slice(0, 24)), /25 números/);
+  await assert.rejects(() => poner(lista[1], [...TABLA_A.slice(0, 24), 99]), /entre 0 y 75/);
+  await poner(lista[1], TABLA_B); // una tabla distinta sí se acepta
+  assert.equal((await s.db.query('SELECT COUNT(*)::int AS n FROM tablas WHERE numeros_clave IS NOT NULL'))[0].n, 2);
+});
+
+test('garantía: las 500 tablas de los archivos de números son todas distintas', () => {
+  const dir = path.join(__dirname, '..', 'scripts', 'tablas-bingo');
+  const todas = { ...JSON.parse(fs.readFileSync(path.join(dir, 'numeros-1-400.json'), 'utf8')), ...JSON.parse(fs.readFileSync(path.join(dir, 'numeros-401-500.json'), 'utf8')) };
+  assert.equal(Object.keys(todas).length, 500);
+  const distribuciones = new Set();
+  const conjuntos = new Set();
+  for (const matriz of Object.values(todas)) {
+    const plano = matriz.flat();
+    assert.equal(plano.length, 25);
+    distribuciones.add(plano.join(','));
+    conjuntos.add([...plano].sort((x, y) => x - y).join(','));
+  }
+  assert.equal(distribuciones.size, 500, 'no hay dos tablas con la misma distribución');
+  assert.equal(conjuntos.size, 500, 'no hay dos tablas con los mismos números en otra disposición');
 });

@@ -218,3 +218,6 @@ table.informe tr.total td { font-weight: 700; border-top: 2px solid var(--line);
 table.informe tfoot td { font-weight: 700; border-top: 2px solid var(--line); }
 .informe-encabezado { margin: 8px 0 4px; }
 @media print { .tabs, .no-print, #msg { display: none !important; } .informe-seccion { break-inside: avoid; } table.informe { font-size: .8rem; } }
+
+/* Premios con varias ganadoras */
+.ganadora { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; }

@@ -818,39 +818,62 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
   }
 
   // ---------- Premios ----------
-  function premioDTO(p) {
+  // Un premio puede tener varias tablas ganadoras (empate): se reparte en partes iguales y cada ganadora recibe y firma
+  // por separado. Si el premio es de una sola tabla, todo funciona como siempre.
+  function repartoDe(monto, n) {
+    if (n < 1) return [];
+    const base = Math.floor((monto / n) * 100 + 1e-9) / 100;
+    const partes = Array(n).fill(base);
+    partes[0] = redondear(monto - base * (n - 1)); // el centavo que sobre queda en la primera
+    return partes;
+  }
+
+  function ganadorDTO(g) {
+    return {
+      id: g.id, premioId: g.premio_id, serial: g.serial, monto: num(g.monto), entregado: Boolean(g.entregado), entregadoEn: g.entregado_en,
+      recibidoPor: g.recibido_por ?? '', nota: g.entrega_nota ?? '',
+      ganador: { compraId: g.compra_id, codigo: g.codigo, nombre: g.nombre, cedula: g.cedula, telefono: g.telefono },
+    };
+  }
+
+  // estado: sin ganador · en revisión (ronda en juego) · por entregar · entrega parcial · entregado
+  function premioDTO(p, ganadores = []) {
+    const entregados = ganadores.filter(g => g.entregado).length;
+    const estado = !ganadores.length ? 'sin ganador'
+      : p.ronda_estado === 'en_juego' ? 'en revisión'
+        : entregados === ganadores.length ? 'entregado' : entregados ? 'entrega parcial' : 'por entregar';
     return {
       id: p.id,
       ronda: p.ronda,
       premio: p.premio,
       monto: num(p.monto),
-      serial: p.serial,
-      pagado: Boolean(p.pagado),
-      pagadoEn: p.pagado_en,
       figura: p.figura,
       figuraNombre: FIGURAS[p.figura]?.nombre ?? p.figura,
       rondaEstado: p.ronda_estado,
-      recibidoPor: p.recibido_por ?? '',
-      entregaNota: p.entrega_nota ?? '',
-      ganador: p.compra_id
-        ? { compraId: p.compra_id, codigo: p.codigo, nombre: p.nombre, cedula: p.cedula, telefono: p.telefono }
-        : null,
+      ganadores,
+      empate: ganadores.length > 1,
+      estado,
+      pagado: estado === 'entregado',
+      serial: ganadores[0]?.serial ?? null,
     };
   }
 
-  const SQL_PREMIOS = `
-    SELECT p.*, c.codigo, c.nombre, c.cedula, c.telefono
-    FROM premios p
-    LEFT JOIN compras c ON c.id = p.compra_id`;
+  const SQL_GANADORES = `
+    SELECT g.*, c.codigo, c.nombre, c.cedula, c.telefono
+    FROM premio_ganadores g
+    JOIN compras c ON c.id = g.compra_id`;
 
   async function listarPremios(bingoId) {
-    return (await q(`${SQL_PREMIOS} WHERE p.bingo_id = ${DE_BINGO(1)} ORDER BY p.id`, [bingoId ?? null])).map(premioDTO);
+    const premios = await q(`SELECT * FROM premios p WHERE p.bingo_id = ${DE_BINGO(1)} ORDER BY p.id`, [bingoId ?? null]);
+    const ganadores = (await q(`${SQL_GANADORES} JOIN premios p ON p.id = g.premio_id WHERE p.bingo_id = ${DE_BINGO(1)} ORDER BY g.id`, [bingoId ?? null])).map(ganadorDTO);
+    return premios.map(p => premioDTO(p, ganadores.filter(g => g.premioId === p.id)));
   }
 
   async function premioPorId(id) {
-    const p = await uno(`${SQL_PREMIOS} WHERE p.id = $1`, [id]);
+    const p = await uno('SELECT * FROM premios WHERE id = $1', [id]);
     if (!p) throw new ErrorApp('Premio no encontrado.', 404);
-    return premioDTO(p);
+    const ganadores = (await q(`${SQL_GANADORES} WHERE g.premio_id = $1 ORDER BY g.id`, [id])).map(ganadorDTO);
+    return premioDTO(p, ganadores);
   }
 
   async function crearPremio(datos) {
@@ -865,43 +888,109 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     return premioPorId(id);
   }
 
-  // Solo una tabla vendida puede ser ganadora: así el premio siempre tiene un comprador real.
-  async function asignarGanador(premioId, serialRaw) {
+  const entregasDe = async premioId => num((await q('SELECT COUNT(*) AS n FROM premio_ganadores WHERE premio_id = $1 AND entregado = true', [premioId]))[0].n);
+
+  // Reparte el premio en partes iguales entre las ganadoras actuales (solo mientras no se haya entregado nada).
+  async function repartir(premioId) {
+    const p = await uno('SELECT monto FROM premios WHERE id = $1', [premioId]);
+    const ids = (await q('SELECT id FROM premio_ganadores WHERE premio_id = $1 ORDER BY id', [premioId])).map(r => r.id);
+    const partes = repartoDe(num(p.monto), ids.length);
+    for (let i = 0; i < ids.length; i++) await q('UPDATE premio_ganadores SET monto = $1 WHERE id = $2', [partes[i], ids[i]]);
+  }
+
+  // Agrega una tabla ganadora. Solo una tabla vendida puede ganar. En una ronda en juego debe cumplir la figura con las
+  // balotas cantadas. Con { cerrar: false } la ronda sigue abierta para registrar más ganadoras (empate); por defecto
+  // la ronda se cierra con esta ganadora.
+  async function asignarGanador(premioId, serialRaw, { cerrar = true } = {}) {
     const serial = String(serialRaw ?? '').trim().toUpperCase();
-    const p = await uno('SELECT * FROM premios WHERE id = $1', [premioId]);
-    if (!p) throw new ErrorApp('Premio no encontrado.', 404);
-    await exigirActivo(p.bingo_id, 'Este premio');
+    const p = await premioActivo(premioId);
     const tabla = await uno('SELECT * FROM tablas WHERE serial = $1', [serial]);
     if (!tabla) throw new ErrorApp('Esa tabla no existe.', 404);
     if (tabla.estado !== 'vendida' || !tabla.compra_id) throw new ErrorApp('Esa tabla no está vendida.', 409);
-    // En una ronda en juego solo gana una tabla que cumple la figura con las balotas cantadas; al asignar, la ronda se cierra.
+    if (await entregasDe(premioId) > 0) throw new ErrorApp('Ya se entregó parte de este premio: no se pueden agregar más ganadoras.', 409);
     if (p.ronda_estado === 'en_juego') {
       const r = await evaluarPremio(p, tabla);
       if (!r.cumple) throw new ErrorApp(`La tabla ${serial} no cumple la figura "${FIGURAS[p.figura].nombre}": le faltan ${r.faltan} balota(s).`, 409);
     }
-    await q("UPDATE premios SET serial = $1, compra_id = $2, ronda_estado = CASE WHEN ronda_estado = 'en_juego' THEN 'cerrada' ELSE ronda_estado END WHERE id = $3", [serial, tabla.compra_id, premioId]);
+    const nueva = await q('INSERT INTO premio_ganadores (premio_id, serial, compra_id, creado_en) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING RETURNING id', [premioId, serial, tabla.compra_id, ahora()]);
+    if (!nueva.length) throw new ErrorApp(`La tabla ${serial} ya está registrada como ganadora de esta ronda.`, 409);
+    await repartir(premioId);
+    if (p.ronda_estado !== 'en_juego' || cerrar) await q("UPDATE premios SET ronda_estado = 'cerrada' WHERE id = $1", [premioId]);
     const compra = await uno('SELECT nombre FROM compras WHERE id = $1', [tabla.compra_id]);
     await bitacora('ganador', `${p.ronda}: ${serial} (${compra.nombre})`);
     return premioPorId(premioId);
   }
 
-  async function quitarGanador(premioId) {
-    const p = await uno('SELECT bingo_id FROM premios WHERE id = $1', [premioId]);
-    if (p) await exigirActivo(p.bingo_id, 'Este premio');
-    await q("UPDATE premios SET serial = NULL, compra_id = NULL, ronda_estado = CASE WHEN ronda_estado = 'cerrada' THEN 'pendiente' ELSE ronda_estado END WHERE id = $1 AND pagado = false", [premioId]);
+  // Termina la ronda en juego con las ganadoras ya registradas (una o varias) y deja el premio listo para entregar.
+  async function cerrarRonda(premioId) {
+    const p = await enJuego(premioId);
+    const n = num((await q('SELECT COUNT(*) AS n FROM premio_ganadores WHERE premio_id = $1', [premioId]))[0].n);
+    if (n < 1) throw new ErrorApp('Registra al menos una tabla ganadora antes de cerrar la ronda.', 409);
+    await q("UPDATE premios SET ronda_estado = 'cerrada' WHERE id = $1", [premioId]);
+    await bitacora('ronda cerrada', `${p.ronda}: ${n} ganadora(s)`);
     return premioPorId(premioId);
   }
 
-  // Entrega del premio: queda registrado quién lo recibió (nombre y documento) y una nota.
-  async function pagarPremio(premioId, { recibidoPor, nota } = {}) {
-    const p = await uno('SELECT * FROM premios WHERE id = $1', [premioId]);
-    if (!p) throw new ErrorApp('Premio no encontrado.', 404);
-    if (!p.serial) throw new ErrorApp('Primero registra la tabla ganadora.', 409);
-    if (p.pagado) throw new ErrorApp('Este premio ya fue pagado.', 409);
-    await exigirActivo(p.bingo_id, 'Este premio');
-    await q('UPDATE premios SET pagado = true, pagado_en = $1, recibido_por = $2, entrega_nota = $3 WHERE id = $4', [ahora(), String(recibidoPor ?? '').trim().slice(0, 160), String(nota ?? '').trim().slice(0, 500), premioId]);
-    await bitacora('premio pagado', `${p.ronda}: ${p.monto}${recibidoPor ? ` (recibió ${String(recibidoPor).trim().slice(0, 160)})` : ''}`);
+  async function sinGanadoras(p) {
+    const quedan = num((await q('SELECT COUNT(*) AS n FROM premio_ganadores WHERE premio_id = $1', [p.id]))[0].n);
+    if (quedan === 0 && p.ronda_estado === 'cerrada') await q("UPDATE premios SET ronda_estado = 'pendiente' WHERE id = $1", [p.id]);
+  }
+
+  // Quita una ganadora (por ejemplo, la que se registró por error). No se puede si ya recibió su premio.
+  async function quitarGanadora(ganadorId) {
+    const g = await uno('SELECT * FROM premio_ganadores WHERE id = $1', [ganadorId]);
+    if (!g) throw new ErrorApp('Ganadora no encontrada.', 404);
+    const p = await premioActivo(g.premio_id);
+    if (g.entregado) throw new ErrorApp('A esta ganadora ya se le entregó el premio: no se puede quitar.', 409);
+    await q('DELETE FROM premio_ganadores WHERE id = $1', [ganadorId]);
+    await repartir(p.id);
+    await sinGanadoras(p);
+    await bitacora('ganadora quitada', `${p.ronda}: ${g.serial}`);
+    return premioPorId(p.id);
+  }
+
+  // Quita todas las ganadoras del premio (si todavía no se entregó nada).
+  async function quitarGanador(premioId) {
+    const p = await premioActivo(premioId);
+    if (await entregasDe(premioId) === 0) {
+      await q('DELETE FROM premio_ganadores WHERE premio_id = $1', [premioId]);
+      await sinGanadoras(p);
+    }
     return premioPorId(premioId);
+  }
+
+  // Entrega del premio a una ganadora: queda registrado quién lo recibió (nombre y documento) y una nota.
+  async function entregarPremio(ganadorId, { recibidoPor, nota } = {}) {
+    const g = await uno('SELECT * FROM premio_ganadores WHERE id = $1', [ganadorId]);
+    if (!g) throw new ErrorApp('Ganadora no encontrada.', 404);
+    const p = await premioActivo(g.premio_id);
+    if (g.entregado) throw new ErrorApp('Este premio ya fue entregado.', 409);
+    if (p.ronda_estado === 'en_juego') throw new ErrorApp('Cierra la ronda antes de entregar el premio.', 409);
+    const quien = String(recibidoPor ?? '').trim().slice(0, 160);
+    await q('UPDATE premio_ganadores SET entregado = true, entregado_en = $1, recibido_por = $2, entrega_nota = $3 WHERE id = $4',
+      [ahora(), quien, String(nota ?? '').trim().slice(0, 500), ganadorId]);
+    await bitacora('premio pagado', `${p.ronda}: ${num(g.monto)} (tabla ${g.serial}${quien ? `, recibió ${quien}` : ''})`);
+    return premioPorId(p.id);
+  }
+
+  // Atajo para premios de una sola ganadora.
+  async function pagarPremio(premioId, datos = {}) {
+    const ganadores = await q('SELECT id, entregado FROM premio_ganadores WHERE premio_id = $1 ORDER BY id', [premioId]);
+    if (!ganadores.length) throw new ErrorApp('Primero registra la tabla ganadora.', 409);
+    if (ganadores.length > 1) throw new ErrorApp(`Hay ${ganadores.length} tablas ganadoras: entrega el premio a cada una.`, 409);
+    if (ganadores[0].entregado) throw new ErrorApp('Este premio ya fue pagado.', 409);
+    return entregarPremio(ganadores[0].id, datos);
+  }
+
+  // Una fila por tabla ganadora (en un empate el premio sale repartido); las rondas sin ganadora salen con el premio completo.
+  function premiosPlanos(lista) {
+    return lista.flatMap(x => (x.ganadores.length
+      ? x.ganadores.map(g => ({
+        ronda: x.empate ? `${x.ronda} (empate)` : x.ronda, premio: x.premio, figura: x.figuraNombre, monto: g.monto, serial: g.serial,
+        ganador: g.ganador, estado: g.entregado ? 'entregado' : x.rondaEstado === 'en_juego' ? 'en revisión' : 'por entregar',
+        recibidoPor: g.recibidoPor, nota: g.nota,
+      }))
+      : [{ ronda: x.ronda, premio: x.premio, figura: x.figuraNombre, monto: x.monto, serial: '', ganador: null, estado: 'sin ganador', recibidoPor: '', nota: '' }]));
   }
 
   // ---------- Sorteo en vivo ----------
@@ -938,7 +1027,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
 
   async function iniciarRonda(premioId) {
     const p = await premioActivo(premioId);
-    if (p.serial) throw new ErrorApp('Esta ronda ya tiene ganador.', 409);
+    if (p.ronda_estado === 'cerrada') throw new ErrorApp('Esta ronda ya tiene ganador.', 409);
     const otra = await uno("SELECT ronda FROM premios WHERE ronda_estado = 'en_juego' AND id <> $1", [premioId]);
     if (otra) throw new ErrorApp(`La ronda "${otra.ronda}" sigue en juego. Páusala antes de iniciar otra.`, 409);
     await q("UPDATE premios SET ronda_estado = 'en_juego' WHERE id = $1", [premioId]);
@@ -983,8 +1072,17 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const base = { serial, figura: p.figura, figuraNombre: FIGURAS[p.figura].nombre, comprador: compra };
     if (tabla.estado !== 'vendida' || !compra) return { ...base, cumple: false, motivo: 'Esa tabla no está vendida: no puede ganar.' };
     const r = await evaluarPremio(p, tabla);
-    return { ...base, numeros: JSON.parse(tabla.numeros), marcadas: r.marcadas, faltan: r.faltan, cumple: r.cumple,
-      motivo: r.cumple ? 'Cumple la figura.' : `No cumple: le faltan ${r.faltan} balota(s).` };
+    const yaRegistrada = (await q('SELECT 1 FROM premio_ganadores WHERE premio_id = $1 AND serial = $2', [premioId, serial])).length > 0;
+    // En un empate de verdad todas las tablas se completan con la misma última balota. Si ya estaba completa antes,
+    // se avisa (sin bloquear) para que quien dirige el sorteo decida si cantó a tiempo.
+    const balotas = await balotasDe(premioId);
+    const aTiempo = !r.cumple || balotas.length === 0 || !evaluarTabla(p.figura, JSON.parse(tabla.numeros), balotas.slice(0, -1)).cumple;
+    const ganadoras = (await q('SELECT serial FROM premio_ganadores WHERE premio_id = $1 ORDER BY id', [premioId])).map(x => x.serial);
+    const motivo = !r.cumple ? `No cumple: le faltan ${r.faltan} balota(s).`
+      : yaRegistrada ? 'Cumple la figura, pero ya está registrada como ganadora de esta ronda.'
+        : !aTiempo ? 'Cumple la figura, pero ya estaba completa antes de la última balota: revisa si cantó a tiempo.'
+          : ganadoras.length ? 'Cumple la figura: sería un empate con las tablas ya registradas.' : 'Cumple la figura.';
+    return { ...base, numeros: JSON.parse(tabla.numeros), marcadas: r.marcadas, faltan: r.faltan, cumple: r.cumple, yaRegistrada, aTiempo, ganadoras, motivo };
   }
 
   // ---------- Gastos ----------
@@ -1025,7 +1123,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       WHERE p.estado = 'verificado' AND c.bingo_id = ${B}`);
     const porVerificar = await suma(`SELECT COALESCE(SUM(p.monto_reportado), 0) AS n FROM pagos p JOIN compras c ON c.id = p.compra_id
       WHERE p.estado = 'por_verificar' AND c.bingo_id = ${B}`);
-    const premiosPagados = await suma(`SELECT COALESCE(SUM(monto), 0) AS n FROM premios WHERE pagado = true AND bingo_id = ${B}`);
+    const premiosPagados = await suma(`SELECT COALESCE(SUM(g.monto), 0) AS n FROM premio_ganadores g JOIN premios p ON p.id = g.premio_id
+      WHERE g.entregado = true AND p.bingo_id = ${B}`);
     const premiosProgramados = await suma(`SELECT COALESCE(SUM(monto), 0) AS n FROM premios WHERE bingo_id = ${B}`);
     const gastos = await suma(`SELECT COALESCE(SUM(monto), 0) AS n FROM gastos WHERE bingo_id = ${B}`);
     const porCobrar = redondear(compras.reduce((s, c) => s + c.saldo, 0));
@@ -1108,8 +1207,10 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const donaciones = await sobranteEn("'donado'");
     const porDevolver = await sobranteEn("'por_devolver','por_definir'");
     const devuelto = await sobranteEn("'devuelto'");
-    const premiosPagados = await total(`SELECT COALESCE(SUM(monto), 0) AS n FROM premios WHERE bingo_id = $1 AND pagado = true AND ${R('pagado_en')}`);
-    const premiosPendientes = redondear(num((await filasBingo('SELECT COALESCE(SUM(monto), 0) AS n FROM premios WHERE bingo_id = $1 AND pagado = false'))[0].n));
+    const premiosPagados = await total(`SELECT COALESCE(SUM(g.monto), 0) AS n FROM premio_ganadores g JOIN premios p ON p.id = g.premio_id
+      WHERE p.bingo_id = $1 AND g.entregado = true AND ${R('g.entregado_en')}`);
+    const premiosPendientes = redondear(num((await filasBingo(`SELECT (SELECT COALESCE(SUM(monto), 0) FROM premios WHERE bingo_id = $1)
+      - (SELECT COALESCE(SUM(g.monto), 0) FROM premio_ganadores g JOIN premios p ON p.id = g.premio_id WHERE p.bingo_id = $1 AND g.entregado = true) AS n`))[0].n));
     const gastos = await total(`SELECT COALESCE(SUM(monto), 0) AS n FROM gastos WHERE bingo_id = $1 AND ${R('fecha')}`);
     const ingresos = redondear(cobrado - porDevolver - devuelto);
     const resultados = {
@@ -1156,10 +1257,9 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       .map(r => ({ clave: r.clave, cantidad: r.cantidad, monto: redondear(r.monto) }));
 
     // --- Premios ---
-    const premios = (await listarPremios(bingoId)).map(x => ({
-      ronda: x.ronda, premio: x.premio, monto: x.monto, figura: x.figuraNombre,
-      ganador: x.ganador?.nombre ?? '', serial: x.serial ?? '', estado: x.pagado ? 'entregado' : x.serial ? 'por entregar' : 'sin ganador',
-      recibidoPor: x.recibidoPor,
+    const premios = premiosPlanos(await listarPremios(bingoId)).map(x => ({
+      ronda: x.ronda, premio: x.premio, monto: x.monto, figura: x.figura, ganador: x.ganador?.nombre ?? '',
+      serial: x.serial, estado: x.estado, recibidoPor: x.recibidoPor,
     }));
 
     // --- Tablas y entregas (estado actual, no depende del rango) ---
@@ -1300,7 +1400,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     if (nombre === 'premios') {
       return {
         encabezados: ['Ronda', 'Premio', 'Figura', 'Monto', 'Tabla ganadora', 'Ganador', 'Cédula', 'Teléfono', 'Entrega', 'Recibió', 'Nota'],
-        filas: (await listarPremios(bid)).map(p => [p.ronda, p.premio, p.figuraNombre, p.monto, p.serial ?? '', p.ganador?.nombre ?? '', p.ganador?.cedula ?? '', p.ganador?.telefono ?? '', p.pagado ? 'entregado' : p.serial ? 'por entregar' : 'sin ganador', p.recibidoPor, p.entregaNota]),
+        filas: premiosPlanos(await listarPremios(bid)).map(p => [p.ronda, p.premio, p.figura, p.monto, p.serial, p.ganador?.nombre ?? '', p.ganador?.cedula ?? '', p.ganador?.telefono ?? '', p.estado, p.recibidoPor, p.nota])
       };
     }
     if (nombre === 'gastos') {
@@ -1320,7 +1420,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     enviarTablas, reenviar, enlaceWhatsapp, enlaceCorreo, marcarEnviadoManual, entregaFisica, entregaPublica, rechazarCompra,
     gestionarSobrante, listarSobrantes, datosSelloEntrega,
     comprobanteDe,
-    listarPremios, crearPremio, asignarGanador, quitarGanador, pagarPremio,
+    listarPremios, crearPremio, asignarGanador, cerrarRonda, quitarGanadora, quitarGanador, entregarPremio, pagarPremio,
     estadoSorteo, iniciarRonda, pausarRonda, cantarBalota, deshacerBalota, verificarTabla,
     listarGastos, crearGasto, eliminarGasto,
     resumen, informes, bitacoraLista, reporte, listarBingos, reiniciarBingo,

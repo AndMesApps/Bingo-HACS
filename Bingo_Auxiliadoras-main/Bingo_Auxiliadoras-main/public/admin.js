@@ -653,6 +653,49 @@ async function renderTablas() {
 }
 
 // ---------- Premios ----------
+// Una ronda puede tener varias tablas ganadoras (empate): el premio se reparte en partes iguales y cada una se entrega aparte.
+function tarjetaGanadora(p, g) {
+  const quien = g.ganador;
+  const detalle = `${esc(quien.nombre)} · Cédula ${esc(quien.cedula)} · ${esc(quien.telefono)} (${esc(quien.codigo)})`;
+  const cuerpo = g.entregado
+    ? `<p class="muted">Entregado${g.recibidoPor ? ` a ${esc(g.recibidoPor)}` : ''}${g.nota ? ` · ${esc(g.nota)}` : ''}</p>`
+    : p.rondaEstado === 'en_juego'
+      ? '<p class="muted">En revisión: cierra la ronda en la pestaña Sorteo para poder entregar el premio.</p>'
+      : `<form class="row" data-ganador-entregar="${g.id}" style="margin-top:8px">
+          <label style="flex:1 1 220px">Quién lo recibe (nombre y documento) <input name="recibidoPor" required maxlength="160"></label>
+          <label style="flex:1 1 200px">Nota <input name="nota" maxlength="500" placeholder="Opcional"></label>
+          <button type="submit">Marcar entregado</button>
+        </form>`;
+  return `<div class="ganadora">
+    <div class="row"><span class="mono"><strong>Tabla ${esc(g.serial)}</strong></span><strong>${dinero(g.monto)}</strong>
+      ${g.entregado ? '<span class="pill verificado">entregado</span>' : ''}</div>
+    <p style="margin:4px 0">${detalle}</p>
+    ${cuerpo}
+    ${g.entregado ? '' : `<div class="actions"><button type="button" class="ghost" data-ganador-quitar="${g.id}">Quitar esta ganadora</button></div>`}
+  </div>`;
+}
+
+function tarjetaPremio(p) {
+  const hayEntregas = p.ganadores.some(g => g.entregado);
+  const clasePill = p.estado === 'entregado' ? 'verificado' : p.ganadores.length ? 'por_verificar' : '';
+  const aviso = p.empate
+    ? `<div class="ojo" style="margin:8px 0">Empate: el premio de ${dinero(p.monto)} se reparte entre ${p.ganadores.length} tablas, ${p.ganadores.every(g => g.monto === p.ganadores[0].monto) ? `${dinero(p.ganadores[0].monto)} cada una` : `${dinero(p.ganadores[0].monto)} la primera y ${dinero(p.ganadores[p.ganadores.length - 1].monto)} las demás`}. Cada una recibe y firma por separado.</div>`
+    : '';
+  const registrar = !hayEntregas && p.rondaEstado !== 'en_juego'
+    ? `<form class="row" data-premio-ganador="${p.id}" style="margin-top:8px">
+        <label style="flex:1 1 200px">${p.ganadores.length ? 'Otra tabla ganadora (empate)' : 'Serial ganador'} <input name="serial" required placeholder="Número de la tabla"></label>
+        <button type="submit" class="${p.ganadores.length ? 'ghost' : ''}">${p.ganadores.length ? 'Agregar ganadora' : 'Registrar ganador'}</button>
+      </form>`
+    : '';
+  return `<article class="card">
+    <div class="row"><strong>${esc(p.ronda)}</strong><span class="pill ${clasePill}">${esc(p.estado)}</span></div>
+    <p class="muted">${esc(p.premio)} · ${dinero(p.monto)} · ${esc(p.figuraNombre)}</p>
+    ${aviso}
+    ${p.ganadores.map(g => tarjetaGanadora(p, g)).join('')}
+    ${registrar}
+  </article>`;
+}
+
 async function renderPremios() {
   const [premios, { figuras }] = await Promise.all([api('GET', '/admin/premios'), api('GET', '/admin/sorteo')]);
   $('vista').innerHTML = `
@@ -667,28 +710,7 @@ async function renderPremios() {
       <div class="actions"><button type="submit">Crear ronda</button></div>
     </form>
     <h2>Rondas</h2>
-    ${premios.map(p => `
-      <article class="card">
-        <div class="row"><strong>${esc(p.ronda)}</strong>
-          <span class="pill ${p.pagado ? 'verificado' : p.serial ? 'por_verificar' : ''}">${p.pagado ? 'entregado' : p.serial ? 'por entregar' : 'sin ganador'}</span></div>
-        <p class="muted">${esc(p.premio)} · ${dinero(p.monto)} · ${esc(p.figuraNombre)}</p>
-        ${p.serial ? `
-          <p class="mono">${esc(p.serial)}</p>
-          <p>${esc(p.ganador?.nombre ?? '')} · Cédula ${esc(p.ganador?.cedula ?? '')} · ${esc(p.ganador?.telefono ?? '')} ${p.ganador ? `(${esc(p.ganador.codigo)})` : ''}</p>
-          <div class="actions">
-            ${p.pagado ? '' : `<button type="button" class="ghost" data-premio-quitar="${p.id}">Quitar ganador</button>`}
-          </div>
-          ${p.pagado ? `<p class="muted">Entregado${p.recibidoPor ? ` a ${esc(p.recibidoPor)}` : ''}${p.entregaNota ? ` · ${esc(p.entregaNota)}` : ''}</p>` : `
-          <form class="row" data-premio-pagar="${p.id}" style="margin-top:8px">
-            <label style="flex:1 1 220px">Quién lo recibe (nombre y documento) <input name="recibidoPor" required maxlength="160"></label>
-            <label style="flex:1 1 200px">Nota <input name="nota" maxlength="500" placeholder="Opcional"></label>
-            <button type="submit">Marcar entregado</button>
-          </form>`}` : `
-          <form class="row" data-premio-ganador="${p.id}" style="margin-top:8px">
-            <label style="flex:1 1 200px">Serial ganador <input name="serial" required placeholder="BNG-XXXX-XXXX"></label>
-            <button type="submit">Registrar ganador</button>
-          </form>`}
-      </article>`).join('') || '<p class="muted">Aún no hay rondas.</p>'}`;
+    ${premios.map(tarjetaPremio).join('') || '<p class="muted">Aún no hay rondas.</p>'}`;
 
   $('form-premio').addEventListener('submit', async e => {
     e.preventDefault();
@@ -706,16 +728,16 @@ async function renderPremios() {
       mostrar('premios');
     } catch (err) { msg(err.message, true); }
   }));
-  $('vista').querySelectorAll('form[data-premio-pagar]').forEach(f => f.addEventListener('submit', async e => {
+  $('vista').querySelectorAll('form[data-ganador-entregar]').forEach(f => f.addEventListener('submit', async e => {
     e.preventDefault();
     try {
-      await api('POST', `/admin/premios/${f.dataset.premioPagar}/pagar`, { recibidoPor: f.recibidoPor.value, nota: f.nota.value });
+      await api('POST', `/admin/premios/ganadores/${f.dataset.ganadorEntregar}/entregar`, { recibidoPor: f.recibidoPor.value, nota: f.nota.value });
       msg('Entrega del premio registrada.');
       mostrar('premios');
     } catch (err) { msg(err.message, true); }
   }));
-  $('vista').querySelectorAll('[data-premio-quitar]').forEach(b => b.addEventListener('click', () =>
-    accion(async () => { await api('DELETE', `/admin/premios/${b.dataset.premioQuitar}/ganador`); mostrar('premios'); }, 'Ganador quitado.')));
+  $('vista').querySelectorAll('[data-ganador-quitar]').forEach(b => b.addEventListener('click', () =>
+    accion(async () => { await api('DELETE', `/admin/premios/ganadores/${b.dataset.ganadorQuitar}`); mostrar('premios'); }, 'Ganadora quitada.')));
 }
 
 // ---------- Sorteo en vivo ----------
@@ -761,6 +783,15 @@ async function renderSorteo() {
         <button type="button" class="ghost" id="pausar">Pausar ronda</button>
       </div>
     </div>
+    ${ronda.ganadores.length ? `
+    <div class="card">
+      <h3 style="margin-top:0">Tablas ganadoras de esta ronda (${ronda.ganadores.length})</h3>
+      ${ronda.ganadores.map(g => `<div class="kv"><span><strong>Tabla ${esc(g.serial)}</strong> · ${esc(g.ganador.nombre)} · ${esc(g.ganador.telefono)}</span>
+        <span><strong>${dinero(g.monto)}</strong> <button type="button" class="ghost" data-quitar-ganadora="${g.id}">Quitar</button></span></div>`).join('')}
+      ${ronda.ganadores.length > 1 ? `<p class="muted">Empate: el premio de ${dinero(ronda.monto)} se reparte en partes iguales y cada tabla recibe y firma por separado.</p>` : ''}
+      <p class="muted">Si otra tabla también cantó Bingo con esta misma balota, verifícala abajo y agrégala. Cuando ya estén todas, cierra la ronda.</p>
+      <div class="actions"><button type="button" class="grande" id="cerrar-ronda">Cerrar ronda y repartir el premio</button></div>
+    </div>` : ''}
     <h2>¡Alguien cantó Bingo!</h2>
     <form id="form-verificar" class="card row">
       <label style="flex:1 1 200px">Número de la tabla <input name="serial" required autocomplete="off" inputmode="numeric"></label>
@@ -773,6 +804,14 @@ async function renderSorteo() {
   }));
   $('deshacer').addEventListener('click', () => accion(async () => { await api('DELETE', `/admin/premios/${ronda.id}/balotas/${ultima}`); mostrar('sorteo'); }, 'Balota deshecha.'));
   $('pausar').addEventListener('click', () => accion(async () => { await api('POST', `/admin/premios/${ronda.id}/pausar`); mostrar('sorteo'); }, 'Ronda en pausa.'));
+  $('vista').querySelectorAll('[data-quitar-ganadora]').forEach(b => b.addEventListener('click', () =>
+    accion(async () => { await api('DELETE', `/admin/premios/ganadores/${b.dataset.quitarGanadora}`); mostrar('sorteo'); }, 'Ganadora quitada.')));
+  const cerrar = $('cerrar-ronda');
+  if (cerrar) cerrar.addEventListener('click', () => accion(async () => {
+    await api('POST', `/admin/premios/${ronda.id}/cerrar`);
+    msg('Ronda cerrada. Registra la entrega de cada premio en la pestaña Premios.');
+    mostrar('premios');
+  }, null));
 
   $('form-verificar').addEventListener('submit', async e => {
     e.preventDefault();
@@ -784,16 +823,25 @@ async function renderSorteo() {
         <article class="card">
           <div class="row"><strong>Tabla ${esc(v.serial)}</strong>
             <span class="pill ${v.cumple ? 'verificado' : 'rechazado'}">${v.cumple ? 'GANADORA' : 'no gana'}</span></div>
-          <p>${esc(v.motivo)}</p>
+          <p>${v.cumple && !v.aTiempo ? '⚠ ' : ''}${esc(v.motivo)}</p>
           ${v.comprador ? `<p class="muted">${esc(v.comprador.nombre)} · ${esc(v.comprador.telefono)} · ${esc(v.comprador.codigo)}</p>` : ''}
           ${cuadricula}
-          ${v.cumple ? '<div class="actions"><button type="button" class="grande" id="asignar">Asignar premio a esta tabla</button></div>' : ''}
+          ${v.cumple && !v.yaRegistrada ? `<div class="actions">
+            ${ronda.ganadores.length ? '' : '<button type="button" class="grande" id="asignar">Asignar premio a esta tabla (única ganadora)</button>'}
+            <button type="button" class="${ronda.ganadores.length ? 'grande' : 'ghost'}" id="agregar">${ronda.ganadores.length ? 'Agregar como ganadora (empate)' : 'Hay empate: agregar y seguir revisando'}</button>
+          </div>` : ''}
         </article>`;
       const a = $('asignar');
       if (a) a.addEventListener('click', () => accion(async () => {
         await api('PUT', `/admin/premios/${ronda.id}/ganador`, { serial: v.serial });
         msg('Premio asignado. Registra la entrega en la pestaña Premios.');
         mostrar('premios');
+      }, null));
+      const g = $('agregar');
+      if (g) g.addEventListener('click', () => accion(async () => {
+        await api('PUT', `/admin/premios/${ronda.id}/ganador`, { serial: v.serial, cerrar: false });
+        msg('Tabla agregada como ganadora. Verifica las demás que hayan cantado Bingo y luego cierra la ronda.');
+        mostrar('sorteo');
       }, null));
     } catch (err) { $('resultado').innerHTML = ''; msg(err.message, true); }
   });
