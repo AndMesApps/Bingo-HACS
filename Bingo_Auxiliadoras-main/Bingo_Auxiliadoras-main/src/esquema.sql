@@ -263,3 +263,6 @@ CREATE TABLE IF NOT EXISTS balotas (
 ALTER TABLE balotas ENABLE ROW LEVEL SECURITY;
 -- Solo una ronda puede estar en juego a la vez.
 CREATE UNIQUE INDEX IF NOT EXISTS premios_una_en_juego ON premios ((true)) WHERE ronda_estado = 'en_juego';
+-- ---------- Envío automático de tablas ----------
+-- Si está activo, al quedar verificado el pago se envían solas las tablas por WhatsApp y correo (si el comprador dejó correo).
+ALTER TABLE evento ADD COLUMN IF NOT EXISTS envio_automatico BOOLEAN NOT NULL DEFAULT false;

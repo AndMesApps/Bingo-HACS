@@ -88,6 +88,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       fechaSorteo: e.fecha_sorteo,
       cuentasPago: e.cuentas_pago,
       exigirPagoCompleto: Boolean(e.exigir_pago_completo),
+      envioAutomatico: Boolean(e.envio_automatico),
       banco: e.banco ?? '',
       tipoCuenta: e.tipo_cuenta ?? '',
       numeroCuenta: e.numero_cuenta ?? '',
@@ -135,6 +136,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       fechaSorteo: String(datos.fechaSorteo ?? actual.fechaSorteo).slice(0, 10),
       cuentasPago: String(datos.cuentasPago ?? actual.cuentasPago).slice(0, 2000),
       exigirPagoCompleto: datos.exigirPagoCompleto === undefined ? actual.exigirPagoCompleto : Boolean(datos.exigirPagoCompleto),
+      envioAutomatico: datos.envioAutomatico === undefined ? actual.envioAutomatico : Boolean(datos.envioAutomatico),
       banco: String(datos.banco ?? actual.banco).trim().slice(0, 80),
       tipoCuenta,
       numeroCuenta: String(datos.numeroCuenta ?? actual.numeroCuenta).trim().slice(0, 40),
@@ -150,6 +152,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     if (pieza && (pieza.length > PIEZA_MAX_CARACTERES || !PIEZA_VALIDA.test(pieza))) {
       throw new ErrorApp('La pieza de invitación debe ser una imagen PNG, JPG o WEBP de máximo 1 MB.');
     }
+    await q('UPDATE evento SET envio_automatico = $1 WHERE id = 1', [nuevo.envioAutomatico]);
     await q(
       `UPDATE evento SET nombre=$1, precio_tabla=$2, moneda=$3, fecha_sorteo=$4, cuentas_pago=$5, exigir_pago_completo=$6,
          banco=$7, tipo_cuenta=$8, numero_cuenta=$9, titular_cuenta=$10, llave_pago=$11, qr_pago=$12 WHERE id = 1`,
@@ -487,7 +490,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     return detalleCompra(compraId);
   }
 
-  async function registrarPagoManual(compraId, datos) {
+  async function registrarPagoManual(compraId, datos, { baseUrl } = {}) {
     const c = await uno('SELECT * FROM compras WHERE id = $1', [compraId]);
     if (!c) throw new ErrorApp('Compra no encontrada.', 404);
     if (c.estado === 'rechazada') throw new ErrorApp('La compra está rechazada.', 409);
@@ -503,10 +506,11 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       await alVerificarPago(t, c);
       await bitacora('pago registrado', `${c.codigo}: ${monto} (${metodo})`, t);
     });
+    await enviarSiCorresponde(compraId, baseUrl);
     return detalleCompra(compraId);
   }
 
-  async function verificarPago(pagoId, montoVerificado) {
+  async function verificarPago(pagoId, montoVerificado, { baseUrl } = {}) {
     const p = await uno('SELECT * FROM pagos WHERE id = $1', [pagoId]);
     if (!p) throw new ErrorApp('Pago no encontrado.', 404);
     if (p.estado !== 'por_verificar') throw new ErrorApp('Este pago ya fue procesado.', 409);
@@ -521,16 +525,18 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       await alVerificarPago(t, c);
       await bitacora('pago verificado', `${c.codigo}: ${monto} (${p.metodo} ${p.referencia})`, t);
     });
+    await enviarSiCorresponde(c.id, baseUrl);
     return detalleCompra(c.id);
   }
 
-  async function rechazarPago(pagoId) {
+  async function rechazarPago(pagoId, { baseUrl } = {}) {
     const p = await uno('SELECT * FROM pagos WHERE id = $1', [pagoId]);
     if (!p) throw new ErrorApp('Pago no encontrado.', 404);
     if (p.estado !== 'por_verificar') throw new ErrorApp('Este pago ya fue procesado.', 409);
     await q("UPDATE pagos SET estado = 'rechazado', verificado_en = $1 WHERE id = $2", [ahora(), pagoId]);
     const c = await uno('SELECT codigo FROM compras WHERE id = $1', [p.compra_id]);
     await bitacora('pago rechazado', `${c.codigo}: ${p.referencia}`);
+    await enviarSiCorresponde(p.compra_id, baseUrl);
     return detalleCompra(p.compra_id);
   }
 
@@ -538,6 +544,28 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     return redondear(num((await t(
       "SELECT COALESCE(SUM(monto_verificado), 0) AS n FROM pagos WHERE compra_id = $1 AND estado = 'verificado'", [compraId],
     ))[0].n));
+  }
+
+  // Envío automático: al quedar resuelto el último pago de la compra se envían solas las tablas pedidas por WhatsApp y,
+  // si dejó correo, también por correo. Solo actúa cuando no hay nada que decidir: ningún pago pendiente y lo verificado
+  // cubre todas las tablas que pidió. Si no, la compra queda en "Listas para enviar" y quien verifica decide, como siempre.
+  // Un fallo aquí nunca deshace la verificación del pago: queda en la bitácora y la compra sigue lista para envío manual.
+  async function enviarSiCorresponde(compraId, baseUrl) {
+    try {
+      if (!(await evento({ conQr: false })).envioAutomatico) return;
+      const c = await uno('SELECT * FROM compras WHERE id = $1', [compraId]);
+      if (!c || c.estado !== 'verificada' || !(c.cantidad > 0)) return;
+      const [{ n }] = await q("SELECT COUNT(*)::int AS n FROM pagos WHERE compra_id = $1 AND estado = 'por_verificar'", [compraId]);
+      if (n > 0) return;
+      const cubiertas = tablasPorMonto(await pagadoDe(compraId), num(c.precio_unitario));
+      if (cubiertas < c.cantidad) {
+        await bitacora('envío automático omitido', `${c.codigo}: el pago cubre ${cubiertas} de ${c.cantidad} tabla(s); decide quien verifica`);
+        return;
+      }
+      await enviarTablas(compraId, { cantidad: c.cantidad, canales: { whatsapp: true, correo: Boolean(c.correo) }, baseUrl });
+    } catch (err) {
+      try { await bitacora('envío automático falló', `compra ${compraId}: ${err.message}`); } catch { /* sin registro */ }
+    }
   }
 
   // Canales elegidos por quien envía. Sin indicar ninguno se usa WhatsApp, como antes.

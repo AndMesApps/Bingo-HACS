@@ -897,6 +897,11 @@ async function renderConfig() {
 
       <div class="card">
         <label class="full" style="flex-direction:row;align-items:center;gap:8px">
+          <input type="checkbox" name="envioAutomatico" style="width:auto" ${e.envioAutomatico ? 'checked' : ''}>
+          Enviar las tablas automáticamente al verificar el pago (por WhatsApp y, si dejó correo, también por correo)
+        </label>
+        <span class="muted" style="font-weight:400">Solo se envía solo cuando el pago verificado cubre todas las tablas que pidió y no quedan pagos por verificar; en cualquier otro caso la compra queda en "Listas para enviar" para que decidas tú. Necesita WhatsApp Cloud API y Resend configurados; si no, el envío queda como "manual".</span>
+        <label class="full" style="flex-direction:row;align-items:center;gap:8px;margin-top:12px">
           <input type="checkbox" name="exigirPagoCompleto" style="width:auto" ${e.exigirPagoCompleto ? 'checked' : ''}>
           Exigir que el pago verificado cubra las tablas que se envían (recomendado: nunca se entregan tablas sin pagar)
         </label>
@@ -978,6 +983,7 @@ async function renderConfig() {
         cuentasPago: f.cuentasPago.value,
         textoInvitacion: f.textoInvitacion.value,
         exigirPagoCompleto: f.exigirPagoCompleto.checked,
+        envioAutomatico: f.envioAutomatico.checked,
         ...(qrCambiado ? { qrPago: qr } : {}),
         ...(pieza !== null ? { piezaInvitacion: pieza } : {}),
       });

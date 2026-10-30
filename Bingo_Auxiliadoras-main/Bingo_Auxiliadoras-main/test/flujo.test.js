@@ -1043,4 +1043,40 @@ test('premio: la entrega registra quién recibió', async () => {
   const e = await s.pagarPremio(p.id, { recibidoPor: 'Ana Pérez CC 123', nota: 'Entregado en el evento' });
   assert.equal(e.pagado, true);
   assert.equal(e.recibidoPor, 'Ana Pérez CC 123');
+test('envío automático: al verificar el pago se asignan y envían las tablas pedidas', async () => {
+  const enviados = [];
+  const correo = { configurado: true, enviarTablas: async x => { enviados.push(['correo', x.correo]); return { estado: 'enviado' }; }, enlaceManual: () => '' };
+  const wa = { configurado: true, enviarTablas: async x => { enviados.push(['whatsapp', x.telefono]); return { estado: 'enviado' }; }, enlaceManual: () => '', normalizarTelefono: t => t };
+  const s = await nuevo({ whatsapp: wa, correo });
+  await tablas(s, 5);
+  await s.actualizarEvento({ envioAutomatico: true });
+  const c = await comprar(s, 2);
+  const d = await verificarTodo(s, c.id);
+  assert.equal(d.estado, 'enviada');
+  assert.equal(d.tablas.length, 2);
+  assert.equal(d.whatsappEstado, 'enviado');
+  assert.equal(d.correoEstado, 'enviado');
+  assert.deepEqual(enviados.map(e => e[0]).sort(), ['correo', 'whatsapp']);
+});
+
+test('envío automático apagado: el pago verificado queda listo para enviar a mano', async () => {
+  const s = await nuevo();
+  await tablas(s, 3);
+  const c = await comprar(s, 1);
+  assert.equal((await verificarTodo(s, c.id)).estado, 'verificada');
+});
+
+test('envío automático: sin correo solo WhatsApp; con pago insuficiente no envía', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  await s.actualizarEvento({ envioAutomatico: true });
+  const a = await comprar(s, 1, { correo: '' });
+  const da = await verificarTodo(s, a.id);
+  assert.equal(da.estado, 'enviada');
+  assert.equal(da.correoEstado, 'no_enviado');
+  const b = await comprar(s, 3);
+  const db_ = await s.detalleCompra(b.id);
+  const dbb = await s.verificarPago(db_.pagos[0].id, 20); // cubre 2 de las 3 que pidió
+  assert.equal(dbb.estado, 'verificada');
+  assert.equal(dbb.tablas.length, 0);
 });
