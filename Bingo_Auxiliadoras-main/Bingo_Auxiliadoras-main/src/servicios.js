@@ -1171,6 +1171,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
         porVerificar: compras.filter(c => c.estado === 'por_verificar').length,
         listasParaEnviar: compras.filter(c => c.estado === 'verificada').length,
         conDeuda: compras.filter(c => c.saldo > 0).length,
+        // Tablas ya asignadas cuyo WhatsApp falta por enviar desde el celular (o falló).
+        whatsappPendientes: compras.filter(c => c.estado === 'enviada' && ['manual', 'fallido'].includes(c.whatsappEstado)).length,
       },
       evento: await evento({ conQr: false }),
     };

@@ -173,6 +173,8 @@ async function renderResumen() {
     ${pendientes ? `<div class="note"><strong>${pendientes}</strong> compra(s) esperan tu atención:
       ${r.compras.porVerificar} por verificar y ${r.compras.listasParaEnviar} lista(s) para enviar.
       <button type="button" class="ghost" data-vista-ir="compras" style="margin-left:8px">Ir a compras</button></div>` : ''}
+    ${r.compras.whatsappPendientes ? `<div class="note"><strong>${r.compras.whatsappPendientes}</strong> compra(s) ya tienen sus tablas asignadas y falta <strong>enviarles el WhatsApp</strong> desde tu celular.
+      <button type="button" class="ghost" data-wa-pendientes style="margin-left:8px">Ver quiénes</button></div>` : ''}
     ${sobrantesPend ? `<div class="note"><strong>${dinero(r.dinero.porDevolver)}</strong> de sobrantes esperan una decisión o una devolución.
       <button type="button" class="ghost" data-vista-ir="sobrantes" style="margin-left:8px">Ver sobrantes</button></div>` : ''}
     <div class="card">
@@ -210,16 +212,22 @@ async function renderResumen() {
       <div class="kv"><span>Pagos por verificar</span><strong>${r.compras.porVerificar} compra(s)</strong></div>
       <div class="kv"><span>Listas para enviar tablas</span><strong>${r.compras.listasParaEnviar} compra(s)</strong></div>
       <div class="kv"><span>Compras con deuda</span><strong>${r.compras.conDeuda}</strong></div>
+      <div class="kv"><span>WhatsApp por enviar (desde tu celular)</span><strong>${r.compras.whatsappPendientes}</strong></div>
     </div>`;
 }
 
 // ---------- Compras ----------
 const ESTADOS_COMPRA = [['por_verificar', 'Por verificar'], ['verificada', 'Listas para enviar'], ['enviada', 'Enviadas'], ['donacion', 'Donaciones'], ['rechazada', 'Rechazadas'], ['', 'Todas']];
+// En Compras se agrega un filtro con las enviadas a las que falta mandarles el WhatsApp desde el celular.
+const FILTROS_COMPRAS = [...ESTADOS_COMPRA.slice(0, 3), ['wa_pendiente', 'WhatsApp por enviar'], ...ESTADOS_COMPRA.slice(3)];
 
 async function renderCompras() {
-  const compras = await api('GET', '/admin/compras' + (filtroCompras ? `?estado=${filtroCompras}` : ''));
+  const soloWa = filtroCompras === 'wa_pendiente';
+  const estadoApi = soloWa ? 'enviada' : filtroCompras;
+  let compras = await api('GET', '/admin/compras' + (estadoApi ? `?estado=${estadoApi}` : ''));
+  if (soloWa) compras = compras.filter(c => ['manual', 'fallido'].includes(c.whatsappEstado));
   $('vista').innerHTML = `
-    <div class="tabs">${ESTADOS_COMPRA.map(([k, t]) =>
+    <div class="tabs">${FILTROS_COMPRAS.map(([k, t]) =>
       `<button type="button" class="${filtroCompras === k ? '' : 'ghost'}" data-filtro="${k}">${t}</button>`).join('')}</div>
     <div id="lista">${compras.map(tarjetaCompra).join('') || '<p class="muted">No hay compras en esta lista.</p>'}</div>`;
   // Los pagos por verificar se abren solos: es lo primero que necesita quien verifica.
@@ -287,8 +295,8 @@ function estadoEntrega(c) {
     </div>`;
   const b = (act, canal, texto, clase = 'ghost') => `<button type="button" class="${clase}" data-act="${act}" data-canal="${canal}" data-id="${c.id}">${texto}</button>`;
   const wa = fila('WhatsApp', c.whatsappEstado, c.whatsappError,
-    b('reenviar', 'whatsapp', 'Reintentar') + b('enlace', 'whatsapp', 'WhatsApp manual')
-    + (c.whatsappEstado !== 'enviado' ? b('marcar', 'whatsapp', 'Marcar enviado') : ''));
+    (c.whatsappEstado !== 'enviado' ? b('enlace', 'whatsapp', 'Enviar por WhatsApp', '') + b('marcar', 'whatsapp', 'Marcar enviado') : b('enlace', 'whatsapp', 'Enviar de nuevo por WhatsApp'))
+    + (c.whatsappEstado === 'fallido' ? b('reenviar', 'whatsapp', 'Reintentar') : ''));
   const co = c.correo ? fila('Correo', c.correoEstado, c.correoError,
     b('reenviar', 'correo', 'Reintentar') + b('enlace-correo', 'correo', 'Correo manual')
     + (c.correoEstado !== 'enviado' ? b('marcar', 'correo', 'Marcar enviado') : '')) : '';
@@ -425,6 +433,7 @@ $('vista').addEventListener('click', async e => {
   }
   const compartir = e.target.closest('#compartir-pieza');
   if (compartir) { compartir.disabled = true; try { await compartirPieza(compartir.dataset.texto); } catch (err) { msg(err.message, true); } compartir.disabled = false; return; }
+  if (e.target.closest('button[data-wa-pendientes]')) { filtroCompras = 'wa_pendiente'; return mostrar('compras'); }
   const ir = e.target.closest('button[data-vista-ir]');
   if (ir) { filtroCompras = 'por_verificar'; return mostrar(ir.dataset.vistaIr); }
   const f = e.target.closest('button[data-filtro]');
@@ -553,7 +562,7 @@ $('vista').addEventListener('submit', async e => {
   try {
     const r = await api('POST', `/admin/compras/${envio.dataset.enviar}/enviar`, { cantidad, canales });
     const partes = [];
-    if (canales.whatsapp) partes.push(r.whatsappEstado === 'enviado' ? 'WhatsApp enviado' : r.whatsappEstado === 'manual' ? 'WhatsApp: usa "WhatsApp manual"' : 'WhatsApp falló');
+    if (canales.whatsapp) partes.push(r.whatsappEstado === 'enviado' ? 'WhatsApp enviado' : r.whatsappEstado === 'manual' ? 'WhatsApp: usa "Enviar por WhatsApp"' : 'WhatsApp falló');
     if (canales.correo) partes.push(r.correoEstado === 'enviado' ? 'correo enviado' : r.correoEstado === 'manual' ? 'correo: usa "Correo manual"' : 'correo falló');
     if (canales.fisica) partes.push('entrega física pendiente');
     const malo = (canales.whatsapp && r.whatsappEstado === 'fallido') || (canales.correo && r.correoEstado === 'fallido');
@@ -960,9 +969,9 @@ async function pintarConexiones(caja) {
   caja.innerHTML = `
     <h2 style="margin-top:0">Conexión con WhatsApp y correo</h2>
     <p class="muted" style="margin-top:-6px">Para que las tablas se envíen solas. Los datos secretos se ponen en Vercel, no aquí.</p>
-    <div class="kv"><span><strong>WhatsApp</strong> ${estado(c.whatsapp.conectado, 'no conectado')}</span><span class="muted">${
+    <div class="kv"><span><strong>WhatsApp</strong> ${c.whatsapp.conectado ? estado(true) : '<span class="pill por_verificar">manual</span>'}</span><span class="muted">${
       c.whatsapp.conectado ? `Plantilla: ${c.whatsapp.tienePlantilla ? `sí (idioma ${esc(c.whatsapp.idioma)})` : '<strong>falta WHATSAPP_PLANTILLA</strong>: sin ella solo llega a quien te escribió en las últimas 24 horas'}`
-        : `Faltan en Vercel: ${c.whatsapp.faltan.map(esc).join(', ')}`}</span></div>
+        : 'Lo envía quien confirma el pago, desde su celular, con el botón «Enviar por WhatsApp» de cada compra.'}</span></div>
     ${c.whatsapp.conectado ? `<form class="row" id="probar-wa" style="margin:8px 0 14px">
       <label style="flex:1 1 220px">Mi celular para la prueba <input name="telefono" required inputmode="tel" placeholder="3001234567 (o con +indicativo)"></label>
       <button type="submit" class="ghost">Enviar mensaje de prueba por WhatsApp</button></form>` : ''}
@@ -1101,7 +1110,7 @@ async function renderConfig() {
       <div class="card">
         <label class="full" style="flex-direction:row;align-items:center;gap:8px">
           <input type="checkbox" name="envioAutomatico" style="width:auto" ${e.envioAutomatico ? 'checked' : ''}>
-          Enviar las tablas automáticamente al verificar el pago (por WhatsApp y, si dejó correo, también por correo)
+          Enviar las tablas automáticamente al verificar el pago (por correo si lo dejó; el WhatsApp queda pendiente para enviarlo desde tu celular)
         </label>
         <span class="muted" style="font-weight:400">Solo se envía solo cuando el pago verificado cubre todas las tablas que pidió y no quedan pagos por verificar; en cualquier otro caso la compra queda en "Listas para enviar" para que decidas tú. Necesita WhatsApp Cloud API y Resend configurados; si no, el envío queda como "manual".</span>
         <label class="full" style="flex-direction:row;align-items:center;gap:8px;margin-top:12px">

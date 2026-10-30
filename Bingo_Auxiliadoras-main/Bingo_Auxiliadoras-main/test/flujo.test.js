@@ -1314,3 +1314,18 @@ test('WhatsApp: envía la plantilla con nombre y detalle, en el idioma configura
   const manual = await crearWhatsApp({}).enviarTablas({ telefono: '573001234567', nombre: 'Ana', seriales: ['1'], enlace: null, codigo: 'BNG-1' });
   assert.equal(manual.estado, 'manual');
 });
+
+test('WhatsApp manual: el resumen cuenta las compras a las que falta enviarles el WhatsApp desde el celular', async () => {
+  const s = await nuevo(); // sin WhatsApp conectado: el envío queda "manual"
+  await tablas(s, 4);
+  const a = await comprar(s, 1);
+  const b = await comprar(s, 1, { nombre: 'Luis Gómez' });
+  await verificarTodo(s, a.id);
+  await verificarTodo(s, b.id);
+  await s.enviarTablas(a.id); // por defecto solo WhatsApp
+  await s.enviarTablas(b.id, { canales: { correo: true } }); // solo correo (sin Resend queda manual, pero no es WhatsApp)
+  assert.equal((await s.detalleCompra(a.id)).whatsappEstado, 'manual');
+  assert.equal((await s.resumen()).compras.whatsappPendientes, 1);
+  await s.marcarEnviadoManual(a.id, 'whatsapp');
+  assert.equal((await s.resumen()).compras.whatsappPendientes, 0);
+});
