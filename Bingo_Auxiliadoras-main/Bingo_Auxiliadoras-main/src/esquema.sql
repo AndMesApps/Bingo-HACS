@@ -244,3 +244,25 @@ ALTER TABLE tablas_historial ENABLE ROW LEVEL SECURITY;
 ALTER TABLE evento ADD COLUMN IF NOT EXISTS pieza_invitacion TEXT;
 -- Texto que acompaña al enlace y a la imagen al compartir la invitación ('' = el texto predeterminado).
 ALTER TABLE evento ADD COLUMN IF NOT EXISTS texto_invitacion TEXT NOT NULL DEFAULT '';
+
+-- ---------- Sorteo en vivo ----------
+-- Números de cada tabla (25 enteros por filas en JSON; 0 = casilla libre). Se cargan con scripts/migracion-sorteo.sql.
+ALTER TABLE tablas ADD COLUMN IF NOT EXISTS numeros TEXT;
+-- Figura que gana cada ronda, su estado de juego y el control de entrega del premio.
+ALTER TABLE premios ADD COLUMN IF NOT EXISTS figura TEXT NOT NULL DEFAULT 'carton_lleno';
+ALTER TABLE premios ADD COLUMN IF NOT EXISTS ronda_estado TEXT NOT NULL DEFAULT 'pendiente';
+ALTER TABLE premios ADD COLUMN IF NOT EXISTS recibido_por TEXT NOT NULL DEFAULT '';
+ALTER TABLE premios ADD COLUMN IF NOT EXISTS entrega_nota TEXT NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS balotas (
+  id SERIAL PRIMARY KEY,
+  premio_id INTEGER NOT NULL REFERENCES premios(id),
+  numero INTEGER NOT NULL CHECK (numero BETWEEN 1 AND 75),
+  cantada_en TEXT NOT NULL,
+  UNIQUE (premio_id, numero)
+);
+ALTER TABLE balotas ENABLE ROW LEVEL SECURITY;
+-- Solo una ronda puede estar en juego a la vez.
+CREATE UNIQUE INDEX IF NOT EXISTS premios_una_en_juego ON premios ((true)) WHERE ronda_estado = 'en_juego';
+-- ---------- Envío automático de tablas ----------
+-- Si está activo, al quedar verificado el pago se envían solas las tablas por WhatsApp y correo (si el comprador dejó correo).
+ALTER TABLE evento ADD COLUMN IF NOT EXISTS envio_automatico BOOLEAN NOT NULL DEFAULT false;

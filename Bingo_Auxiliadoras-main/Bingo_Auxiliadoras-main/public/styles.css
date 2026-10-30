@@ -194,3 +194,15 @@ button.grande { width: 100%; padding: 14px 18px; font-size: 1.05rem; background:
 .tx-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .tx-chips span { border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 2px 10px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Sorteo en vivo: tablero de balotas y tabla verificada */
+.balotas { display: grid; gap: 6px; overflow-x: auto; }
+.balotas-fila { display: grid; grid-template-columns: 28px repeat(15, minmax(34px, 1fr)); gap: 4px; align-items: center; min-width: 620px; }
+.balotas-letra { font-size: 1.2rem; text-align: center; color: var(--accent); }
+.balota { padding: 8px 0; min-height: 40px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; font-weight: 600; cursor: pointer; }
+.balota.cantada { background: var(--accent); color: #fff; border-color: var(--accent); opacity: 1; }
+.balota.ultima { outline: 3px solid #C9A24B; }
+.tabla-bingo { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; max-width: 320px; margin: 10px 0; text-align: center; }
+.tabla-bingo strong { color: var(--accent); }
+.tabla-bingo span { padding: 8px 0; border: 1px solid var(--line); border-radius: 6px; }
+.tabla-bingo span.marcada { background: var(--accent); color: #fff; border-color: var(--accent); }

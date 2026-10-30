@@ -52,7 +52,7 @@ module.exports = async (req, res) => {
 
       { metodo: 'GET', patron: /^\/compras$/, handler: admin(async (_p, req, res) => res.json(await servicios.listarCompras({ estado: req.query.estado, bingoId: req.query.bingo }))) },
       { metodo: 'GET', patron: /^\/compras\/(\d+)$/, handler: admin(async (p, req, res) => res.json(await servicios.detalleCompra(id(p)))) },
-      { metodo: 'POST', patron: /^\/compras\/(\d+)\/pagos$/, handler: admin(async (p, req, res) => res.json(await servicios.registrarPagoManual(id(p), req.body || {}))) },
+      { metodo: 'POST', patron: /^\/compras\/(\d+)\/pagos$/, handler: admin(async (p, req, res) => res.json(await servicios.registrarPagoManual(id(p), req.body || {}, { baseUrl: baseUrl(req) }))) },
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/enviar$/, handler: admin(async (p, req, res) => res.json(await servicios.enviarTablas(id(p), { cantidad: req.body?.cantidad, canales: req.body?.canales, baseUrl: baseUrl(req) }))) },
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/reenviar$/, handler: admin(async (p, req, res) => res.json(await servicios.reenviar(id(p), { canales: req.body?.canales, baseUrl: baseUrl(req) }))) },
       { metodo: 'GET', patron: /^\/compras\/(\d+)\/enlace-whatsapp$/, handler: admin(async (p, req, res) => res.json({ enlace: await servicios.enlaceWhatsapp(id(p), baseUrl(req)) })) },
@@ -64,8 +64,8 @@ module.exports = async (req, res) => {
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/convertir-donacion$/, handler: admin(async (p, req, res) => res.json(await servicios.convertirDonacion(id(p), req.body || {}))) },
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/rechazar$/, handler: admin(async (p, req, res) => res.json(await servicios.rechazarCompra(id(p)))) },
 
-      { metodo: 'POST', patron: /^\/pagos\/(\d+)\/verificar$/, handler: admin(async (p, req, res) => res.json(await servicios.verificarPago(id(p), req.body?.montoVerificado))) },
-      { metodo: 'POST', patron: /^\/pagos\/(\d+)\/rechazar$/, handler: admin(async (p, req, res) => res.json(await servicios.rechazarPago(id(p)))) },
+      { metodo: 'POST', patron: /^\/pagos\/(\d+)\/verificar$/, handler: admin(async (p, req, res) => res.json(await servicios.verificarPago(id(p), req.body?.montoVerificado, { baseUrl: baseUrl(req) }))) },
+      { metodo: 'POST', patron: /^\/pagos\/(\d+)\/rechazar$/, handler: admin(async (p, req, res) => res.json(await servicios.rechazarPago(id(p), { baseUrl: baseUrl(req) }))) },
 
       {
         // Entrega el archivo privado al panel (la cookie de sesión autoriza la descarga).
@@ -90,7 +90,13 @@ module.exports = async (req, res) => {
       { metodo: 'POST', patron: /^\/premios$/, handler: admin(async (_p, req, res) => res.status(201).json(await servicios.crearPremio(req.body || {}))) },
       { metodo: 'PUT', patron: /^\/premios\/(\d+)\/ganador$/, handler: admin(async (p, req, res) => res.json(await servicios.asignarGanador(id(p), req.body?.serial))) },
       { metodo: 'DELETE', patron: /^\/premios\/(\d+)\/ganador$/, handler: admin(async (p, req, res) => res.json(await servicios.quitarGanador(id(p)))) },
-      { metodo: 'POST', patron: /^\/premios\/(\d+)\/pagar$/, handler: admin(async (p, req, res) => res.json(await servicios.pagarPremio(id(p)))) },
+      { metodo: 'GET', patron: /^\/sorteo$/, handler: admin(async (_p, _req, res) => res.json(await servicios.estadoSorteo())) },
+      { metodo: 'POST', patron: /^\/premios\/(\d+)\/iniciar$/, handler: admin(async (p, _req, res) => res.json(await servicios.iniciarRonda(id(p)))) },
+      { metodo: 'POST', patron: /^\/premios\/(\d+)\/pausar$/, handler: admin(async (p, _req, res) => res.json(await servicios.pausarRonda(id(p)))) },
+      { metodo: 'POST', patron: /^\/premios\/(\d+)\/balotas$/, handler: admin(async (p, req, res) => res.json(await servicios.cantarBalota(id(p), req.body?.numero))) },
+      { metodo: 'DELETE', patron: /^\/premios\/(\d+)\/balotas\/(\d+)$/, handler: admin(async (p, _req, res) => res.json(await servicios.deshacerBalota(Number(p[0]), p[1]))) },
+      { metodo: 'POST', patron: /^\/premios\/(\d+)\/verificar-tabla$/, handler: admin(async (p, req, res) => res.json(await servicios.verificarTabla(id(p), req.body?.serial))) },
+      { metodo: 'POST', patron: /^\/premios\/(\d+)\/pagar$/, handler: admin(async (p, req, res) => res.json(await servicios.pagarPremio(id(p), req.body || {}))) },
 
       { metodo: 'GET', patron: /^\/gastos$/, handler: admin(async (_p, _req, res) => res.json(await servicios.listarGastos())) },
       { metodo: 'POST', patron: /^\/gastos$/, handler: admin(async (_p, req, res) => res.status(201).json(await servicios.crearGasto(req.body || {}))) },
