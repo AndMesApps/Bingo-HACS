@@ -522,6 +522,7 @@ $('vista').addEventListener('submit', async e => {
 // ---------- Tablas ----------
 async function renderTablas() {
   const r = await api('GET', '/admin/resumen');
+  const tablasLista = await api('GET', '/admin/tablas');
   $('vista').innerHTML = `
     <div class="stats">
       <div class="card stat"><span class="muted">Total</span><strong>${r.tablas.total}</strong></div>
@@ -541,8 +542,50 @@ async function renderTablas() {
       <button type="submit">Generar</button>
     </form>
     <h2>Listado</h2>
-    <div class="card"><div class="chips" id="chips">${(await api('GET', '/admin/tablas')).map(t => `<span class="chip ${t.estado === 'vendida' ? 'vendida' : ''}" title="${esc(t.compraCodigo || '')}">${esc(t.serial)}</span>`).join('')}</div></div>
+    <p class="muted">Toca una tabla para ver a quién se le vendió. Las tachadas están vendidas.</p>
+    <input type="search" id="tabla-buscar" placeholder="Buscar por número de tabla, nombre, celular o código" aria-label="Buscar tablas" style="margin-bottom:12px">
+    <div id="tabla-detalle" class="card" hidden></div>
+    <div class="card"><div class="chips" id="chips">${tablasLista.map(t => `<button type="button" class="chip ${t.estado === 'vendida' ? 'vendida' : ''}" data-tabla="${esc(t.serial)}"
+      data-texto="${esc([t.serial, t.compraNombre, t.compraTelefono, t.compraCodigo].filter(Boolean).join(' ').toLowerCase())}"
+      title="${t.estado === 'vendida' ? esc('Vendida a ' + t.compraNombre) : 'Disponible'}">${esc(t.serial)}</button>`).join('')}</div></div>
     `;
+
+  // Buscar y abrir el detalle de una tabla: si está vendida, a quién y con qué datos.
+  $('tabla-buscar').addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    $('chips').querySelectorAll('.chip').forEach(c => { c.hidden = Boolean(q) && !c.dataset.texto.includes(q); });
+  });
+  $('chips').addEventListener('click', async e => {
+    const chip = e.target.closest('[data-tabla]');
+    if (!chip) return;
+    const t = tablasLista.find(x => x.serial === chip.dataset.tabla);
+    const caja = $('tabla-detalle');
+    caja.hidden = false;
+    if (t.estado !== 'vendida') {
+      caja.innerHTML = `<h3 style="margin:0">Tabla ${esc(t.serial)}</h3><p class="muted">Disponible: todavía no se ha vendido.</p>`;
+      return caja.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    caja.textContent = 'Cargando…';
+    try {
+      const d = await api('GET', `/admin/compras/${t.compraId}`);
+      const kv = (k, v) => (v === '' || v == null ? '' : `<div class="kv"><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`);
+      caja.innerHTML = `
+        <div class="row"><h3 style="margin:0">Tabla ${esc(t.serial)} · vendida a ${esc(d.nombre)}</h3>
+          <button type="button" class="ghost" data-cerrar-tabla>Cerrar</button></div>
+        ${kv('Celular', d.telefono)}${kv('Cédula', d.cedula)}${kv('Correo', d.correo)}${kv('Ciudad', d.ciudad)}
+        ${kv('Se enteró por', d.referidoPor)}${kv('Código de compra', d.codigo)}${kv('Vendida el', fecha(t.vendidaEn))}
+        ${kv('Estado de la compra', d.estado.replace('_', ' '))}
+        <p class="muted" style="margin:10px 0 4px">Tablas de esta compra (${d.tablas.length})</p>
+        <div class="tx-chips">${d.tablas.map(s => `<span class="mono" ${s === t.serial ? 'style="border-color:var(--accent);font-weight:700"' : ''}>${esc(s)}</span>`).join('')}</div>
+        <div class="actions"><button type="button" class="ghost" data-ver-transaccion="${esc(d.codigo)}">Ver la transacción</button></div>`;
+      caja.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (err) { caja.textContent = err.message; }
+  });
+  $('tabla-detalle').addEventListener('click', e => {
+    if (e.target.closest('[data-cerrar-tabla]')) $('tabla-detalle').hidden = true;
+    const v = e.target.closest('[data-ver-transaccion]');
+    if (v) { filtroTx = ''; busquedaTx = v.dataset.verTransaccion; mostrar('transacciones'); }
+  });
 
   $('form-importar').addEventListener('submit', async e => {
     e.preventDefault();

@@ -144,7 +144,8 @@ button.grande { width: 100%; padding: 14px 18px; font-size: 1.05rem; background:
 .kv { display: flex; justify-content: space-between; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .kv:last-child { border-bottom: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 280px; overflow: auto; }
-.chip { font: .72rem ui-monospace, Menlo, Consolas, monospace; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--azul-claro); }
+.chip { font: .72rem ui-monospace, Menlo, Consolas, monospace; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--azul-claro); color: var(--fg); cursor: pointer; }
+.chip:hover { border-color: var(--accent); }
 .chip.vendida { color: var(--muted); text-decoration: line-through; background: transparent; }
 .msg { margin-top: 12px; min-height: 1.4em; color: var(--ok); overflow-wrap: anywhere; }
 .msg.bad { color: var(--bad); }
