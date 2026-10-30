@@ -159,6 +159,15 @@ module.exports = async (req, res) => {
         }),
       },
       {
+        // Recibe la invitación completa de Zoom/Meet/Teams y devuelve solo lo necesario (enlace, ID, código y hora).
+        metodo: 'POST', patron: /^\/conexion\/compactar$/,
+        handler: admin(async (_p, req, res) => {
+          const compacto = require('../src/mensajes').compactarInvitacion(req.body?.texto);
+          if (!compacto) throw new ErrorApp('No encontré el enlace de la reunión en ese texto. Pega la invitación completa.');
+          res.json({ compacto });
+        }),
+      },
+      {
         // Informe completo (estado de resultados, caja, ventas…) en Excel, con los mismos filtros de la pantalla.
         metodo: 'GET', patron: /^\/informes\.xlsx$/,
         handler: admin(async (_p, req, res) => {

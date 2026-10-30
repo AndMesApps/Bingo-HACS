@@ -1390,3 +1390,45 @@ test('mensaje: el enlace de conexión se configura, se valida y llega al WhatsAp
   await s.reiniciarBingo({ nombre: 'Siguiente', confirmar: true });
   assert.equal((await s.evento()).enlaceConexion, '');
 });
+
+test('conexión: de la invitación completa de Zoom queda solo enlace, ID y hora, y así llega al mensaje', async () => {
+  const { compactarInvitacion, textoWhatsApp } = require('../src/mensajes');
+  const invitacion = `Lina Álvarez le está invitando a una reunión de Zoom programada.
+
+Tema: Bingo Virtual HACS
+Hora: 22 nov 2026 03:30 p. m. Bogotá
+
+Únase a la reunión de Zoom
+https://us06web.zoom.us/j/83195604774
+
+Unirse y tomar notas
+https://us06web.zoom.us/j/83195604774?mynotes=on
+
+Enlace al chat de la reunión
+https://us06web.zoom.us/launch/jc/83195604774
+
+ID de reunión: 831 9560 4774
+
+Móvil con un toque
++13017158592,,83195604774# Estados Unidos (Washington DC)
+
+Unirse mediante SIP
+* 83195604774@zoomcrc.com
+
+Instrucciones para unirse
+https://us06web.zoom.us/meetings/83195604774/invitations?signature=Rg-hdtv7IdOzHM1kWa1-WqHHbWd0yMg_HSaiP9_wCOQ`;
+  const compacto = compactarInvitacion(invitacion);
+  assert.equal(compacto, 'https://us06web.zoom.us/j/83195604774\nID de reunión: 831 9560 4774\nHora: 3:30 p. m. (hora de Bogotá)');
+  assert.equal(compactarInvitacion('sin enlaces aquí'), '');
+  assert.equal(compactarInvitacion('Join: https://meet.google.com/abc-defg-hij.'), 'https://meet.google.com/abc-defg-hij');
+
+  const t = textoWhatsApp({ nombre: 'Ana', seriales: ['1'], fechaSorteo: '2026-11-22', enlaceConexion: compacto, ahora: new Date('2026-11-22T20:00:00Z') });
+  assert.match(t, /a realizarse el domingo 22 de noviembre del 2026/);
+  assert.match(t, /Anexo enlace para conexión:\nhttps:\/\/us06web\.zoom\.us\/j\/83195604774\nID de reunión: 831 9560 4774\nHora: 3:30 p\. m\. \(hora de Bogotá\)\nNo es requerido/);
+  for (const sobra of ['mynotes', 'zoomcrc', 'signature', 'Móvil con un toque', 'launch']) assert.ok(!t.includes(sobra), `no debe traer «${sobra}»`);
+
+  const s = await nuevo();
+  await s.actualizarEvento({ enlaceConexion: compacto });
+  assert.equal((await s.evento()).enlaceConexion, compacto);
+  await assert.rejects(() => s.actualizarEvento({ enlaceConexion: invitacion }), /demasiado largos/);
+});

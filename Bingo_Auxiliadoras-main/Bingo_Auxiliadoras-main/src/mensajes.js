@@ -36,11 +36,46 @@ function lista(valores) {
 
 const ASUNTO = '¡Tus tablas de bingo!';
 
+// De una invitación completa de Zoom (o Meet/Teams) deja solo lo necesario para conectarse: enlace, ID, código y hora.
+// Devuelve el texto en varias líneas, o '' si no encuentra ningún enlace.
+function compactarInvitacion(texto) {
+  const t = String(texto ?? '');
+  const limpiar = u => u.replace(/[.,;)\]]+$/, '');
+  const urls = (t.match(/https?:\/\/[^\s<>"]+/g) || []).map(limpiar);
+  const principal = urls.find(u => /zoom\.us\/j\/\d+/i.test(u) && !/[?&]mynotes/i.test(u))
+    || urls.find(u => /meet\.google\.com\/[a-z]/i.test(u))
+    || urls.find(u => /teams\.(microsoft|live)\.com\/(l\/meetup-join|meet)/i.test(u))
+    || urls[0];
+  if (!principal) return '';
+  const lineas = [principal];
+  const id = /(?:ID de reuni[oó]n|Meeting ID)\s*:\s*([\d ]{6,})/i.exec(t);
+  if (id) lineas.push(`ID de reunión: ${id[1].trim().replace(/\s+/g, ' ')}`);
+  const clave = /(?:C[oó]digo de acceso|Passcode|Contrase[ñn]a)\s*:\s*(\S+)/i.exec(t);
+  if (clave) lineas.push(`Código de acceso: ${clave[1]}`);
+  const hora = /(\d{1,2}):(\d{2})\s*([ap])\.?\s*m\.?(?:[ \t]+([A-Za-zÁÉÍÓÚáéíóúñÑ_]+))?/i.exec(t);
+  if (hora) {
+    const sufijo = hora[3].toLowerCase() === 'a' ? 'a. m.' : 'p. m.';
+    const zona = hora[4] && !/^(del|de)$/i.test(hora[4]) ? ` (hora de ${hora[4].replace(/_/g, ' ')})` : '';
+    lineas.push(`Hora: ${Number(hora[1])}:${hora[2]} ${sufijo}${zona}`);
+  }
+  return lineas.join('\n');
+}
+
+// Deja los datos de conexión en líneas limpias (sin espacios ni líneas vacías de más).
+const limpiarConexion = t => String(t ?? '').split(/\r?\n/).map(l => l.trim()).filter(Boolean).join('\n');
+
+// Un solo enlace va en la misma línea; con varios datos (enlace, ID, hora) cada uno va en su línea.
+function conexionDe(conexion) {
+  const aviso = 'No es requerido que tenga cámara abierta; es importante que tenga facilidad para escribir por el chat de la reunión, para cantar bingo, si corresponde.';
+  if (!conexion) return `El enlace para conexión se lo enviaremos antes del bingo. ${aviso}`;
+  return conexion.includes('\n') ? `Anexo enlace para conexión:\n${conexion}\n${aviso}` : `Anexo enlace para conexión: ${conexion}. ${aviso}`;
+}
+
 // Devuelve las partes del mensaje; cada canal las arma a su manera (texto de WhatsApp, texto y HTML de correo).
 function partesDelMensaje({ nombre, seriales = [], enlace, codigo, fechaSorteo, enlaceConexion, ahora } = {}) {
   const fecha = fechaLarga(fechaSorteo);
   const cantidad = seriales.length;
-  const conexion = String(enlaceConexion ?? '').trim();
+  const conexion = limpiarConexion(enlaceConexion);
   return {
     asunto: ASUNTO,
     saludo: `${saludoDe(ahora)} ${primerNombre(nombre)}, esperando estén super bien.`.replace(/ ,/, ','),
@@ -51,7 +86,7 @@ function partesDelMensaje({ nombre, seriales = [], enlace, codigo, fechaSorteo, 
       'Las tablas están enumeradas en la parte superior, en el óvalo dorado que dice «TABLA N° …», debajo del logo. Por fa tenga el número ubicado porque es importante en el juego.',
       'Cada tabla va marcada con su nombre: en la franja azul de abajo, donde dice «Válida únicamente para …», y como marca de agua en toda la tabla. Es solo para usted y no se puede transferir.',
       'Le recomendamos tener sus tablas impresas o hacerlas a mano antes del bingo para que sea fácil jugar tapando con papelitos que previamente se tengan preparados.',
-      `${conexion ? `Anexo enlace para conexión: ${conexion}.` : 'El enlace para conexión se lo enviaremos antes del bingo.'} No es requerido que tenga cámara abierta; es importante que tenga facilidad para escribir por el chat de la reunión, para cantar bingo, si corresponde.`,
+      conexionDe(conexion),
     ],
     anexo: cantidad ? `Anexo: ${cantidad} ${cantidad === 1 ? 'tabla' : 'tablas'} (N° ${lista(seriales)}).` : '',
     descarga: enlace ? `Descárguelas aquí: ${enlace}` : '',
@@ -82,10 +117,10 @@ function mensajeCorreo(datos) {
     [p.anexo, p.descarga, p.codigo].filter(Boolean).join('\n'), '', p.cierre,
   ].join('\n').replace(/\n{3,}/g, '\n\n');
   const html = `<p>${esc(p.saludo)}</p><h2 style="margin:0 0 8px">${esc(p.titulo)}</h2><p>${esc(p.intro)}</p><p>${esc(p.presentacion)}</p>`
-    + `<ul>${p.puntos.map(x => `<li>${conEnlaces(x)}</li>`).join('')}</ul>`
+    + `<ul>${p.puntos.map(x => `<li>${conEnlaces(x).replace(/\n/g, '<br>')}</li>`).join('')}</ul>`
     + [p.anexo, p.descarga, p.codigo].filter(Boolean).map(x => `<p>${conEnlaces(x)}</p>`).join('')
     + `<p>${esc(p.cierre)}</p>`;
   return { asunto: p.asunto, texto, html };
 }
 
-module.exports = { fechaLarga, saludoDe, primerNombre, lista, partesDelMensaje, textoWhatsApp, mensajeCorreo, ASUNTO };
+module.exports = { fechaLarga, saludoDe, primerNombre, lista, partesDelMensaje, textoWhatsApp, mensajeCorreo, compactarInvitacion, limpiarConexion, ASUNTO };

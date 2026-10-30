@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const { crearCorreo } = require('./correo');
 const { FIGURAS, FIGURA_POR_DEFECTO, evaluarTabla } = require('./figuras');
+const { limpiarConexion } = require('./mensajes');
 
 const ALFABETO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const MAX_TABLAS_POR_COMPRA = 50;
@@ -135,7 +136,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       precioTabla: datos.precioTabla === undefined ? actual.precioTabla : redondear(datos.precioTabla),
       moneda: String(datos.moneda ?? actual.moneda).trim().slice(0, 10),
       fechaSorteo: String(datos.fechaSorteo ?? actual.fechaSorteo).slice(0, 10),
-      enlaceConexion: String(datos.enlaceConexion ?? actual.enlaceConexion).trim().slice(0, 300),
+      enlaceConexion: limpiarConexion(datos.enlaceConexion ?? actual.enlaceConexion),
       cuentasPago: String(datos.cuentasPago ?? actual.cuentasPago).slice(0, 2000),
       exigirPagoCompleto: datos.exigirPagoCompleto === undefined ? actual.exigirPagoCompleto : Boolean(datos.exigirPagoCompleto),
       envioAutomatico: datos.envioAutomatico === undefined ? actual.envioAutomatico : Boolean(datos.envioAutomatico),
@@ -147,7 +148,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       qrPago,
     };
     if (!(nuevo.precioTabla >= 0)) throw new ErrorApp('El precio no puede ser negativo.');
-    if (nuevo.enlaceConexion && !/^https?:\/\/\S+$/i.test(nuevo.enlaceConexion)) throw new ErrorApp('El enlace de conexión debe empezar por http:// o https://.');
+    if (nuevo.enlaceConexion && !/https?:\/\/\S+/i.test(nuevo.enlaceConexion)) throw new ErrorApp('Los datos de conexión deben incluir el enlace de la reunión (que empieza por http:// o https://).');
+    if (nuevo.enlaceConexion.length > 600) throw new ErrorApp('Los datos de conexión son demasiado largos: deja solo el enlace, el ID y la hora (toca «Dejar solo lo necesario»).');
     const textoInvitacion = datos.textoInvitacion === undefined ? undefined : String(datos.textoInvitacion).trim();
     if (textoInvitacion && textoInvitacion.length > 1500) throw new ErrorApp('El texto de la invitación es demasiado largo (máximo 1500 caracteres).');
     // undefined conserva la pieza actual; una cadena vacía deja al Bingo sin imagen de invitación.

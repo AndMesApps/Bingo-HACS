@@ -1061,10 +1061,11 @@ async function renderConfig() {
           <label>Precio por tabla <input name="precioTabla" type="number" min="0" step="any" value="${e.precioTabla}" required></label>
           <label>Moneda (símbolo o texto) <input name="moneda" value="${esc(e.moneda)}" maxlength="10" placeholder="$, COP"></label>
           <label>Fecha del sorteo <input name="fechaSorteo" type="date" value="${esc(e.fechaSorteo)}"></label>
-          <label class="full">Enlace para la conexión (reunión virtual) <span class="opc">(opcional)</span>
-            <input name="enlaceConexion" type="url" maxlength="300" value="${esc(e.enlaceConexion)}" placeholder="https://meet.google.com/…  o  https://zoom.us/j/…">
-            <span class="muted" style="font-weight:400">Va en el mensaje con las tablas. Si lo dejas vacío, el mensaje dice que el enlace se enviará antes del bingo.</span>
+          <label class="full">Datos para la conexión (reunión virtual) <span class="opc">(opcional)</span>
+            <textarea name="enlaceConexion" id="conexion-texto" rows="4" placeholder="Pega aquí la invitación completa de Zoom, Meet o Teams">${esc(e.enlaceConexion)}</textarea>
+            <span class="muted" style="font-weight:400">Va en el mensaje con las tablas. Pega la invitación completa y toca «Dejar solo lo necesario»: se queda únicamente con el enlace, el ID y la hora. Si lo dejas vacío, el mensaje dice que el enlace se enviará antes del bingo.</span>
           </label>
+          <div class="actions full"><button type="button" class="ghost" id="compactar-conexion">Dejar solo lo necesario</button></div>
         </div>
         <p class="muted">Con el precio en 0 las compras quedan cerradas. Al cambiarlo, solo afecta las compras nuevas.</p>
       </div>
@@ -1184,10 +1185,16 @@ async function renderConfig() {
   });
   $('qr-quitar').addEventListener('click', () => { qr = ''; qrCambiado = true; $('qr-archivo').value = ''; pintarQr(); });
 
+  $('compactar-conexion').addEventListener('click', async () => {
+    const campo = $('conexion-texto');
+    try { campo.value = (await api('POST', '/admin/conexion/compactar', { texto: campo.value })).compacto; msg('Listo: quedó solo lo necesario. Pulsa "Guardar configuración".'); } catch (err) { msg(err.message, true); }
+  });
   $('form-config').addEventListener('submit', async ev => {
     ev.preventDefault();
     const f = ev.target;
     try {
+      // Si pegaron la invitación completa, se guarda solo lo necesario.
+      if (f.enlaceConexion.value.trim().length > 400) f.enlaceConexion.value = (await api('POST', '/admin/conexion/compactar', { texto: f.enlaceConexion.value })).compacto;
       await api('PUT', '/admin/evento', {
         nombre: f.nombre.value,
         precioTabla: Number(f.precioTabla.value),
