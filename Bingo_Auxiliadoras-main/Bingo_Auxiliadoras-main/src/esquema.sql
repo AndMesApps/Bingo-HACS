@@ -244,3 +244,7 @@ ALTER TABLE tablas_historial ENABLE ROW LEVEL SECURITY;
 ALTER TABLE evento ADD COLUMN IF NOT EXISTS pieza_invitacion TEXT;
 -- Texto que acompaña al enlace y a la imagen al compartir la invitación ('' = el texto predeterminado).
 ALTER TABLE evento ADD COLUMN IF NOT EXISTS texto_invitacion TEXT NOT NULL DEFAULT '';
+
+-- ---------- Envío automático de tablas ----------
+-- Si está activo, al quedar verificado el pago se envían solas las tablas por WhatsApp y correo (si el comprador dejó correo).
+ALTER TABLE evento ADD COLUMN IF NOT EXISTS envio_automatico BOOLEAN NOT NULL DEFAULT false;
