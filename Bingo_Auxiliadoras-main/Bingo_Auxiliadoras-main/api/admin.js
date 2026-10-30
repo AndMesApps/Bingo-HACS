@@ -158,6 +158,8 @@ module.exports = async (req, res) => {
           res.json({ ok: true });
         }),
       },
+      { metodo: 'GET', patron: /^\/mensaje$/, handler: admin(async (_p, _req, res) => res.json(await servicios.mensajeActual())) },
+      { metodo: 'POST', patron: /^\/mensaje\/vista-previa$/, handler: admin(async (_p, req, res) => res.json({ texto: await servicios.vistaPreviaMensaje(req.body?.texto) })) },
       {
         // Recibe la invitación completa de Zoom/Meet/Teams y devuelve solo lo necesario (enlace, ID, código y hora).
         metodo: 'POST', patron: /^\/conexion\/compactar$/,

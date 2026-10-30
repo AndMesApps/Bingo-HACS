@@ -402,6 +402,7 @@
 
 <h4>Opciones del sistema (casillas)</h4>
 <ul>
+  <li><strong>Mensaje que reciben los benefactores con sus tablas</strong>: el texto completo del mensaje, que puedes cambiar a tu gusto (punto 35).</li>
   <li><strong>Enviar las tablas automáticamente al verificar el pago</strong>: mira el punto 31.</li>
   <li><strong>Exigir que el pago verificado cubra las tablas que se envían</strong>: está marcada y <strong>se recomienda dejarla marcada</strong>. Así nunca se entregan tablas sin haberlas pagado.</li>
 </ul>
@@ -870,7 +871,7 @@
 </div>
 <a class="volver" href="#indice">↑ Volver al índice</a>
 
-<h2 id="b26" data-claves="cambiar texto mensaje benefactor enlace conexión reunión zoom meet fecha hora saludo editar redactar">35. Cómo hago para cambiar el texto del mensaje y el enlace de la reunión que reciben los benefactores</h2>
+<h2 id="b26" data-claves="cambiar texto mensaje benefactor enlace conexión reunión zoom meet fecha hora saludo editar redactar escribir frases etiquetas nombre vista previa original">35. Cómo hago para cambiar el texto del mensaje y el enlace de la reunión que reciben los benefactores</h2>
 <div class="tarjeta">
 <p>Cuando confirmas un pago, al benefactor le llega un mensaje (por WhatsApp o por correo) con sus tablas. Ese mensaje tiene <strong>partes que cambias tú</strong> y <strong>partes que son fijas</strong>.</p>
 
@@ -885,11 +886,20 @@
 <div class="ojo">Los mensajes que <strong>ya se enviaron</strong> no cambian. Si cambias la hora o el enlace de la reunión, avísales de nuevo a quienes ya recibieron sus tablas.</div>
 
 <h4>Lo que arma el sistema solo</h4>
-<p>El saludo según la hora del día («Buenos días», «Buenas tardes», «Buenas noches»), el nombre del benefactor, cuántas tablas son y sus números, el enlace privado para descargarlas y el código de la compra.</p>
+<p>El saludo según la hora del día («Buenos días», «Buenas tardes», «Buenas noches»), el nombre del benefactor, cuántas tablas son y sus números, el enlace privado para descargarlas y el código de la compra. Estos datos se ponen con <strong>etiquetas</strong>: palabras entre llaves, como <code>{nombre}</code> o <code>{numeros}</code>.</p>
 
-<h4>Lo que es fijo: las frases del mensaje</h4>
-<p>Las frases (por ejemplo, dónde está el número de la tabla, que cada tabla va marcada con el nombre, la recomendación de imprimirlas) <strong>no se cambian desde el panel</strong>. Están escritas en el sistema. Si quieres cambiar alguna palabra o agregar una frase, pídeselo a la persona técnica y dile exactamente cómo quieres que diga.</p>
-<div class="nota">Si ves que lo necesitas con frecuencia, pídele a la persona técnica que haga editable el texto desde Configuración.</div>
+<h4>Las frases del mensaje: se cambian en Configuración</h4>
+<ol class="pasos">
+  <li>Toca la pestaña <span class="pestana">Configuración</span> y baja hasta la tarjeta <strong>«Mensaje que reciben los benefactores con sus tablas»</strong>.</li>
+  <li>En <span class="campo">Texto del mensaje</span> verás el mensaje completo. <strong>Escribe, borra o cambia las frases</strong> como quieras, igual que en WhatsApp.</li>
+  <li>Para agregar un dato que cambia en cada benefactor, <strong>toca el botón de la etiqueta</strong> (por ejemplo <span class="boton-texto">{nombre}</span>): se pone donde tengas el cursor. Si quieres saber qué hace cada una, abre «¿Qué significa cada etiqueta?».</li>
+  <li>Toca <span class="boton-texto">Ver cómo queda</span>. Aparece el mensaje con datos de ejemplo (Teresita Pérez, tablas 12 y 87), con tu fecha y tu enlace de reunión reales.</li>
+  <li>Cuando te guste, baja al final y toca <span class="boton-texto">Guardar configuración</span>.</li>
+</ol>
+<div class="ok">aparece «Configuración guardada.». Desde ese momento, todo mensaje nuevo sale con tu texto.</div>
+<div class="ojo">El mensaje <strong>debe llevar siempre</strong> <code>{enlace}</code>: es por donde cada benefactor descarga sus tablas. Si lo borras o escribes mal una etiqueta (por ejemplo <code>{nombr}</code>), el sistema no te deja guardar y te dice cuál es el error.</div>
+<div class="nota">Las palabras entre <strong>*asteriscos*</strong> salen en <strong>negrita</strong> en WhatsApp y en el correo. Una línea que tenga una etiqueta sin datos (por ejemplo, sin código de compra) se omite sola.</div>
+<div class="nota">Para <strong>volver al texto original</strong>, toca <span class="boton-texto">Volver al texto original</span> y luego «Guardar configuración». El texto que escribas se conserva cuando empiezas un Bingo nuevo; la fecha y la reunión sí se borran.</div>
 </div>
 <a class="volver" href="#indice">↑ Volver al índice</a>
 

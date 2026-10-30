@@ -1,7 +1,7 @@
 const crypto = require('node:crypto');
 const { crearCorreo } = require('./correo');
 const { FIGURAS, FIGURA_POR_DEFECTO, evaluarTabla } = require('./figuras');
-const { limpiarConexion } = require('./mensajes');
+const { limpiarConexion, validarPlantilla, valoresDelMensaje, renderizar, PLANTILLA_ORIGINAL, ETIQUETAS } = require('./mensajes');
 
 const ALFABETO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const MAX_TABLAS_POR_COMPRA = 50;
@@ -88,6 +88,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       moneda: e.moneda,
       fechaSorteo: e.fecha_sorteo,
       enlaceConexion: e.enlace_conexion ?? '',
+      textoMensaje: e.texto_mensaje ?? '', // '' = se usa el texto original
       cuentasPago: e.cuentas_pago,
       exigirPagoCompleto: Boolean(e.exigir_pago_completo),
       envioAutomatico: Boolean(e.envio_automatico),
@@ -137,6 +138,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       moneda: String(datos.moneda ?? actual.moneda).trim().slice(0, 10),
       fechaSorteo: String(datos.fechaSorteo ?? actual.fechaSorteo).slice(0, 10),
       enlaceConexion: limpiarConexion(datos.enlaceConexion ?? actual.enlaceConexion),
+      // El texto del mensaje: si queda igual al original (o vacío) se guarda '' y se sigue usando el original.
+      textoMensaje: datos.textoMensaje === undefined ? actual.textoMensaje : (String(datos.textoMensaje).replace(/\r\n/g, '\n').trim() === PLANTILLA_ORIGINAL.trim() ? '' : String(datos.textoMensaje).replace(/\r\n/g, '\n').trim()),
       cuentasPago: String(datos.cuentasPago ?? actual.cuentasPago).slice(0, 2000),
       exigirPagoCompleto: datos.exigirPagoCompleto === undefined ? actual.exigirPagoCompleto : Boolean(datos.exigirPagoCompleto),
       envioAutomatico: datos.envioAutomatico === undefined ? actual.envioAutomatico : Boolean(datos.envioAutomatico),
@@ -149,6 +152,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     };
     if (!(nuevo.precioTabla >= 0)) throw new ErrorApp('El precio no puede ser negativo.');
     if (nuevo.enlaceConexion && !/https?:\/\/\S+/i.test(nuevo.enlaceConexion)) throw new ErrorApp('Los datos de conexión deben incluir el enlace de la reunión (que empieza por http:// o https://).');
+    if (nuevo.textoMensaje) { const problema = validarPlantilla(nuevo.textoMensaje); if (problema) throw new ErrorApp(problema); }
     if (nuevo.enlaceConexion.length > 600) throw new ErrorApp('Los datos de conexión son demasiado largos: deja solo el enlace, el ID y la hora (toca «Dejar solo lo necesario»).');
     const textoInvitacion = datos.textoInvitacion === undefined ? undefined : String(datos.textoInvitacion).trim();
     if (textoInvitacion && textoInvitacion.length > 1500) throw new ErrorApp('El texto de la invitación es demasiado largo (máximo 1500 caracteres).');
@@ -157,7 +161,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     if (pieza && (pieza.length > PIEZA_MAX_CARACTERES || !PIEZA_VALIDA.test(pieza))) {
       throw new ErrorApp('La pieza de invitación debe ser una imagen PNG, JPG o WEBP de máximo 1 MB.');
     }
-    await q('UPDATE evento SET envio_automatico = $1, enlace_conexion = $2 WHERE id = 1', [nuevo.envioAutomatico, nuevo.enlaceConexion]);
+    await q('UPDATE evento SET envio_automatico = $1, enlace_conexion = $2, texto_mensaje = $3 WHERE id = 1', [nuevo.envioAutomatico, nuevo.enlaceConexion, nuevo.textoMensaje]);
     await q(
       `UPDATE evento SET nombre=$1, precio_tabla=$2, moneda=$3, fecha_sorteo=$4, cuentas_pago=$5, exigir_pago_completo=$6,
          banco=$7, tipo_cuenta=$8, numero_cuenta=$9, titular_cuenta=$10, llave_pago=$11, qr_pago=$12 WHERE id = 1`,
@@ -681,7 +685,25 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
   // Datos del Bingo que completan el mensaje de las tablas (fecha y enlace de conexión a la reunión).
   async function extraMensaje() {
     const e = await evento({ conQr: false });
-    return { fechaSorteo: e.fechaSorteo, enlaceConexion: e.enlaceConexion };
+    return { fechaSorteo: e.fechaSorteo, enlaceConexion: e.enlaceConexion, plantilla: e.textoMensaje || undefined };
+  }
+
+  // Lo que necesita la pantalla de Configuración para editar el mensaje.
+  async function mensajeActual() {
+    const e = await evento({ conQr: false });
+    return { original: PLANTILLA_ORIGINAL, actual: e.textoMensaje || PLANTILLA_ORIGINAL, esPropio: Boolean(e.textoMensaje), etiquetas: ETIQUETAS };
+  }
+
+  // Cómo se vería el mensaje con datos de ejemplo (y la fecha y la reunión reales del Bingo).
+  async function vistaPreviaMensaje(textoPlantilla) {
+    const t = String(textoPlantilla ?? '').replace(/\r\n/g, '\n').trim() || PLANTILLA_ORIGINAL;
+    const problema = validarPlantilla(t);
+    if (problema) throw new ErrorApp(problema);
+    const e = await evento({ conQr: false });
+    return renderizar(t, valoresDelMensaje({
+      nombre: 'TERESITA PÉREZ', seriales: ['12', '87'], enlace: 'https://bingo-auxiliadoras.vercel.app/tablas.html?t=ejemplo', codigo: 'BNG-AB12CD',
+      fechaSorteo: e.fechaSorteo, enlaceConexion: e.enlaceConexion,
+    }));
   }
 
   async function entregarWhatsApp(c, seriales, enlace) {
@@ -1435,6 +1457,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     comprobanteDe,
     listarPremios, crearPremio, asignarGanador, cerrarRonda, quitarGanadora, quitarGanador, entregarPremio, pagarPremio,
     estadoSorteo, iniciarRonda, pausarRonda, cantarBalota, deshacerBalota, verificarTabla,
+    mensajeActual, vistaPreviaMensaje,
     listarGastos, crearGasto, eliminarGasto,
     resumen, informes, bitacoraLista, reporte, listarBingos, reiniciarBingo,
   };
