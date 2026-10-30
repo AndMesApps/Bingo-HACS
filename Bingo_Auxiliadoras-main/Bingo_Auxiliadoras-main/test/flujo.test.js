@@ -798,3 +798,92 @@ test('una inserción sin bingo_id toma el Bingo activo (compatibilidad con el c�
   await s.db.query("INSERT INTO gastos (fecha, concepto, categoria, monto, creado_en) VALUES ('2026-10-29', 'x', 'Otros', 1, 'ahora')");
   assert.equal((await s.listarGastos()).length, 1);
 });
+
+// ---------- Donar todo sin tablas, con cambio de opinión ----------
+test('con derecho a tablas se puede donar todo sin recibirlas', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  const r = await s.crearCompra(datos(3, { donarSinTablas: 'si' }), comprobante());
+  assert.equal(r.donacion, true);
+  assert.equal(r.tablasSugeridas, 3);
+  let d = await s.detalleCompra(r.id);
+  assert.equal(d.cantidad, 0);
+  assert.equal(d.tablasReportadas, 3);
+  assert.equal((await s.resumen()).tablas.libresParaVender, 5); // no reserva tablas
+  await s.verificarPago(d.pagos[0].id, 30);
+  d = await s.detalleCompra(r.id);
+  assert.equal(d.estado, 'donacion');
+  assert.equal(d.tablasSugeridas, 3);
+  const res = await s.resumen();
+  assert.equal(res.dinero.donaciones, 30);
+  assert.equal(res.tablas.disponibles, 5);
+  assert.deepEqual(d.tablas, []);
+});
+
+test('sin marcar donar, el sobrante sigue su camino normal', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  const r = await s.crearCompra(datos(3, { donarSinTablas: 'no' }), comprobante());
+  assert.equal(r.donacion, false);
+  assert.equal((await s.detalleCompra(r.id)).cantidad, 3);
+});
+
+test('cambio de opinión tras verificar: el administrador convierte la donación y envía las tablas', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  const r = await s.crearCompra(datos(3, { donarSinTablas: 'si' }), comprobante());
+  await verificarTodo(s, r.id, 30);
+  await assert.rejects(() => s.enviarTablas(r.id), err => err instanceof ErrorApp);
+  const d = await s.convertirDonacion(r.id);
+  assert.equal(d.estado, 'verificada');
+  assert.equal(d.cantidad, 3);
+  assert.equal(d.total, 30);
+  assert.equal(d.sobranteEstado, 'ninguno');
+  assert.equal((await s.resumen()).dinero.donaciones, 0); // ya no cuenta como donación
+  const e = await s.enviarTablas(r.id);
+  assert.equal(e.tablas.length, 3);
+  assert.equal(e.estado, 'enviada');
+  assert.equal((await s.resumen()).tablas.disponibles, 2);
+});
+
+test('convertir con menos tablas deja el resto como sobrante por definir', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  const r = await s.crearCompra(datos(3, { donarSinTablas: 'si' }), comprobante());
+  await verificarTodo(s, r.id, 30);
+  await s.convertirDonacion(r.id, { cantidad: 2 });
+  const e = await s.enviarTablas(r.id, { cantidad: 2 });
+  assert.equal(e.tablas.length, 2);
+  assert.equal(e.sobranteMonto, 10);
+  assert.equal(e.sobranteEstado, 'por_definir');
+});
+
+test('cambio de opinión antes de verificar: pasa a compra normal por verificar', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  const r = await s.crearCompra(datos(2, { donarSinTablas: 'si' }), comprobante());
+  let d = await s.convertirDonacion(r.id);
+  assert.equal(d.estado, 'por_verificar');
+  assert.equal(d.cantidad, 2);
+  await s.verificarPago(d.pagos[0].id, 20);
+  d = await s.detalleCompra(r.id);
+  assert.equal(d.estado, 'verificada');
+  assert.equal((await s.enviarTablas(r.id)).tablas.length, 2);
+});
+
+test('convertir una donación: no más tablas de las que paga, ni de un Bingo cerrado, ni de una compra normal', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  const normal = await comprar(s, 1);
+  await assert.rejects(() => s.convertirDonacion(normal.id), err => err.status === 409);
+  const chica = await s.crearCompra(datos(1, { montoPagado: 4, valorInsuficiente: 'donacion' }), comprobante());
+  await verificarTodo(s, chica.id, 4);
+  await assert.rejects(() => s.convertirDonacion(chica.id), err => err.status === 409 && /no alcanza/.test(err.message));
+  const r = await s.crearCompra(datos(2, { donarSinTablas: 'si' }), comprobante());
+  await verificarTodo(s, r.id, 20);
+  await assert.rejects(() => s.convertirDonacion(r.id, { cantidad: 3 }), err => err.status === 409);
+  await verificarTodo(s, normal.id);
+  await s.enviarTablas(normal.id);
+  await s.reiniciarBingo({ nombre: 'Otro', confirmar: true });
+  await assert.rejects(() => s.convertirDonacion(r.id), err => err.status === 409 && /cerrado/.test(err.message));
+});
