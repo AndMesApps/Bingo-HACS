@@ -1,33 +1,26 @@
 // Envío de tablas por correo con Resend (https://resend.com).
 // Sin credenciales configuradas, devuelve un enlace mailto: para enviar a mano.
+const { mensajeCorreo } = require('./mensajes');
 
 const escHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function crearCorreo({ apiKey, desde, fetchFn = fetch } = {}) {
   const configurado = Boolean(apiKey && desde);
 
-  function mensajeTablas(nombre, seriales, enlace, codigo) {
-    const lista = seriales.join(', ');
-    const texto = `Hola ${nombre},\n\nTu pago fue verificado. Tus tablas de bingo: ${lista}.\n`
-      + (enlace ? `\nDescárgalas aquí: ${enlace}\n` : '')
-      + (codigo ? `\nCódigo de tu compra: ${codigo} (guárdalo para consultar el estado).\n` : '')
-      + '\n¡Gracias por tu compra!';
-    const html = `<p>Hola ${escHtml(nombre)},</p><p>Tu pago fue verificado. Tus tablas de bingo: <strong>${escHtml(lista)}</strong>.</p>`
-      + (enlace ? `<p><a href="${escHtml(enlace)}">Descargar mis tablas</a></p>` : '')
-      + (codigo ? `<p>Código de tu compra: <strong>${escHtml(codigo)}</strong> (guárdalo para consultar el estado).</p>` : '')
-      + '<p>¡Gracias por tu compra!</p>';
-    return { asunto: 'Tus tablas del bingo', texto, html };
+  // extra: { fechaSorteo, enlaceConexion, ahora } (datos del Bingo que completan el mensaje).
+  function mensajeTablas(nombre, seriales, enlace, codigo, extra = {}) {
+    return mensajeCorreo({ nombre, seriales, enlace, codigo, ...extra });
   }
 
-  function enlaceManual(correo, nombre, seriales, enlace, codigo) {
-    const m = mensajeTablas(nombre, seriales, enlace, codigo);
+  function enlaceManual(correo, nombre, seriales, enlace, codigo, extra = {}) {
+    const m = mensajeTablas(nombre, seriales, enlace, codigo, extra);
     return `mailto:${encodeURIComponent(correo)}?subject=${encodeURIComponent(m.asunto)}&body=${encodeURIComponent(m.texto)}`;
   }
 
   // Devuelve { estado: 'enviado' | 'manual', enlace? } o lanza error si Resend rechaza el envío.
-  async function enviarTablas({ correo, nombre, seriales, enlace, codigo }) {
-    if (!configurado) return { estado: 'manual', enlace: enlaceManual(correo, nombre, seriales, enlace, codigo) };
-    const m = mensajeTablas(nombre, seriales, enlace, codigo);
+  async function enviarTablas({ correo, nombre, seriales, enlace, codigo, extra }) {
+    if (!configurado) return { estado: 'manual', enlace: enlaceManual(correo, nombre, seriales, enlace, codigo, extra) };
+    const m = mensajeTablas(nombre, seriales, enlace, codigo, extra);
     const res = await fetchFn('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },

@@ -319,3 +319,6 @@ CREATE TRIGGER tablas_numeros_clave_trg BEFORE INSERT OR UPDATE OF numeros ON ta
 UPDATE tablas SET numeros_clave = (SELECT string_agg(e, ',' ORDER BY e::int) FROM jsonb_array_elements_text(tablas.numeros::jsonb) AS e)
   WHERE numeros IS NOT NULL AND numeros_clave IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS tablas_numeros_clave_uq ON tablas (numeros_clave) WHERE numeros_clave IS NOT NULL;
+
+-- Enlace de la reunión virtual (Zoom, Meet…) que va en el mensaje con las tablas.
+ALTER TABLE evento ADD COLUMN IF NOT EXISTS enlace_conexion TEXT NOT NULL DEFAULT '';

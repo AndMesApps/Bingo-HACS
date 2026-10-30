@@ -16,6 +16,7 @@ function obtenerContexto(env = process.env) {
     token: env.WHATSAPP_TOKEN,
     phoneId: env.WHATSAPP_PHONE_ID,
     plantilla: env.WHATSAPP_PLANTILLA,
+    idioma: env.WHATSAPP_IDIOMA || 'es',
     codigoPais: env.CODIGO_PAIS || '57',
   });
   const correo = crearCorreo({ apiKey: env.RESEND_API_KEY, desde: env.EMAIL_FROM });
