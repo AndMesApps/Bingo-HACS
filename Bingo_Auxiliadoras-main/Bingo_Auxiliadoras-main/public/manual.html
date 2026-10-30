@@ -643,12 +643,24 @@
       <li><strong>no gana</strong> (rojo): «No cumple: le faltan N balota(s)» o «Esa tabla no está vendida: no puede ganar».</li>
     </ul>
   </li>
-  <li>Si dice <strong>GANADORA</strong>, toca <span class="boton-texto">Asignar premio a esta tabla</span>. La ronda se cierra sola y te lleva a la pestaña Premios.</li>
+  <li>Si dice <strong>GANADORA</strong> y es la <strong>única</strong> que cantó Bingo, toca <span class="boton-texto">Asignar premio a esta tabla (única ganadora)</span>. La ronda se cierra sola y te lleva a la pestaña Premios.</li>
   <li>Si dice <strong>no gana</strong>, avisa a la persona y <strong>sigue cantando</strong>. Puedes verificar cuantas tablas necesites.</li>
+  <li>Si <strong>dos o más personas</strong> gritaron Bingo con la misma balota, mira el punto siguiente: <strong>es un empate</strong>.</li>
 </ol>
 <div class="ok">aparece «Premio asignado. Registra la entrega en la pestaña Premios.»</div>
 <div class="ojo">El sistema <strong>no deja</strong> asignar el premio a una tabla que no cumple la figura, ni a una tabla que no se vendió. Eso protege el juego.</div>
-<div class="nota">Si dos personas cantan Bingo a la vez, el sistema asigna a una tabla por ronda. Decidan cómo resolverlo en el momento (por ejemplo, repartir el premio) y déjenlo anotado en la «Nota» de la entrega.</div>
+<h4>Cuando hay un empate (varias tablas ganan con la misma balota)</h4>
+<p>El sistema se encarga: <strong>el premio se reparte en partes iguales</strong> entre todas las tablas ganadoras y cada una recibe y firma por separado.</p>
+<ol class="pasos">
+  <li>Verifica la <strong>primera</strong> tabla (pasos 1 a 4 de arriba). Si dice GANADORA, toca <span class="boton-texto">Hay empate: agregar y seguir revisando</span>. La ronda <strong>sigue abierta</strong> y la tabla queda anotada en el cuadro «Tablas ganadoras de esta ronda».</li>
+  <li>Escribe el número de la <strong>siguiente</strong> tabla que gritó Bingo y toca <span class="boton-texto">Verificar tabla</span>. Verás el aviso «sería un empate con las tablas ya registradas». Toca <span class="boton-texto">Agregar como ganadora (empate)</span>.</li>
+  <li>Repite con cada tabla que haya cantado Bingo.</li>
+  <li>Cuando ya estén todas, toca <span class="boton-texto">Cerrar ronda y repartir el premio</span>. El cuadro te muestra cuánto le toca a cada tabla (si hay centavos que no se pueden dividir exacto, sobran en la primera).</li>
+  <li>Te lleva a la pestaña Premios, donde entregas el premio <strong>a cada ganadora por separado</strong> (punto 26).</li>
+</ol>
+<div class="ojo">Si el sistema muestra «⚠ ya estaba completa antes de la última balota», esa tabla se completó antes y quizá <strong>no cantó a tiempo</strong>. No te bloquea: tú decides con las personas presentes si cuenta.</div>
+<div class="ok">Las tablas siempre son <strong>distintas entre sí</strong>: el sistema no permite que existan dos tablas con los mismos números, ni con otra disposición de los mismos números. Por eso un empate es siempre entre tablas diferentes.</div>
+<div class="nota">Si agregaste una tabla por error, toca <span class="boton-texto">Quitar</span> junto a ella (antes de cerrar la ronda).</div>
 </div>
 <a class="volver" href="#indice">↑ Volver al índice</a>
 
@@ -658,7 +670,9 @@
 <table>
   <tr><th>Etiqueta</th><th>Significa</th></tr>
   <tr><td>sin ganador</td><td>La ronda todavía no se jugó o no se asignó.</td></tr>
+  <tr><td>en revisión</td><td>La ronda está en juego y ya se anotó alguna ganadora, pero aún no se cierra.</td></tr>
   <tr><td>por entregar</td><td>Ya hay ganador, falta entregarle el premio.</td></tr>
+  <tr><td>entrega parcial</td><td>Hubo empate y ya se entregó a una parte de las ganadoras.</td></tr>
   <tr><td>entregado</td><td>Ya se entregó y quedó anotado a quién.</td></tr>
 </table>
 <ol class="pasos">
@@ -669,10 +683,12 @@
   <li>Toca <span class="boton-texto">Marcar entregado</span>.</li>
 </ol>
 <div class="ok">la etiqueta cambia a <strong>entregado</strong> y debajo queda escrito «Entregado a … · …». Esto también se cuenta como premio pagado en el dinero del Resumen.</div>
+<h4>Si hubo empate</h4>
+<p>La ronda muestra el aviso «Empate: el premio se reparte entre N tablas» y <strong>una tarjeta por cada ganadora</strong>, con lo que le toca. Entrega y firma <strong>cada una por separado</strong>: llena «Quién lo recibe» y toca <span class="boton-texto">Marcar entregado</span> en cada tarjeta. Mientras falte alguna, la ronda dice <strong>entrega parcial</strong>; cuando estén todas, <strong>entregado</strong>.</p>
 <h4>Registrar un ganador a mano (sin usar el Sorteo)</h4>
-<p>Si por algún motivo no usaste la pantalla Sorteo, en la ronda escribe el número de la tabla en <span class="campo">Serial ganador</span> y toca <span class="boton-texto">Registrar ganador</span>. Solo se aceptan tablas <strong>vendidas</strong>.</p>
+<p>Si por algún motivo no usaste la pantalla Sorteo, en la ronda escribe el número de la tabla en <span class="campo">Serial ganador</span> y toca <span class="boton-texto">Registrar ganador</span>. Solo se aceptan tablas <strong>vendidas</strong>. Si hubo empate, usa <span class="boton-texto">Agregar ganadora</span> con cada tabla: el premio se reparte solo.</p>
 <h4>Me equivoqué de ganador</h4>
-<p>Mientras el premio <strong>no esté entregado</strong>, toca <span class="boton-texto">Quitar ganador</span>. La ronda vuelve a quedar disponible. Una vez entregado, ya no se puede quitar.</p>
+<p>Mientras a esa ganadora <strong>no se le haya entregado</strong> el premio, toca <span class="boton-texto">Quitar esta ganadora</span>. Si quedan otras, el premio se vuelve a repartir entre ellas; si no queda ninguna, la ronda queda disponible otra vez. Una vez entregado, ya no se puede quitar.</p>
 </div>
 <a class="volver" href="#indice">↑ Volver al índice</a>
 
@@ -835,7 +851,8 @@
   <tr><td>El benefactor dice que no le llegó nada</td><td>Revisa en su compra el estado de WhatsApp/correo. Usa «Reintentar», «WhatsApp manual» o «Copiar enlace privado de sus tablas».</td></tr>
   <tr><td>Toqué una balota por error</td><td>«Deshacer última balota» (punto 24).</td></tr>
   <tr><td>«La tabla N no cumple la figura»</td><td>Esa tabla no ganó todavía. Sigue cantando.</td></tr>
-  <tr><td>Asigné un premio a la persona equivocada</td><td>Mientras no esté entregado, «Quitar ganador» en Premios (punto 26).</td></tr>
+  <tr><td>Asigné un premio a la persona equivocada</td><td>Mientras no esté entregado, «Quitar esta ganadora» en Premios (punto 26).</td></tr>
+  <tr><td>Dos personas gritaron Bingo a la vez</td><td>Es un empate: agrégalas una por una con «Agregar como ganadora (empate)» y luego «Cerrar ronda y repartir el premio» (punto 25).</td></tr>
   <tr><td>«La ronda sigue en juego. Páusala antes de iniciar otra»</td><td>Solo una ronda a la vez. Entra a Sorteo y toca «Pausar ronda», o termina la ronda actual.</td></tr>
   <tr><td>No me deja reiniciar el Bingo</td><td>Hay compras sin resolver. Envíalas, recházalas o déjalas donadas (punto 32).</td></tr>
   <tr><td>La página se ve rara o no carga</td><td>Recarga la página (arrastra hacia abajo en el celular o presiona F5 en el computador). Revisa tu internet.</td></tr>
@@ -852,6 +869,7 @@
   <tr><td>Tabla</td><td>El cartón de bingo con 25 casillas (5×5). Tiene un número propio. Una tabla nunca se da a dos personas.</td></tr>
   <tr><td>Balota</td><td>Cada número (del 1 al 75) que se canta durante el juego.</td></tr>
   <tr><td>Ronda</td><td>Cada vuelta del juego, con su premio y su figura.</td></tr>
+  <tr><td>Empate</td><td>Cuando dos o más tablas completan la figura con la misma balota. El premio se reparte en partes iguales.</td></tr>
   <tr><td>Figura</td><td>El dibujo que hay que completar en la tabla para ganar (línea, esquinas, equis, marco o cartón lleno).</td></tr>
   <tr><td>Código de compra (BNG-…)</td><td>El «número de pedido» de cada compra. Sirve para consultar su estado.</td></tr>
   <tr><td>Comprobante</td><td>La foto o archivo que prueba que se pagó.</td></tr>

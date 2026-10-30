@@ -17,10 +17,10 @@ const ESTADOS = {
   verificado: 'Verificado', rechazado: 'Rechazado', no_enviado: 'No enviado', enviado: 'Enviado', manual: 'Manual pendiente',
   fallido: 'Fallido', no: 'No aplica', pendiente: 'Pendiente', entregada: 'Entregada', disponible: 'Disponible', vendida: 'Vendida',
   por_definir: 'Por definir', donado: 'Donado', por_devolver: 'Por devolver', devuelto: 'Devuelto', ninguno: '—',
-  entregado: 'Entregado', 'por entregar': 'Por entregar', 'sin ganador': 'Sin ganador',
+  entregado: 'Entregado', 'por entregar': 'Por entregar', 'sin ganador': 'Sin ganador', 'en revisión': 'En revisión',
 };
 const VERDES = new Set(['Verificada', 'Enviada', 'Donación', 'Verificado', 'Enviado', 'Entregada', 'Entregado', 'Vendida', 'Donado', 'Devuelto']);
-const AMBARES = new Set(['Por verificar', 'No enviado', 'Manual pendiente', 'Pendiente', 'Por definir', 'Por devolver', 'Por entregar']);
+const AMBARES = new Set(['Por verificar', 'No enviado', 'Manual pendiente', 'Pendiente', 'Por definir', 'Por devolver', 'Por entregar', 'En revisión']);
 const ROJOS = new Set(['Rechazada', 'Rechazado', 'Fallido']);
 
 const FORMATO = { texto: '@', entero: '#,##0', fecha: 'dd/mm/yyyy' };
