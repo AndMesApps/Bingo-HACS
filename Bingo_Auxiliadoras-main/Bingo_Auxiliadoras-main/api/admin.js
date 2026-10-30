@@ -9,7 +9,7 @@ const VENTANA_MS = 15 * 60 * 1000;
 // Protege las rutas de administración con cookie firmada y limita intentos de contraseña por IP.
 module.exports = async (req, res) => {
   try {
-    const { servicios, storage, db, env } = obtenerContexto();
+    const { servicios, storage, db, env, whatsapp, correo } = obtenerContexto();
     const secreto = sesion.secretoDe(env);
 
     const requerirSesion = () => {
@@ -118,6 +118,42 @@ module.exports = async (req, res) => {
           res.setHeader('Content-Type', TIPO_XLSX);
           res.setHeader('Content-Disposition', `attachment; filename="${archivo}"`);
           res.status(200).send(await libroDeReportes(items));
+        }),
+      },
+      {
+        // Qué conexiones están listas (solo nombres de variables que faltan; nunca sus valores).
+        metodo: 'GET', patron: /^\/conexiones$/,
+        handler: admin(async (_p, _req, res) => {
+          const falta = nombres => nombres.filter(n => !env[n]);
+          res.json({
+            whatsapp: { conectado: whatsapp.configurado, faltan: falta(['WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID']), tienePlantilla: Boolean(env.WHATSAPP_PLANTILLA), idioma: env.WHATSAPP_IDIOMA || 'es' },
+            correo: { conectado: correo.configurado, faltan: falta(['RESEND_API_KEY', 'EMAIL_FROM']) },
+          });
+        }),
+      },
+      {
+        // Mensaje de prueba por WhatsApp con la plantilla real (para comprobar token, número y plantilla).
+        metodo: 'POST', patron: /^\/conexiones\/probar-whatsapp$/,
+        handler: admin(async (_p, req, res) => {
+          if (!whatsapp.configurado) throw new ErrorApp('WhatsApp todavía no está conectado: faltan variables en Vercel.', 409);
+          let telefono;
+          try { telefono = whatsapp.normalizarTelefono(req.body?.telefono, req.body?.pais); } catch (e) { throw new ErrorApp(e.message); }
+          try {
+            await whatsapp.enviarTablas({ telefono, nombre: 'Prueba', seriales: ['1', '2'], enlace: `${baseUrl(req)}/tablas.html?t=prueba`, codigo: 'BNG-PRUEBA' });
+          } catch (e) { throw new ErrorApp(`No se pudo enviar: ${e.message}`, 502); }
+          res.json({ ok: true });
+        }),
+      },
+      {
+        metodo: 'POST', patron: /^\/conexiones\/probar-correo$/,
+        handler: admin(async (_p, req, res) => {
+          if (!correo.configurado) throw new ErrorApp('El correo todavía no está conectado: faltan variables en Vercel.', 409);
+          const direccion = String(req.body?.correo ?? '').trim();
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(direccion)) throw new ErrorApp('El correo no es válido.');
+          try {
+            await correo.enviarTablas({ correo: direccion, nombre: 'Prueba', seriales: ['1', '2'], enlace: `${baseUrl(req)}/tablas.html?t=prueba`, codigo: 'BNG-PRUEBA' });
+          } catch (e) { throw new ErrorApp(`No se pudo enviar: ${e.message}`, 502); }
+          res.json({ ok: true });
         }),
       },
       {

@@ -1292,3 +1292,25 @@ test('garantía: las 500 tablas de los archivos de números son todas distintas'
   assert.equal(distribuciones.size, 500, 'no hay dos tablas con la misma distribución');
   assert.equal(conjuntos.size, 500, 'no hay dos tablas con los mismos números en otra disposición');
 });
+
+// ---------- WhatsApp: plantilla e idioma ----------
+test('WhatsApp: envía la plantilla con nombre y detalle, en el idioma configurado', async () => {
+  const llamadas = [];
+  const fetchFn = async (url, init) => { llamadas.push({ url, cuerpo: JSON.parse(init.body), auth: init.headers.Authorization }); return { ok: true }; };
+  const wa = crearWhatsApp({ token: 'T', phoneId: '123', plantilla: 'entrega_tablas_bingo', idioma: 'es_CO', fetchFn });
+  const r = await wa.enviarTablas({ telefono: '573001234567', nombre: 'Ana', seriales: ['12', '87'], enlace: 'https://x.test/tablas.html?t=abc', codigo: 'BNG-1' });
+  assert.equal(r.estado, 'enviado');
+  const c = llamadas[0];
+  assert.match(c.url, /\/123\/messages$/);
+  assert.equal(c.auth, 'Bearer T');
+  assert.equal(c.cuerpo.type, 'template');
+  assert.equal(c.cuerpo.template.name, 'entrega_tablas_bingo');
+  assert.equal(c.cuerpo.template.language.code, 'es_CO');
+  const [nombre, detalle] = c.cuerpo.template.components[0].parameters.map(p => p.text);
+  assert.equal(nombre, 'Ana');
+  assert.equal(detalle, '12, 87 · https://x.test/tablas.html?t=abc · Código BNG-1');
+  assert.ok(!/\n/.test(detalle), 'las plantillas de Meta no admiten saltos de línea en las variables');
+  // Sin credenciales no envía: devuelve el enlace manual.
+  const manual = await crearWhatsApp({}).enviarTablas({ telefono: '573001234567', nombre: 'Ana', seriales: ['1'], enlace: null, codigo: 'BNG-1' });
+  assert.equal(manual.estado, 'manual');
+});

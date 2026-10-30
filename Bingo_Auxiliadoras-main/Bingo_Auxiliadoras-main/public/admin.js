@@ -952,6 +952,35 @@ async function renderInformes() {
   $('excel').href = `/api/admin/informes.xlsx${params.toString() ? '?' + params : ''}`;
 }
 
+// ---------- Conexiones (WhatsApp y correo) ----------
+// Muestra si están listas y permite mandar un mensaje de prueba real para comprobarlas.
+async function pintarConexiones(caja) {
+  const c = await api('GET', '/admin/conexiones');
+  const estado = (ok, texto) => `<span class="pill ${ok ? 'verificado' : 'por_verificar'}">${ok ? 'conectado' : texto}</span>`;
+  caja.innerHTML = `
+    <h2 style="margin-top:0">Conexión con WhatsApp y correo</h2>
+    <p class="muted" style="margin-top:-6px">Para que las tablas se envíen solas. Los datos secretos se ponen en Vercel, no aquí.</p>
+    <div class="kv"><span><strong>WhatsApp</strong> ${estado(c.whatsapp.conectado, 'no conectado')}</span><span class="muted">${
+      c.whatsapp.conectado ? `Plantilla: ${c.whatsapp.tienePlantilla ? `sí (idioma ${esc(c.whatsapp.idioma)})` : '<strong>falta WHATSAPP_PLANTILLA</strong>: sin ella solo llega a quien te escribió en las últimas 24 horas'}`
+        : `Faltan en Vercel: ${c.whatsapp.faltan.map(esc).join(', ')}`}</span></div>
+    ${c.whatsapp.conectado ? `<form class="row" id="probar-wa" style="margin:8px 0 14px">
+      <label style="flex:1 1 220px">Mi celular para la prueba <input name="telefono" required inputmode="tel" placeholder="3001234567 (o con +indicativo)"></label>
+      <button type="submit" class="ghost">Enviar mensaje de prueba por WhatsApp</button></form>` : ''}
+    <div class="kv"><span><strong>Correo</strong> ${estado(c.correo.conectado, 'no conectado')}</span><span class="muted">${
+      c.correo.conectado ? 'Listo para enviar' : `Faltan en Vercel: ${c.correo.faltan.map(esc).join(', ')}`}</span></div>
+    ${c.correo.conectado ? `<form class="row" id="probar-correo" style="margin:8px 0 0">
+      <label style="flex:1 1 220px">Mi correo para la prueba <input name="correo" type="email" required></label>
+      <button type="submit" class="ghost">Enviar correo de prueba</button></form>` : ''}`;
+  const enviar = (form, ruta, cuerpo, ok) => form && form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const boton = form.querySelector('button');
+    boton.disabled = true;
+    try { await api('POST', ruta, cuerpo(form)); msg(ok); } catch (err) { msg(err.message, true); } finally { boton.disabled = false; }
+  });
+  enviar($('probar-wa'), '/admin/conexiones/probar-whatsapp', f => ({ telefono: f.telefono.value }), 'Mensaje de prueba enviado. Revisa tu WhatsApp.');
+  enviar($('probar-correo'), '/admin/conexiones/probar-correo', f => ({ correo: f.correo.value }), 'Correo de prueba enviado. Revisa tu bandeja (y la de spam).');
+}
+
 // ---------- Manual ----------
 function renderManual() {
   const temas = [
@@ -1081,7 +1110,9 @@ async function renderConfig() {
         </label>
       </div>
       <div class="actions"><button type="submit" class="grande">Guardar configuración</button></div>
-    </form>`;
+    </form>
+    <div class="card" id="conexiones"></div>`;
+  pintarConexiones($('conexiones')).catch(err => { $('conexiones').innerHTML = `<p class="muted">No se pudo leer el estado de las conexiones: ${esc(err.message)}</p>`; });
 
   // Imagen de invitación: se reduce a 1280 px y se guarda como JPG para que pese poco (la vista previa de WhatsApp pide menos de 300 KB).
   let pieza = null; // null = sin cambios; '' = quitar; data URL = nueva imagen
