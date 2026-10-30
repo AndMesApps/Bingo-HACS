@@ -901,3 +901,22 @@ test('la lista de compras trae forma de pago, fecha del pago y valor reportado',
   assert.equal(ef.reportado, 10);
   assert.equal(tr.fechaPago, hoy);
 });
+
+test('el listado de tablas dice a quién se vendió cada una y va en orden numérico', async () => {
+  const s = await nuevo();
+  await s.importarTablas('1\n2\n10\n11');
+  const c = await comprar(s, 2);
+  await verificarTodo(s, c.id);
+  const e = await s.enviarTablas(c.id);
+  const lista = await s.listarTablas();
+  assert.deepEqual(lista.map(t => t.serial), ['1', '2', '10', '11']);
+  const vendidas = lista.filter(t => t.estado === 'vendida');
+  assert.equal(vendidas.length, 2);
+  assert.deepEqual(vendidas.map(t => t.serial).sort(), [...e.tablas].sort());
+  for (const t of vendidas) {
+    assert.equal(t.compraId, c.id);
+    assert.equal(t.compraNombre, 'Ana Pérez');
+    assert.ok(t.compraTelefono);
+  }
+  assert.equal(lista.find(t => t.estado === 'disponible').compraNombre, null);
+});

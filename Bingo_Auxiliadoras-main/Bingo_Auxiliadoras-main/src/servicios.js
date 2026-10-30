@@ -198,9 +198,13 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
   }
 
   async function listarTablas() {
-    const filas = await q(`SELECT t.serial, t.estado, t.vendida_en, c.codigo AS compra_codigo
-      FROM tablas t LEFT JOIN compras c ON c.id = t.compra_id ORDER BY t.serial`);
-    return filas.map(t => ({ serial: t.serial, estado: t.estado, vendidaEn: t.vendida_en, compraCodigo: t.compra_codigo }));
+    const filas = await q(`SELECT t.serial, t.estado, t.vendida_en, c.id AS compra_id, c.codigo AS compra_codigo,
+        c.nombre AS compra_nombre, c.telefono AS compra_telefono
+      FROM tablas t LEFT JOIN compras c ON c.id = t.compra_id`);
+    return filas.sort((a, b) => porSerial(a.serial, b.serial)).map(t => ({
+      serial: t.serial, estado: t.estado, vendidaEn: t.vendida_en,
+      compraId: t.compra_id, compraCodigo: t.compra_codigo, compraNombre: t.compra_nombre, compraTelefono: t.compra_telefono,
+    }));
   }
 
   // ---------- Compras ----------
