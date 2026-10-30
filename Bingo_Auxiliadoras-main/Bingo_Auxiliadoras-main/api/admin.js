@@ -139,7 +139,8 @@ module.exports = async (req, res) => {
           let telefono;
           try { telefono = whatsapp.normalizarTelefono(req.body?.telefono, req.body?.pais); } catch (e) { throw new ErrorApp(e.message); }
           try {
-            await whatsapp.enviarTablas({ telefono, nombre: 'Prueba', seriales: ['1', '2'], enlace: `${baseUrl(req)}/tablas.html?t=prueba`, codigo: 'BNG-PRUEBA' });
+            const ev = await servicios.evento({ conQr: false });
+            await whatsapp.enviarTablas({ telefono, nombre: 'Prueba', seriales: ['1', '2'], enlace: `${baseUrl(req)}/tablas.html?t=prueba`, codigo: 'BNG-PRUEBA', extra: { fechaSorteo: ev.fechaSorteo, enlaceConexion: ev.enlaceConexion } });
           } catch (e) { throw new ErrorApp(`No se pudo enviar: ${e.message}`, 502); }
           res.json({ ok: true });
         }),
@@ -151,7 +152,8 @@ module.exports = async (req, res) => {
           const direccion = String(req.body?.correo ?? '').trim();
           if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(direccion)) throw new ErrorApp('El correo no es válido.');
           try {
-            await correo.enviarTablas({ correo: direccion, nombre: 'Prueba', seriales: ['1', '2'], enlace: `${baseUrl(req)}/tablas.html?t=prueba`, codigo: 'BNG-PRUEBA' });
+            const ev = await servicios.evento({ conQr: false });
+            await correo.enviarTablas({ correo: direccion, nombre: 'Prueba', seriales: ['1', '2'], enlace: `${baseUrl(req)}/tablas.html?t=prueba`, codigo: 'BNG-PRUEBA', extra: { fechaSorteo: ev.fechaSorteo, enlaceConexion: ev.enlaceConexion } });
           } catch (e) { throw new ErrorApp(`No se pudo enviar: ${e.message}`, 502); }
           res.json({ ok: true });
         }),

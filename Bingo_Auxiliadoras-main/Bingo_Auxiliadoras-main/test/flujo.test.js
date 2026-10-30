@@ -596,11 +596,11 @@ test('los mensajes reales incluyen el código de compra', () => {
   const { crearWhatsApp } = require('../src/whatsapp');
   const { crearCorreo } = require('../src/correo');
   const w = crearWhatsApp({});
-  assert.match(w.mensajeTablas('Ana', ['3', '25'], 'https://x.test/t', 'BNG-4K7P2X'), /Código de tu compra: BNG-4K7P2X/);
-  assert.doesNotMatch(w.mensajeTablas('Ana', ['3'], null, undefined), /Código de tu compra/);
+  assert.match(w.mensajeTablas('Ana', ['3', '25'], 'https://x.test/t', 'BNG-4K7P2X'), /Código de su compra: BNG-4K7P2X/);
+  assert.doesNotMatch(w.mensajeTablas('Ana', ['3'], null, undefined), /Código de su compra/);
   const m = crearCorreo({}).mensajeTablas('Ana', ['3'], 'https://x.test/t', 'BNG-4K7P2X');
   assert.match(m.texto, /BNG-4K7P2X/);
-  assert.match(m.html, /<strong>BNG-4K7P2X<\/strong>/);
+  assert.match(m.html, /BNG-4K7P2X/);
   assert.match(decodeURIComponent(w.enlaceManual('573001234567', 'Ana', ['3'], null, 'BNG-4K7P2X')), /BNG-4K7P2X/);
 });
 test('menos que una tabla sin elegir donar se rechaza y dice el mínimo', async () => {
@@ -1328,4 +1328,65 @@ test('WhatsApp manual: el resumen cuenta las compras a las que falta enviarles e
   assert.equal((await s.resumen()).compras.whatsappPendientes, 1);
   await s.marcarEnviadoManual(a.id, 'whatsapp');
   assert.equal((await s.resumen()).compras.whatsappPendientes, 0);
+});
+
+// ---------- Mensaje con las tablas ----------
+test('mensaje: saludo por hora, nombre, fecha, cantidad, números, enlaces y dónde está el número de la tabla', async () => {
+  const { textoWhatsApp, mensajeCorreo, fechaLarga, saludoDe, primerNombre } = require('../src/mensajes');
+  assert.equal(fechaLarga('2026-05-24'), 'domingo 24 de mayo del 2026');
+  assert.equal(fechaLarga(''), '');
+  assert.equal(fechaLarga('2026-02-31'), '');
+  assert.equal(saludoDe(new Date('2026-05-24T14:00:00Z')), 'Buenos días'); // 9:00 en Colombia
+  assert.equal(saludoDe(new Date('2026-05-24T20:00:00Z')), 'Buenas tardes'); // 15:00
+  assert.equal(saludoDe(new Date('2026-05-25T01:30:00Z')), 'Buenas noches'); // 20:30
+  assert.equal(primerNombre('TERESITA PÉREZ'), 'Teresita');
+
+  const datos = { nombre: 'TERESITA PÉREZ', seriales: ['12', '87'], enlace: 'https://x.test/tablas.html?t=abc', codigo: 'BNG-AB12CD',
+    fechaSorteo: '2026-05-24', enlaceConexion: 'https://meet.google.com/abc-defg-hij', ahora: new Date('2026-05-24T20:00:00Z') };
+  const t = textoWhatsApp(datos);
+  assert.match(t, /^Buenas tardes Teresita, esperando estén super bien\./);
+  assert.match(t, /\*¡Tus tablas de bingo!\*/);
+  assert.match(t, /Bingo de las Hermanas Auxiliadoras de Cristo Sacerdote, a realizarse el domingo 24 de mayo del 2026\./);
+  assert.match(t, /enumeradas en la parte superior, en el óvalo dorado que dice «TABLA N° …»/);
+  assert.match(t, /va marcada con su nombre: en la franja azul de abajo/);
+  assert.match(t, /Anexo enlace para conexión: https:\/\/meet\.google\.com\/abc-defg-hij\./);
+  assert.match(t, /Anexo: 2 tablas \(N° 12 y 87\)\./);
+  assert.match(t, /Descárguelas aquí: https:\/\/x\.test\/tablas\.html\?t=abc/);
+  assert.match(t, /Código de su compra: BNG-AB12CD/);
+  assert.match(t, /Gracias, feliz día\.$/);
+  assert.doesNotMatch(t, /Miryam/);
+
+  // Sin fecha ni enlace de conexión, y con una sola tabla.
+  const t2 = textoWhatsApp({ nombre: 'ana', seriales: ['5'], ahora: new Date('2026-05-24T14:00:00Z') });
+  assert.match(t2, /Buenos días Ana,/);
+  assert.doesNotMatch(t2, /a realizarse/);
+  assert.match(t2, /Anexo: 1 tabla \(N° 5\)\./);
+  assert.match(t2, /El enlace para conexión se lo enviaremos antes del bingo\./);
+
+  const c = mensajeCorreo({ ...datos, nombre: '<b>Ana</b>' });
+  assert.equal(c.asunto, '¡Tus tablas de bingo!');
+  assert.match(c.html, /<a href="https:\/\/meet\.google\.com\/abc-defg-hij">/);
+  assert.match(c.html, /&lt;b&gt;ana&lt;\/b&gt;/, 'el nombre se escapa en el HTML');
+  assert.match(c.texto, /Anexo: 2 tablas/);
+});
+
+test('mensaje: el enlace de conexión se configura, se valida y llega al WhatsApp manual y al correo', async () => {
+  const s = await nuevo();
+  await tablas(s, 3);
+  await assert.rejects(() => s.actualizarEvento({ enlaceConexion: 'meet.google.com/abc' }), /http/);
+  await s.actualizarEvento({ fechaSorteo: '2026-05-24', enlaceConexion: 'https://meet.google.com/abc-defg-hij' });
+  assert.equal((await s.evento()).enlaceConexion, 'https://meet.google.com/abc-defg-hij');
+  const c = await comprar(s, 1, { nombre: 'Teresita Pérez' });
+  await verificarTodo(s, c.id);
+  await s.enviarTablas(c.id, { canales: { whatsapp: true, correo: true }, baseUrl: 'https://bingo.test' });
+  const wa = decodeURIComponent((await s.enlaceWhatsapp(c.id, 'https://bingo.test')).split('?text=')[1]);
+  assert.match(wa, /Teresita,/);
+  assert.match(wa, /domingo 24 de mayo del 2026/);
+  assert.match(wa, /Anexo enlace para conexión: https:\/\/meet\.google\.com\/abc-defg-hij/);
+  assert.match(wa, /https:\/\/bingo\.test\/tablas\.html\?t=/);
+  const mail = decodeURIComponent((await s.enlaceCorreo(c.id, 'https://bingo.test')).split('body=')[1]);
+  assert.match(mail, /meet\.google\.com\/abc-defg-hij/);
+  // Al reiniciar el Bingo el enlace de la reunión se borra.
+  await s.reiniciarBingo({ nombre: 'Siguiente', confirmar: true });
+  assert.equal((await s.evento()).enlaceConexion, '');
 });

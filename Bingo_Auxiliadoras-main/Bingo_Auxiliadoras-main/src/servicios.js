@@ -86,6 +86,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       precioTabla: num(e.precio_tabla),
       moneda: e.moneda,
       fechaSorteo: e.fecha_sorteo,
+      enlaceConexion: e.enlace_conexion ?? '',
       cuentasPago: e.cuentas_pago,
       exigirPagoCompleto: Boolean(e.exigir_pago_completo),
       envioAutomatico: Boolean(e.envio_automatico),
@@ -134,6 +135,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       precioTabla: datos.precioTabla === undefined ? actual.precioTabla : redondear(datos.precioTabla),
       moneda: String(datos.moneda ?? actual.moneda).trim().slice(0, 10),
       fechaSorteo: String(datos.fechaSorteo ?? actual.fechaSorteo).slice(0, 10),
+      enlaceConexion: String(datos.enlaceConexion ?? actual.enlaceConexion).trim().slice(0, 300),
       cuentasPago: String(datos.cuentasPago ?? actual.cuentasPago).slice(0, 2000),
       exigirPagoCompleto: datos.exigirPagoCompleto === undefined ? actual.exigirPagoCompleto : Boolean(datos.exigirPagoCompleto),
       envioAutomatico: datos.envioAutomatico === undefined ? actual.envioAutomatico : Boolean(datos.envioAutomatico),
@@ -145,6 +147,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       qrPago,
     };
     if (!(nuevo.precioTabla >= 0)) throw new ErrorApp('El precio no puede ser negativo.');
+    if (nuevo.enlaceConexion && !/^https?:\/\/\S+$/i.test(nuevo.enlaceConexion)) throw new ErrorApp('El enlace de conexión debe empezar por http:// o https://.');
     const textoInvitacion = datos.textoInvitacion === undefined ? undefined : String(datos.textoInvitacion).trim();
     if (textoInvitacion && textoInvitacion.length > 1500) throw new ErrorApp('El texto de la invitación es demasiado largo (máximo 1500 caracteres).');
     // undefined conserva la pieza actual; una cadena vacía deja al Bingo sin imagen de invitación.
@@ -152,7 +155,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     if (pieza && (pieza.length > PIEZA_MAX_CARACTERES || !PIEZA_VALIDA.test(pieza))) {
       throw new ErrorApp('La pieza de invitación debe ser una imagen PNG, JPG o WEBP de máximo 1 MB.');
     }
-    await q('UPDATE evento SET envio_automatico = $1 WHERE id = 1', [nuevo.envioAutomatico]);
+    await q('UPDATE evento SET envio_automatico = $1, enlace_conexion = $2 WHERE id = 1', [nuevo.envioAutomatico, nuevo.enlaceConexion]);
     await q(
       `UPDATE evento SET nombre=$1, precio_tabla=$2, moneda=$3, fecha_sorteo=$4, cuentas_pago=$5, exigir_pago_completo=$6,
          banco=$7, tipo_cuenta=$8, numero_cuenta=$9, titular_cuenta=$10, llave_pago=$11, qr_pago=$12 WHERE id = 1`,
@@ -673,9 +676,15 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     return detalleCompra(compraId);
   }
 
+  // Datos del Bingo que completan el mensaje de las tablas (fecha y enlace de conexión a la reunión).
+  async function extraMensaje() {
+    const e = await evento({ conQr: false });
+    return { fechaSorteo: e.fechaSorteo, enlaceConexion: e.enlaceConexion };
+  }
+
   async function entregarWhatsApp(c, seriales, enlace) {
     try {
-      const r = await whatsapp.enviarTablas({ telefono: c.telefono, nombre: c.nombre, seriales, enlace, codigo: c.codigo });
+      const r = await whatsapp.enviarTablas({ telefono: c.telefono, nombre: c.nombre, seriales, enlace, codigo: c.codigo, extra: await extraMensaje() });
       if (r.estado === 'enviado') {
         await q("UPDATE compras SET whatsapp_estado = 'enviado', whatsapp_error = NULL WHERE id = $1", [c.id]);
         await bitacora('tablas enviadas', `${c.codigo} por WhatsApp`);
@@ -691,7 +700,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
 
   async function entregarCorreo(c, seriales, enlace) {
     try {
-      const r = await correo.enviarTablas({ correo: c.correo, nombre: c.nombre, seriales, enlace, codigo: c.codigo });
+      const r = await correo.enviarTablas({ correo: c.correo, nombre: c.nombre, seriales, enlace, codigo: c.codigo, extra: await extraMensaje() });
       if (r.estado === 'enviado') {
         await q("UPDATE compras SET correo_estado = 'enviado', correo_error = NULL WHERE id = $1", [c.id]);
         await bitacora('tablas enviadas', `${c.codigo} por correo`);
@@ -707,13 +716,13 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
 
   async function enlaceWhatsapp(compraId, baseUrl) {
     const { c, seriales } = await datosEntrega(compraId);
-    return whatsapp.enlaceManual(c.telefono, c.nombre, seriales, enlaceEntrega(baseUrl, c.token_entrega), c.codigo);
+    return whatsapp.enlaceManual(c.telefono, c.nombre, seriales, enlaceEntrega(baseUrl, c.token_entrega), c.codigo, await extraMensaje());
   }
 
   async function enlaceCorreo(compraId, baseUrl) {
     const { c, seriales } = await datosEntrega(compraId);
     if (!c.correo) throw new ErrorApp('Esta compra no tiene correo registrado.', 409);
-    return correo.enlaceManual(c.correo, c.nombre, seriales, enlaceEntrega(baseUrl, c.token_entrega), c.codigo);
+    return correo.enlaceManual(c.correo, c.nombre, seriales, enlaceEntrega(baseUrl, c.token_entrega), c.codigo, await extraMensaje());
   }
 
   // Confirma a mano un envío que se hizo fuera del sistema (enlace wa.me / mailto).
@@ -1332,7 +1341,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       await t(
         `UPDATE evento SET nombre = $1, precio_tabla = 0, fecha_sorteo = '', cuentas_pago = '', exigir_pago_completo = true,
            banco = '', tipo_cuenta = '', numero_cuenta = '', titular_cuenta = '', llave_pago = '', qr_pago = '',
-           pieza_invitacion = '', texto_invitacion = '' WHERE id = 1`, [nombre]);
+           pieza_invitacion = '', texto_invitacion = '', enlace_conexion = '' WHERE id = 1`, [nombre]);
       await bitacora('bingo reiniciado', `"${b.nombre}" pasó al histórico (${vendidas} tabla(s) vendidas). Nuevo Bingo: "${nombre}"`, t);
       return { cerrado: { id: b.id, nombre: b.nombre }, nuevo: { id: nuevo.id, nombre } };
     });

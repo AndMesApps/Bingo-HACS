@@ -1,5 +1,6 @@
 // Envío de tablas por WhatsApp Cloud API (Meta).
 // Sin credenciales configuradas, devuelve un enlace wa.me para enviar a mano.
+const { textoWhatsApp } = require('./mensajes');
 
 function crearWhatsApp({ token, phoneId, plantilla, idioma = 'es', codigoPais = '58', fetchFn = fetch } = {}) {
   const configurado = Boolean(token && phoneId);
@@ -30,21 +31,19 @@ function crearWhatsApp({ token, phoneId, plantilla, idioma = 'es', codigoPais = 
     return numero;
   }
 
-  function mensajeTablas(nombre, seriales, enlace, codigo) {
-    const lista = seriales.map((s, i) => `${i + 1}. ${s}`).join('\n');
-    const descarga = enlace ? `\nDescárgalas aquí: ${enlace}` : '';
-    const compra = codigo ? `\nCódigo de tu compra: ${codigo} (guárdalo para consultar el estado)` : '';
-    return `Hola ${nombre}, tu pago fue verificado. Estas son tus tablas de bingo:\n${lista}${descarga}${compra}\n¡Gracias por tu compra!`;
+  // extra: { fechaSorteo, enlaceConexion, ahora } (datos del Bingo que completan el mensaje).
+  function mensajeTablas(nombre, seriales, enlace, codigo, extra = {}) {
+    return textoWhatsApp({ nombre, seriales, enlace, codigo, ...extra });
   }
 
-  function enlaceManual(telefono, nombre, seriales, enlace, codigo) {
+  function enlaceManual(telefono, nombre, seriales, enlace, codigo, extra = {}) {
     const numero = numeroGuardado(telefono);
-    return `https://wa.me/${numero}?text=${encodeURIComponent(mensajeTablas(nombre, seriales, enlace, codigo))}`;
+    return `https://wa.me/${numero}?text=${encodeURIComponent(mensajeTablas(nombre, seriales, enlace, codigo, extra))}`;
   }
 
   // Devuelve { estado: 'enviado' | 'manual', enlace? } o lanza error si la API rechaza el envío.
-  async function enviarTablas({ telefono, nombre, seriales, enlace, codigo }) {
-    if (!configurado) return { estado: 'manual', enlace: enlaceManual(telefono, nombre, seriales, enlace, codigo) };
+  async function enviarTablas({ telefono, nombre, seriales, enlace, codigo, extra }) {
+    if (!configurado) return { estado: 'manual', enlace: enlaceManual(telefono, nombre, seriales, enlace, codigo, extra) };
 
     const to = numeroGuardado(telefono);
     // Las plantillas de Meta no admiten saltos de línea en los parámetros: el enlace va en la misma línea.
@@ -58,7 +57,7 @@ function crearWhatsApp({ token, phoneId, plantilla, idioma = 'es', codigoPais = 
             components: [{ type: 'body', parameters: [{ type: 'text', text: nombre }, { type: 'text', text: texto }] }],
           },
         }
-      : { type: 'text', text: { body: mensajeTablas(nombre, seriales, enlace, codigo) } };
+      : { type: 'text', text: { body: mensajeTablas(nombre, seriales, enlace, codigo, extra) } };
 
     const res = await fetchFn(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
       method: 'POST',

@@ -1061,6 +1061,10 @@ async function renderConfig() {
           <label>Precio por tabla <input name="precioTabla" type="number" min="0" step="any" value="${e.precioTabla}" required></label>
           <label>Moneda (símbolo o texto) <input name="moneda" value="${esc(e.moneda)}" maxlength="10" placeholder="$, COP"></label>
           <label>Fecha del sorteo <input name="fechaSorteo" type="date" value="${esc(e.fechaSorteo)}"></label>
+          <label class="full">Enlace para la conexión (reunión virtual) <span class="opc">(opcional)</span>
+            <input name="enlaceConexion" type="url" maxlength="300" value="${esc(e.enlaceConexion)}" placeholder="https://meet.google.com/…  o  https://zoom.us/j/…">
+            <span class="muted" style="font-weight:400">Va en el mensaje con las tablas. Si lo dejas vacío, el mensaje dice que el enlace se enviará antes del bingo.</span>
+          </label>
         </div>
         <p class="muted">Con el precio en 0 las compras quedan cerradas. Al cambiarlo, solo afecta las compras nuevas.</p>
       </div>
@@ -1189,6 +1193,7 @@ async function renderConfig() {
         precioTabla: Number(f.precioTabla.value),
         moneda: f.moneda.value,
         fechaSorteo: f.fechaSorteo.value,
+        enlaceConexion: f.enlaceConexion.value,
         titularCuenta: f.titularCuenta.value,
         banco: f.banco.value,
         tipoCuenta: f.tipoCuenta.value,
