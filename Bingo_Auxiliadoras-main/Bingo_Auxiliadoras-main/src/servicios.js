@@ -911,6 +911,22 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     FROM premio_ganadores g
     JOIN compras c ON c.id = g.compra_id`;
 
+  // Deja el sorteo del Bingo activo como nuevo (para repetir un ensayo): fuera balotas, ganadoras y entregas.
+  // No toca compras, pagos, tablas ni la configuración de las rondas.
+  async function reiniciarSorteo({ confirmar } = {}) {
+    if (confirmar !== true) throw new ErrorApp('Confirma que quieres reiniciar el sorteo.');
+    const activo = "(SELECT id FROM bingos WHERE estado = 'activo')";
+    return db.tx(async t => {
+      const ids = `(SELECT id FROM premios WHERE bingo_id = ${activo})`;
+      const g = await t(`DELETE FROM premio_ganadores WHERE premio_id IN ${ids} RETURNING id`);
+      const b = await t(`DELETE FROM balotas WHERE premio_id IN ${ids} RETURNING id`);
+      await t(`UPDATE premios SET serial = NULL, compra_id = NULL, pagado = false, pagado_en = NULL,
+        recibido_por = '', entrega_nota = '', ronda_estado = 'pendiente' WHERE bingo_id = ${activo}`);
+      await bitacora('sorteo reiniciado', `${b.length} balota(s) y ${g.length} ganadora(s) borradas; las compras no se tocaron`, t);
+      return { balotas: b.length, ganadoras: g.length };
+    });
+  }
+
   async function listarPremios(bingoId) {
     const premios = await q(`SELECT * FROM premios p WHERE p.bingo_id = ${DE_BINGO(1)} ORDER BY p.id`, [bingoId ?? null]);
     const ganadores = (await q(`${SQL_GANADORES} JOIN premios p ON p.id = g.premio_id WHERE p.bingo_id = ${DE_BINGO(1)} ORDER BY g.id`, [bingoId ?? null])).map(ganadorDTO);
@@ -1466,7 +1482,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     evento, actualizarEvento, piezaInvitacion,
     tablasDisponibles, tablasLibresParaVender, generarTablas, importarTablas, listarTablas,
     crearCompra, estadoPublico, detalleCompra, listarCompras,
-    operadorDe, registrarPagoManual, verificarPago, rechazarPago, convertirDonacion,
+    reiniciarSorteo, operadorDe, registrarPagoManual, verificarPago, rechazarPago, convertirDonacion,
     enviarTablas, reenviar, enlaceWhatsapp, enlaceCorreo, marcarEnviadoManual, entregaFisica, entregaPublica, rechazarCompra,
     gestionarSobrante, listarSobrantes, datosSelloEntrega,
     comprobanteDe,

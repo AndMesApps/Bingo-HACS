@@ -1520,3 +1520,25 @@ test('operadoras: configurables y quedan registradas al aprobar o rechazar un pa
   await s.actualizarEvento({ operadores: '' });
   assert.equal(await s.operadorDe(''), '');
 });
+
+test('reiniciar el sorteo borra balotas y ganadoras pero respeta compras y tablas vendidas', async () => {
+  const s = await nuevo();
+  const { p, serial, compra } = await ronda(s, 'linea');
+  await assert.rejects(() => s.reiniciarSorteo(), /Confirma/);
+  await s.iniciarRonda(p.id);
+  for (const n of [1, 16, 31, 46, 61]) await s.cantarBalota(p.id, n);
+  await s.asignarGanador(p.id, serial);
+
+  const r = await s.reiniciarSorteo({ confirmar: true });
+  assert.deepEqual(r, { balotas: 5, ganadoras: 1 });
+  const [premio] = await s.listarPremios();
+  assert.equal(premio.rondaEstado, 'pendiente');
+  assert.equal(premio.ganadores.length, 0);
+  assert.equal((await s.estadoSorteo()).ronda, null);
+  assert.equal((await s.detalleCompra(compra.id)).estado, 'enviada');
+  assert.equal((await s.db.query("SELECT COUNT(*)::int AS n FROM tablas WHERE estado = 'vendida'"))[0].n, 1);
+
+  // La ronda se puede volver a jugar desde cero.
+  await s.iniciarRonda(p.id);
+  assert.deepEqual((await s.estadoSorteo()).balotas, []);
+});
