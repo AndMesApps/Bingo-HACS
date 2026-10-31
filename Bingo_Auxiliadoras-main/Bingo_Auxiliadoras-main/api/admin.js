@@ -91,6 +91,7 @@ module.exports = async (req, res) => {
       { metodo: 'PUT', patron: /^\/premios\/(\d+)\/ganador$/, handler: admin(async (p, req, res) => res.json(await servicios.asignarGanador(id(p), req.body?.serial, { cerrar: req.body?.cerrar !== false }))) },
       { metodo: 'DELETE', patron: /^\/premios\/(\d+)\/ganador$/, handler: admin(async (p, req, res) => res.json(await servicios.quitarGanador(id(p)))) },
       { metodo: 'GET', patron: /^\/informes$/, handler: admin(async (_p, req, res) => res.json(await servicios.informes({ bingoId: req.query.bingo, desde: req.query.desde, hasta: req.query.hasta }))) },
+      { metodo: 'POST', patron: /^\/sorteo\/reiniciar$/, handler: admin(async (_p, req, res) => res.json(await servicios.reiniciarSorteo(req.body || {}))) },
       { metodo: 'GET', patron: /^\/sorteo$/, handler: admin(async (_p, _req, res) => res.json(await servicios.estadoSorteo())) },
       { metodo: 'POST', patron: /^\/premios\/(\d+)\/iniciar$/, handler: admin(async (p, _req, res) => res.json(await servicios.iniciarRonda(id(p)))) },
       { metodo: 'POST', patron: /^\/premios\/(\d+)\/pausar$/, handler: admin(async (p, _req, res) => res.json(await servicios.pausarRonda(id(p)))) },

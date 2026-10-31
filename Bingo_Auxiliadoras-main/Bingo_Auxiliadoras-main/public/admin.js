@@ -770,6 +770,23 @@ async function renderPremios() {
 }
 
 // ---------- Sorteo en vivo ----------
+// Para ensayos: deja el sorteo como nuevo sin tocar compras, pagos ni tablas.
+function tarjetaReiniciarSorteo() {
+  return `<div class="card" style="margin-top:18px"><h3 style="margin-top:0">Reiniciar el sorteo</h3>
+    <p class="muted" style="margin-top:-6px">Sirve para repetir un ensayo: borra las balotas cantadas, las tablas ganadoras y las entregas de premios, y deja todas las rondas pendientes. <strong>No toca las compras, los pagos ni las tablas vendidas.</strong></p>
+    <div class="actions"><button type="button" class="ghost danger" id="reiniciar-sorteo">Reiniciar el sorteo</button></div></div>`;
+}
+function conectarReiniciarSorteo() {
+  $('reiniciar-sorteo').addEventListener('click', async () => {
+    if (!confirm('¿Reiniciar el sorteo?\n\nSe borran las balotas cantadas, las tablas ganadoras y las entregas de premios. Las compras y las tablas vendidas no se tocan.')) return;
+    try {
+      const r = await api('POST', '/admin/sorteo/reiniciar', { confirmar: true });
+      msg(`Sorteo reiniciado (${r.balotas} balota(s) y ${r.ganadoras} ganadora(s) borradas).`);
+      mostrar('sorteo');
+    } catch (err) { msg(err.message, true); }
+  });
+}
+
 async function renderSorteo() {
   const [estado, premios] = await Promise.all([api('GET', '/admin/sorteo'), api('GET', '/admin/premios')]);
   const { ronda, balotas } = estado;
@@ -785,7 +802,9 @@ async function renderSorteo() {
           <select name="ronda">${disponibles.map(p => `<option value="${p.id}">${esc(p.ronda)} — ${esc(p.premio)} (${esc(p.figuraNombre)})</option>`).join('')}</select>
         </label>
         <div class="actions"><button type="submit" class="grande">Iniciar ronda</button></div>
-      </form>` : '<p class="muted">No hay rondas pendientes. Crea una en la pestaña Premios.</p>'}`;
+      </form>` : '<p class="muted">No hay rondas pendientes. Crea una en la pestaña Premios.</p>'}
+      ${tarjetaReiniciarSorteo()}`;
+    conectarReiniciarSorteo();
     const f = $('form-iniciar');
     if (f) f.addEventListener('submit', async e => {
       e.preventDefault();
@@ -826,7 +845,9 @@ async function renderSorteo() {
       <label style="flex:1 1 200px">Número de la tabla <input name="serial" required autocomplete="off" inputmode="numeric"></label>
       <button type="submit" class="grande">Verificar tabla</button>
     </form>
-    <div id="resultado"></div>`;
+    <div id="resultado"></div>
+    ${tarjetaReiniciarSorteo()}`;
+  conectarReiniciarSorteo();
 
   $('vista').querySelectorAll('[data-balota]').forEach(b => b.addEventListener('click', async () => {
     try { await api('POST', `/admin/premios/${ronda.id}/balotas`, { numero: Number(b.dataset.balota) }); mostrar('sorteo'); } catch (err) { msg(err.message, true); }
