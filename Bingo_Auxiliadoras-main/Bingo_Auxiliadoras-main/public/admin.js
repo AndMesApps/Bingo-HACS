@@ -362,16 +362,34 @@ function botonesCompra(c) {
 }
 
 // Al abrir la tarjeta de pagos, se carga el detalle de la compra.
+// Selector de quién aprueba: recuerda la última elegida en este equipo.
+function selectorOperadora(operadoras) {
+  if (!operadoras.length) return '';
+  let ultima = '';
+  try { ultima = localStorage.getItem('operadora') || ''; } catch { /* sin almacenamiento */ }
+  return `<label style="flex:1 1 150px">¿Quién aprueba?
+    <select data-operadora required><option value="">Elige tu nombre</option>${operadoras.map(n => `<option${n === ultima ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>
+  </label>`;
+}
+function operadoraElegida(desde) {
+  const sel = desde?.querySelector('[data-operadora]');
+  if (!sel) return undefined;
+  if (!sel.value) { sel.focus(); throw new Error('Elige quién aprueba el pago.'); }
+  try { localStorage.setItem('operadora', sel.value); } catch { /* sin almacenamiento */ }
+  return sel.value;
+}
+
 async function cargarPagos(card) {
   const id = card.dataset.compra;
-  const d = await api('GET', `/admin/compras/${id}`);
+  const [d, ev] = await Promise.all([api('GET', `/admin/compras/${id}`), api('GET', '/admin/evento')]);
+  const operadoras = ev.operadores || [];
   const pagosHtml = d.pagos.map(p => `
     <div class="kv" style="flex-direction:column;align-items:flex-start">
       <div class="row" style="width:100%">
         <span>${esc(p.metodo)} · Ref. <span class="mono">${esc(p.referencia)}</span> · Pagó el ${esc(p.fechaPago || fecha(p.creadoEn))}</span>
         <span class="pill ${esc(p.estado)}">${esc(p.estado.replace('_', ' '))}</span>
       </div>
-      <span class="muted">Reportado ${dinero(p.montoReportado)}${p.montoVerificado != null ? ` · Verificado ${dinero(p.montoVerificado)}` : ''}</span>
+      <span class="muted">Reportado ${dinero(p.montoReportado)}${p.montoVerificado != null ? ` · Verificado ${dinero(p.montoVerificado)}` : ''}${p.verificadoPor ? ` · ${p.estado === 'rechazado' ? 'Rechazado' : 'Aprobado'} por <strong>${esc(p.verificadoPor)}</strong>` : ''}</span>
       ${p.comprobantes.map(c => `<button type="button" class="ghost" data-act="ver-comprobante" data-id="${c.id}">Ver ${esc(c.nombre)}</button>`).join('')}
       ${p.comprobantes.length === 0 && p.estado === 'por_verificar' ? '<span class="muted">Sin comprobante (pago en efectivo): confirma que recibiste el dinero.</span>' : ''}
       ${p.estado === 'por_verificar' ? `
@@ -380,6 +398,7 @@ async function cargarPagos(card) {
             <input type="number" min="0.01" step="0.01" value="${p.montoReportado}" data-monto="${p.id}" data-precio="${d.precioUnitario}">
             <span class="muted" data-calc="${p.id}">Equivale a ${Math.floor(p.montoReportado / d.precioUnitario + 1e-9)} tabla(s)</span>
           </label>
+          ${selectorOperadora(operadoras)}
           <div class="actions">
             <button type="button" data-act="verificar-pago" data-id="${p.id}">Verificar pago</button>
             <button type="button" class="danger" data-act="rechazar-pago" data-id="${p.id}">Rechazar</button>
@@ -394,6 +413,7 @@ async function cargarPagos(card) {
         <select name="metodo"><option>Efectivo</option><option>Consignación</option><option>Transferencia</option></select>
       </label>
       <label style="flex:1 1 120px">Referencia <input name="referencia" maxlength="60"></label>
+      ${selectorOperadora(operadoras)}
       <button type="submit" class="ghost">Registrar pago recibido</button>
     </form>` : '';
   card.querySelector('[data-pagos]').innerHTML = pagosHtml + manual;
@@ -508,14 +528,14 @@ $('vista').addEventListener('click', async e => {
     }
     if (act === 'verificar-pago') {
       const monto = Number(document.querySelector(`[data-monto="${id}"]`).value);
-      await api('POST', `/admin/pagos/${id}/verificar`, { montoVerificado: monto });
+      await api('POST', `/admin/pagos/${id}/verificar`, { montoVerificado: monto, operador: operadoraElegida(btn.closest('.row')) });
       msg('Pago verificado. Ahora define cuántas tablas enviar y por qué canal.');
       filtroCompras = 'verificada';
       return mostrar('compras');
     }
     if (act === 'rechazar-pago') {
       if (!confirm('¿Rechazar este pago?')) return;
-      await api('POST', `/admin/pagos/${id}/rechazar`);
+      await api('POST', `/admin/pagos/${id}/rechazar`, { operador: operadoraElegida(btn.closest('.row')) });
       msg('Pago rechazado.');
       return mostrar('compras');
     }
@@ -541,7 +561,7 @@ $('vista').addEventListener('submit', async e => {
     e.preventDefault();
     try {
       await api('POST', `/admin/compras/${manual.dataset.pagoManual}/pagos`, {
-        monto: manual.monto.value, metodo: manual.metodo.value, referencia: manual.referencia.value,
+        monto: manual.monto.value, metodo: manual.metodo.value, referencia: manual.referencia.value, operador: operadoraElegida(manual),
       });
       msg('Pago registrado.');
       mostrar('compras');
@@ -1118,6 +1138,14 @@ async function renderConfig() {
       </div>
 
       <div class="card">
+        <h2 style="margin-top:0">Personas que operan el aplicativo</h2>
+        <p class="muted" style="margin-top:-6px">Escribe un nombre por línea. Al aprobar o rechazar un pago, quien lo hace elige su nombre de esta lista y queda registrado. Todas tienen los mismos permisos.</p>
+        <label class="full">Nombres
+          <textarea name="operadores" rows="7" placeholder="Un nombre por línea">${esc((e.operadores || []).join('\n'))}</textarea>
+        </label>
+      </div>
+
+      <div class="card">
         <h2 style="margin-top:0">Mensaje que reciben los benefactores con sus tablas</h2>
         <p class="muted" style="margin-top:-6px">Es el texto que va por WhatsApp y por correo. Lo que está entre llaves, como <strong>{nombre}</strong>, el sistema lo cambia solo por el dato de cada benefactor. Escribe o cambia las frases como quieras.</p>
         <label class="full">Texto del mensaje
@@ -1257,6 +1285,7 @@ async function renderConfig() {
         fechaSorteo: f.fechaSorteo.value,
         enlaceConexion: f.enlaceConexion.value,
         textoMensaje: f.textoMensaje.value,
+        operadores: f.operadores.value,
         titularCuenta: f.titularCuenta.value,
         banco: f.banco.value,
         tipoCuenta: f.tipoCuenta.value,

@@ -325,3 +325,7 @@ ALTER TABLE evento ADD COLUMN IF NOT EXISTS enlace_conexion TEXT NOT NULL DEFAUL
 
 -- Texto del mensaje con las tablas, editable desde Configuración ('' = el texto original).
 ALTER TABLE evento ADD COLUMN IF NOT EXISTS texto_mensaje TEXT NOT NULL DEFAULT '';
+
+-- Operadoras del aplicativo (una por línea) y quién aprobó cada pago.
+ALTER TABLE evento ADD COLUMN IF NOT EXISTS operadores TEXT NOT NULL DEFAULT E'Claudia\nOlga\nAura\nCarmen\nAlicia\nDiana';
+ALTER TABLE pagos ADD COLUMN IF NOT EXISTS verificado_por TEXT NOT NULL DEFAULT '';
