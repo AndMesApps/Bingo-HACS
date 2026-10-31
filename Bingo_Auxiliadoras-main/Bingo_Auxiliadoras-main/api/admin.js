@@ -52,7 +52,7 @@ module.exports = async (req, res) => {
 
       { metodo: 'GET', patron: /^\/compras$/, handler: admin(async (_p, req, res) => res.json(await servicios.listarCompras({ estado: req.query.estado, bingoId: req.query.bingo }))) },
       { metodo: 'GET', patron: /^\/compras\/(\d+)$/, handler: admin(async (p, req, res) => res.json(await servicios.detalleCompra(id(p)))) },
-      { metodo: 'POST', patron: /^\/compras\/(\d+)\/pagos$/, handler: admin(async (p, req, res) => res.json(await servicios.registrarPagoManual(id(p), req.body || {}, { baseUrl: baseUrl(req) }))) },
+      { metodo: 'POST', patron: /^\/compras\/(\d+)\/pagos$/, handler: admin(async (p, req, res) => res.json(await servicios.registrarPagoManual(id(p), req.body || {}, { baseUrl: baseUrl(req), operador: await servicios.operadorDe(req.body?.operador) }))) },
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/enviar$/, handler: admin(async (p, req, res) => res.json(await servicios.enviarTablas(id(p), { cantidad: req.body?.cantidad, canales: req.body?.canales, baseUrl: baseUrl(req) }))) },
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/reenviar$/, handler: admin(async (p, req, res) => res.json(await servicios.reenviar(id(p), { canales: req.body?.canales, baseUrl: baseUrl(req) }))) },
       { metodo: 'GET', patron: /^\/compras\/(\d+)\/enlace-whatsapp$/, handler: admin(async (p, req, res) => res.json({ enlace: await servicios.enlaceWhatsapp(id(p), baseUrl(req)) })) },
@@ -64,8 +64,8 @@ module.exports = async (req, res) => {
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/convertir-donacion$/, handler: admin(async (p, req, res) => res.json(await servicios.convertirDonacion(id(p), req.body || {}))) },
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/rechazar$/, handler: admin(async (p, req, res) => res.json(await servicios.rechazarCompra(id(p)))) },
 
-      { metodo: 'POST', patron: /^\/pagos\/(\d+)\/verificar$/, handler: admin(async (p, req, res) => res.json(await servicios.verificarPago(id(p), req.body?.montoVerificado, { baseUrl: baseUrl(req) }))) },
-      { metodo: 'POST', patron: /^\/pagos\/(\d+)\/rechazar$/, handler: admin(async (p, req, res) => res.json(await servicios.rechazarPago(id(p), { baseUrl: baseUrl(req) }))) },
+      { metodo: 'POST', patron: /^\/pagos\/(\d+)\/verificar$/, handler: admin(async (p, req, res) => res.json(await servicios.verificarPago(id(p), req.body?.montoVerificado, { baseUrl: baseUrl(req), operador: await servicios.operadorDe(req.body?.operador) }))) },
+      { metodo: 'POST', patron: /^\/pagos\/(\d+)\/rechazar$/, handler: admin(async (p, req, res) => res.json(await servicios.rechazarPago(id(p), { baseUrl: baseUrl(req), operador: await servicios.operadorDe(req.body?.operador) }))) },
 
       {
         // Entrega el archivo privado al panel (la cookie de sesión autoriza la descarga).

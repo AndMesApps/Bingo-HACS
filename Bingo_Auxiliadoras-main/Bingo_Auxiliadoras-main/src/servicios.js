@@ -81,6 +81,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
 
   // ---------- Evento ----------
   // conQr=false deja fuera la imagen del QR (pesa) y solo avisa si existe; el panel la pide aparte al editar.
+  const listaOperadores = v => [...new Set(String(v ?? '').split(/[\n,;]+/).map(x => x.trim().slice(0, 40)).filter(Boolean))].slice(0, 30);
   const eventoDeFila = (e, conQr = true) => {
     return {
       nombre: e.nombre,
@@ -88,6 +89,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       moneda: e.moneda,
       fechaSorteo: e.fecha_sorteo,
       enlaceConexion: e.enlace_conexion ?? '',
+      operadores: listaOperadores(e.operadores),
       textoMensaje: e.texto_mensaje ?? '', // '' = se usa el texto original
       cuentasPago: e.cuentas_pago,
       exigirPagoCompleto: Boolean(e.exigir_pago_completo),
@@ -140,6 +142,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       enlaceConexion: limpiarConexion(datos.enlaceConexion ?? actual.enlaceConexion),
       // El texto del mensaje: si queda igual al original (o vacío) se guarda '' y se sigue usando el original.
       textoMensaje: datos.textoMensaje === undefined ? actual.textoMensaje : (String(datos.textoMensaje).replace(/\r\n/g, '\n').trim() === PLANTILLA_ORIGINAL.trim() ? '' : String(datos.textoMensaje).replace(/\r\n/g, '\n').trim()),
+      operadores: datos.operadores === undefined ? actual.operadores : listaOperadores(Array.isArray(datos.operadores) ? datos.operadores.join('\n') : datos.operadores),
       cuentasPago: String(datos.cuentasPago ?? actual.cuentasPago).slice(0, 2000),
       exigirPagoCompleto: datos.exigirPagoCompleto === undefined ? actual.exigirPagoCompleto : Boolean(datos.exigirPagoCompleto),
       envioAutomatico: datos.envioAutomatico === undefined ? actual.envioAutomatico : Boolean(datos.envioAutomatico),
@@ -161,7 +164,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     if (pieza && (pieza.length > PIEZA_MAX_CARACTERES || !PIEZA_VALIDA.test(pieza))) {
       throw new ErrorApp('La pieza de invitación debe ser una imagen PNG, JPG o WEBP de máximo 1 MB.');
     }
-    await q('UPDATE evento SET envio_automatico = $1, enlace_conexion = $2, texto_mensaje = $3 WHERE id = 1', [nuevo.envioAutomatico, nuevo.enlaceConexion, nuevo.textoMensaje]);
+    await q('UPDATE evento SET envio_automatico = $1, enlace_conexion = $2, texto_mensaje = $3, operadores = $4 WHERE id = 1', [nuevo.envioAutomatico, nuevo.enlaceConexion, nuevo.textoMensaje, nuevo.operadores.join('\n')]);
     await q(
       `UPDATE evento SET nombre=$1, precio_tabla=$2, moneda=$3, fecha_sorteo=$4, cuentas_pago=$5, exigir_pago_completo=$6,
          banco=$7, tipo_cuenta=$8, numero_cuenta=$9, titular_cuenta=$10, llave_pago=$11, qr_pago=$12 WHERE id = 1`,
@@ -324,6 +327,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       comprobantes: comprobantes || [],
       creadoEn: p.creado_en,
       verificadoEn: p.verificado_en,
+      verificadoPor: p.verificado_por ?? '',
     };
   }
 
@@ -499,7 +503,18 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     return detalleCompra(compraId);
   }
 
-  async function registrarPagoManual(compraId, datos, { baseUrl } = {}) {
+  // Quién aprueba: debe ser una de las operadoras configuradas. Sin lista configurada no se exige.
+  async function operadorDe(nombre) {
+    const lista = (await evento({ conQr: false })).operadores;
+    const n = String(nombre ?? '').trim();
+    if (!lista.length) return n.slice(0, 40);
+    if (!n) throw new ErrorApp('Elige quién aprueba el pago.');
+    const hallada = lista.find(x => x.toLowerCase() === n.toLowerCase());
+    if (!hallada) throw new ErrorApp('Esa persona no está en la lista de operadoras (se configura en Configuración).');
+    return hallada;
+  }
+
+  async function registrarPagoManual(compraId, datos, { baseUrl, operador = '' } = {}) {
     const c = await uno('SELECT * FROM compras WHERE id = $1', [compraId]);
     if (!c) throw new ErrorApp('Compra no encontrada.', 404);
     if (c.estado === 'rechazada') throw new ErrorApp('La compra está rechazada.', 409);
@@ -508,18 +523,18 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const referencia = String(datos.referencia ?? '').trim().slice(0, 60) || 'Manual';
     await db.tx(async t => {
       await t(
-        `INSERT INTO pagos (compra_id, monto_reportado, monto_verificado, metodo, referencia, fecha_pago, estado, creado_en, verificado_en)
-         VALUES ($1, $2, $2, $3, $4, $5, 'verificado', $6, $6)`,
-        [compraId, monto, metodo, referencia, FECHA_ISO.test(String(datos.fechaPago || '')) ? datos.fechaPago : ahora().slice(0, 10), ahora()],
+        `INSERT INTO pagos (compra_id, monto_reportado, monto_verificado, metodo, referencia, fecha_pago, estado, creado_en, verificado_en, verificado_por)
+         VALUES ($1, $2, $2, $3, $4, $5, 'verificado', $6, $6, $7)`,
+        [compraId, monto, metodo, referencia, FECHA_ISO.test(String(datos.fechaPago || '')) ? datos.fechaPago : ahora().slice(0, 10), ahora(), operador],
       );
       await alVerificarPago(t, c);
-      await bitacora('pago registrado', `${c.codigo}: ${monto} (${metodo})`, t);
+      await bitacora('pago registrado', `${c.codigo}: ${monto} (${metodo})${operador ? ` · por ${operador}` : ''}`, t);
     });
     await enviarSiCorresponde(compraId, baseUrl);
     return detalleCompra(compraId);
   }
 
-  async function verificarPago(pagoId, montoVerificado, { baseUrl } = {}) {
+  async function verificarPago(pagoId, montoVerificado, { baseUrl, operador = '' } = {}) {
     const p = await uno('SELECT * FROM pagos WHERE id = $1', [pagoId]);
     if (!p) throw new ErrorApp('Pago no encontrado.', 404);
     if (p.estado !== 'por_verificar') throw new ErrorApp('Este pago ya fue procesado.', 409);
@@ -527,24 +542,24 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const c = await uno('SELECT * FROM compras WHERE id = $1', [p.compra_id]);
     await db.tx(async t => {
       const act = await t(
-        "UPDATE pagos SET estado = 'verificado', monto_verificado = $1, verificado_en = $2 WHERE id = $3 AND estado = 'por_verificar' RETURNING id",
-        [monto, ahora(), pagoId],
+        "UPDATE pagos SET estado = 'verificado', monto_verificado = $1, verificado_en = $2, verificado_por = $4 WHERE id = $3 AND estado = 'por_verificar' RETURNING id",
+        [monto, ahora(), pagoId, operador],
       );
       if (!act.length) throw new ErrorApp('Este pago ya fue procesado.', 409);
       await alVerificarPago(t, c);
-      await bitacora('pago verificado', `${c.codigo}: ${monto} (${p.metodo} ${p.referencia})`, t);
+      await bitacora('pago verificado', `${c.codigo}: ${monto} (${p.metodo} ${p.referencia})${operador ? ` · por ${operador}` : ''}`, t);
     });
     await enviarSiCorresponde(c.id, baseUrl);
     return detalleCompra(c.id);
   }
 
-  async function rechazarPago(pagoId, { baseUrl } = {}) {
+  async function rechazarPago(pagoId, { baseUrl, operador = '' } = {}) {
     const p = await uno('SELECT * FROM pagos WHERE id = $1', [pagoId]);
     if (!p) throw new ErrorApp('Pago no encontrado.', 404);
     if (p.estado !== 'por_verificar') throw new ErrorApp('Este pago ya fue procesado.', 409);
-    await q("UPDATE pagos SET estado = 'rechazado', verificado_en = $1 WHERE id = $2", [ahora(), pagoId]);
+    await q("UPDATE pagos SET estado = 'rechazado', verificado_en = $1, verificado_por = $3 WHERE id = $2", [ahora(), pagoId, operador]);
     const c = await uno('SELECT codigo FROM compras WHERE id = $1', [p.compra_id]);
-    await bitacora('pago rechazado', `${c.codigo}: ${p.referencia}`);
+    await bitacora('pago rechazado', `${c.codigo}: ${p.referencia}${operador ? ` · por ${operador}` : ''}`);
     await enviarSiCorresponde(p.compra_id, baseUrl);
     return detalleCompra(p.compra_id);
   }
@@ -1416,8 +1431,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     if (nombre === 'pagos') {
       const filas = await q('SELECT p.*, c.codigo, c.nombre FROM pagos p JOIN compras c ON c.id = p.compra_id WHERE c.bingo_id = $1 ORDER BY p.id', [bid]);
       return {
-        encabezados: ['Fecha', 'Código', 'Nombre', 'Monto reportado', 'Monto verificado', 'Método', 'Referencia', 'Estado'],
-        filas: filas.map(p => [p.creado_en.slice(0, 10), p.codigo, p.nombre, num(p.monto_reportado), p.monto_verificado == null ? '' : num(p.monto_verificado), p.metodo, p.referencia, p.estado]),
+        encabezados: ['Fecha', 'Código', 'Nombre', 'Monto reportado', 'Monto verificado', 'Método', 'Referencia', 'Estado', 'Aprobado por'],
+        filas: filas.map(p => [p.creado_en.slice(0, 10), p.codigo, p.nombre, num(p.monto_reportado), p.monto_verificado == null ? '' : num(p.monto_verificado), p.metodo, p.referencia, p.estado, p.verificado_por || '']),
       };
     }
     if (nombre === 'tablas') {
@@ -1451,7 +1466,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     evento, actualizarEvento, piezaInvitacion,
     tablasDisponibles, tablasLibresParaVender, generarTablas, importarTablas, listarTablas,
     crearCompra, estadoPublico, detalleCompra, listarCompras,
-    registrarPagoManual, verificarPago, rechazarPago, convertirDonacion,
+    operadorDe, registrarPagoManual, verificarPago, rechazarPago, convertirDonacion,
     enviarTablas, reenviar, enlaceWhatsapp, enlaceCorreo, marcarEnviadoManual, entregaFisica, entregaPublica, rechazarCompra,
     gestionarSobrante, listarSobrantes, datosSelloEntrega,
     comprobanteDe,

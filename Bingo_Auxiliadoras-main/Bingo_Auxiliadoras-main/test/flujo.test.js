@@ -1495,3 +1495,28 @@ test('texto editable: etiquetas, líneas sin datos, validación y vista previa',
   await s.reiniciarBingo({ nombre: 'Siguiente', confirmar: true });
   assert.equal((await s.evento()).textoMensaje, 'Hola {nombre}: {enlace}');
 });
+
+test('operadoras: configurables y quedan registradas al aprobar o rechazar un pago', async () => {
+  const s = await nuevo();
+  assert.deepEqual((await s.evento()).operadores, ['Claudia', 'Olga', 'Aura', 'Carmen', 'Alicia', 'Diana']);
+  assert.equal(await s.operadorDe(' olga '), 'Olga', 'ignora mayúsculas y espacios');
+  await assert.rejects(() => s.operadorDe(''), /quién aprueba/);
+  await assert.rejects(() => s.operadorDe('Zulema'), /no está en la lista/);
+
+  await tablas(s, 4);
+  const a = await comprar(s, 1);
+  const da = await s.detalleCompra(a.id);
+  const v = await s.verificarPago(da.pagos[0].id, da.total, { operador: await s.operadorDe('Aura') });
+  assert.equal(v.pagos[0].verificadoPor, 'Aura');
+
+  const b = await comprar(s, 1, { nombre: 'Otra Persona' });
+  const db_ = await s.detalleCompra(b.id);
+  const r = await s.rechazarPago(db_.pagos[0].id, { operador: 'Carmen' });
+  assert.equal(r.pagos[0].verificadoPor, 'Carmen');
+
+  // Cambiar la lista: sin duplicados ni líneas vacías; sin lista ya no se exige.
+  await s.actualizarEvento({ operadores: 'Rosa\n\n Rosa \nLuz, Marta' });
+  assert.deepEqual((await s.evento()).operadores, ['Rosa', 'Luz', 'Marta']);
+  await s.actualizarEvento({ operadores: '' });
+  assert.equal(await s.operadorDe(''), '');
+});
