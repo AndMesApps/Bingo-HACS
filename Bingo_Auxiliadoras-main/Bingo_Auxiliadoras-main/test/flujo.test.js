@@ -1713,3 +1713,22 @@ test('reparto: los reportes de Excel dicen quién recibió cada tabla', async ()
   assert.equal(t.filas.length, 6);
   assert.equal(t.filas.find(f => f[1] === 'disponible')[7], '');
 });
+
+test('pidió menos de lo que pagó: la administración elige una tabla más o dejar el resto en donación', async () => {
+  const s = await nuevo();
+  await tablas(s, 6);
+  // Pidió 2 (20) y pagó 30: alcanza para 3.
+  const a = await s.crearCompra(datos(2, { montoPagado: 30, sobranteDestino: 'devolucion', sobranteNota: 'Nequi 300' }), comprobante());
+  await verificarTodo(s, a.id, 30);
+  const masUna = await s.enviarTablas(a.id, { cantidad: 3 });
+  assert.equal(masUna.tablas.length, 3);
+  assert.equal((await s.detalleCompra(a.id)).sobranteMonto, 0);
+
+  const b = await s.crearCompra(datos(2, { montoPagado: 30, sobranteDestino: 'devolucion', sobranteNota: 'Nequi 300' }), comprobante());
+  await verificarTodo(s, b.id, 30);
+  await s.enviarTablas(b.id, { cantidad: 2, sobranteDestino: 'donacion' });
+  const d = await s.detalleCompra(b.id);
+  assert.equal(d.tablas.length, 2);
+  assert.equal(d.sobranteMonto, 10);
+  assert.equal(d.sobranteEstado, 'donado');
+});

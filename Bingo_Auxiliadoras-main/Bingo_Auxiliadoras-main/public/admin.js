@@ -289,6 +289,7 @@ function panelEnvio(c) {
   const rep = c.reparto || [];
   const sumaRep = rep.reduce((s, x) => s + x.cantidad, 0);
   const descuadre = sug !== c.cantidad;
+  const menosPedidas = c.cantidad > 0 && sug > c.cantidad && !rep.length;
   return `
   <form class="envio" data-enviar="${c.id}" data-nombre="${esc(c.nombre)}">
     <div class="calc ${descuadre ? 'alerta' : ''}">
@@ -296,8 +297,13 @@ function panelEnvio(c) {
       <span class="txt">Con ${dinero(c.pagado)} verificados corresponden <strong>${sug}</strong> tabla(s) a ${dinero(c.precioUnitario)}.
         El comprador pidió ${c.cantidad}.${sug < 1 ? ' El pago no alcanza para una tabla.' : ''}</span>
     </div>
+    ${menosPedidas ? `<fieldset class="opcion-sobrante" data-opcion-sobrante data-pidio="${c.cantidad}" data-cubre="${sug}" style="margin:12px 0 0;border:1px solid var(--line);border-radius:12px;padding:10px 14px">
+      <legend><strong>Pidió ${c.cantidad} y pagó para ${sug}: ¿qué hacemos con el resto?</strong></legend>
+      <label class="check"><input type="radio" name="opcionSobrante" value="mas" ${c.sobranteDestino === 'donacion' ? '' : 'checked'}> Asignarle ${sug - c.cantidad === 1 ? 'una tabla más' : `${sug - c.cantidad} tablas más`} (envío ${sug} en total)</label>
+      <label class="check"><input type="radio" name="opcionSobrante" value="donacion" ${c.sobranteDestino === 'donacion' ? 'checked' : ''}> Enviar solo las ${c.cantidad} que pidió y dejar ${dinero(c.pagado - c.cantidad * c.precioUnitario)} en donación</label>
+    </fieldset>` : ''}
     <div class="grid" style="margin-top:12px">
-      <label>Tablas a enviar <input name="cantidad" type="number" min="1" value="${(rep.length ? sumaRep : sug) || ''}" ${rep.length ? 'readonly' : ''} required data-pagado="${c.pagado}" data-precio="${c.precioUnitario}"></label>
+      <label>Tablas a enviar <input name="cantidad" type="number" min="1" value="${(rep.length ? sumaRep : (menosPedidas && c.sobranteDestino === 'donacion' ? c.cantidad : sug)) || ''}" ${rep.length ? 'readonly' : ''} required data-pagado="${c.pagado}" data-precio="${c.precioUnitario}"></label>
     </div>
     <div data-reparto-activar ${rep.length ? 'hidden' : ''}>
       <div class="actions"><button type="button" class="ghost" data-reparto-toggle>Repartir entre varias personas</button></div>
@@ -485,6 +491,13 @@ function pintarSobranteEnvio(form) {
   const eleccion = { donacion: 'quiso donarlo', devolucion: `pidió devolución${info.dataset.nota ? ` («${info.dataset.nota}»)` : ''}` }[info.dataset.eleccion] || 'no eligió qué hacer: tú decidirás después';
   info.textContent = `Sobran ${dinero(sobra)}; el comprador ${eleccion}.`;
 }
+$('vista').addEventListener('change', e => {
+  const sf = e.target.closest('form[data-enviar]');
+  if (!sf || e.target.name !== 'opcionSobrante') return;
+  const os = sf.querySelector('[data-opcion-sobrante]');
+  sf.cantidad.value = e.target.value === 'mas' ? os.dataset.cubre : os.dataset.pidio;
+  pintarSobranteEnvio(sf);
+});
 $('vista').addEventListener('input', e => {
   const fr = e.target.closest('form[data-enviar]');
   if (fr && e.target.matches('[data-r="cantidad"]')) sumarReparto(fr);
@@ -516,6 +529,7 @@ $('vista').addEventListener('click', async e => {
   if (rf && e.target.closest('button[data-reparto-toggle]')) {
     rf.querySelector('[data-reparto-activar]').hidden = true;
     rf.querySelector('[data-reparto]').hidden = false;
+    const os = rf.querySelector('[data-opcion-sobrante]'); if (os) os.hidden = true;
     rf.cantidad.readOnly = true;
     rf.querySelector('[data-reparto-filas]').insertAdjacentHTML('beforeend', filaReparto({ cantidad: Number(rf.cantidad.value) || 1 }) + filaReparto({ cantidad: 1 }));
     return sumarReparto(rf);
@@ -532,6 +546,7 @@ $('vista').addEventListener('click', async e => {
     rf.querySelector('[data-reparto-filas]').replaceChildren();
     rf.querySelector('[data-reparto]').hidden = true;
     rf.querySelector('[data-reparto-activar]').hidden = false;
+    const os = rf.querySelector('[data-opcion-sobrante]'); if (os) os.hidden = false;
     rf.cantidad.readOnly = false;
     rf.cantidad.value = rf.cantidad.defaultValue;
     rf.cantidad.dispatchEvent(new Event('input', { bubbles: true }));
@@ -676,12 +691,15 @@ $('vista').addEventListener('submit', async e => {
     }));
     if (!destinatarios.length) return msg('Agrega al menos una persona al reparto o pulsa "No repartir".', true);
   }
+  // Si pidió menos de lo que pagó: la administración decide si se le asigna una tabla más o el resto queda en donación.
+  const os = envio.querySelector('[data-opcion-sobrante]');
+  const sobranteDestino = os && !os.hidden && envio.opcionSobrante.value === 'donacion' ? 'donacion' : undefined;
   const quien = destinatarios ? `${destinatarios.length} persona(s) (${destinatarios.map(d => d.nombre).join(', ')})` : envio.dataset.nombre;
   if (!confirm(`¿Asignar ${cantidad} tabla(s) a ${quien} y enviarlas? Esta acción no se puede deshacer.`)) return;
   const boton = envio.querySelector('button[type="submit"]');
   boton.disabled = true;
   try {
-    const r = await api('POST', `/admin/compras/${envio.dataset.enviar}/enviar`, { cantidad, canales, destinatarios });
+    const r = await api('POST', `/admin/compras/${envio.dataset.enviar}/enviar`, { cantidad, canales, destinatarios, sobranteDestino });
     const partes = [];
     if (canales.whatsapp) partes.push(r.whatsappEstado === 'enviado' ? 'WhatsApp enviado' : r.whatsappEstado === 'manual' ? 'WhatsApp: usa "Enviar por WhatsApp"' : 'WhatsApp falló');
     if (canales.correo) partes.push(r.correoEstado === 'enviado' ? 'correo enviado' : r.correoEstado === 'manual' ? 'correo: usa "Correo manual"' : 'correo falló');
