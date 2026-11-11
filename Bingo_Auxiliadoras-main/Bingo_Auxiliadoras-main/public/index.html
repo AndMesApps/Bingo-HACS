@@ -94,6 +94,19 @@
       <div class="grid">
         <label id="campo-cantidad">Número de tablas <input name="cantidad" type="number" min="1" max="50" value="1" required inputmode="numeric"></label>
       </div>
+      <div id="reparto-box" style="margin-top:14px">
+        <div class="actions" id="reparto-abrir" style="margin-top:0"><button type="button" class="ghost" id="btn-reparto">Quiero repartir mis tablas entre varias personas</button></div>
+        <div class="calc" id="reparto" style="display:block" hidden>
+          <p style="margin:0 0 4px"><strong>¿A quién le enviamos cada tabla?</strong></p>
+          <p class="muted" style="margin:0 0 6px">Escribe el nombre, el WhatsApp y cuántas tablas recibe cada persona; a cada una le llegan solo las suyas. Las cantidades deben sumar el número de tablas de arriba. Si te quedas con alguna, agrégate también. Usamos el país que elegiste arriba; si alguien es de otro país, escribe su número con + y el indicativo.</p>
+          <div id="reparto-filas"></div>
+          <div class="actions">
+            <button type="button" class="ghost" id="reparto-agregar">Agregar otra persona</button>
+            <button type="button" class="ghost" id="reparto-cancelar">No repartir</button>
+          </div>
+          <p class="muted" id="reparto-suma" style="margin:10px 0 0" aria-live="polite"></p>
+        </div>
+      </div>
       <div class="calc" id="calc" style="margin-top:14px" aria-live="polite">
         <span class="num" id="calc-n">0</span>
         <span class="txt" id="calc-txt">Escribe el valor pagado para ver cuántas tablas corresponden.</span>
@@ -356,6 +369,9 @@ function mostrarDonar(n) {
   const donando = n >= 1 ? f.donarSinTablas.checked
     : f.querySelector('input[name="valorInsuficiente"]:checked')?.value === 'donacion';
   $('campo-cantidad').hidden = donando;
+  $('reparto-box').hidden = donando;
+  // Si dona todo no hay nada que repartir: se cierra el reparto para que sus campos no bloqueen el envío.
+  if (donando && !$('reparto').hidden) $('reparto-cancelar').click();
   return n >= 1 && donando;
 }
 
@@ -440,6 +456,52 @@ $('form').addEventListener('change', e => {
   }
 });
 $('form').comprobantes.required = true;
+
+// Reparto de las tablas entre varias personas: cada una con su nombre, WhatsApp y cantidad.
+const filasReparto = () => [...$('reparto-filas').querySelectorAll('.reparto-fila')];
+function agregarPersona(cantidad = 1) {
+  const fila = document.createElement('div');
+  fila.className = 'reparto-fila row';
+  fila.style.cssText = 'align-items:flex-end;margin-top:8px';
+  fila.innerHTML = `
+    <label style="flex:2 1 150px">Nombre <input data-r="nombre" maxlength="120" required></label>
+    <label style="flex:1 1 150px">WhatsApp <input data-r="telefono" maxlength="40" required inputmode="tel"></label>
+    <label style="flex:0 1 90px">Tablas <input data-r="cantidad" type="number" min="1" max="50" required inputmode="numeric"></label>
+    <button type="button" class="ghost" data-quitar-persona>Quitar</button>`;
+  fila.querySelector('[data-r="cantidad"]').value = cantidad;
+  $('reparto-filas').append(fila);
+  sumaReparto();
+  return fila;
+}
+function sumaReparto() {
+  const suma = filasReparto().reduce((s, f) => s + (Number(f.querySelector('[data-r="cantidad"]').value) || 0), 0);
+  const pedidas = Number($('form').cantidad.value) || 0;
+  const el = $('reparto-suma');
+  el.textContent = suma === pedidas ? `Va bien: ${suma} tabla(s) repartidas.` : `Llevas ${suma} de ${pedidas} tabla(s) repartidas.`;
+  el.className = suma === pedidas ? 'muted' : 'muted neg';
+}
+$('btn-reparto').addEventListener('click', () => {
+  $('reparto').hidden = false;
+  $('reparto-abrir').hidden = true;
+  if (!filasReparto().length) {
+    const n = Number($('form').cantidad.value) || 1;
+    agregarPersona(Math.max(1, n - 1)).querySelector('[data-r="nombre"]').focus();
+    agregarPersona(1);
+  }
+});
+$('reparto-agregar').addEventListener('click', () => agregarPersona(1).querySelector('[data-r="nombre"]').focus());
+$('reparto-cancelar').addEventListener('click', () => {
+  $('reparto-filas').replaceChildren();
+  $('reparto').hidden = true;
+  $('reparto-abrir').hidden = false;
+});
+$('reparto-filas').addEventListener('click', e => {
+  if (e.target.closest('[data-quitar-persona]')) { e.target.closest('.reparto-fila').remove(); sumaReparto(); }
+});
+$('form').addEventListener('input', e => {
+  if (e.target.name === 'cantidad' || e.target.dataset?.r === 'cantidad') sumaReparto();
+});
+
 $('agregar-pago').addEventListener('click', () => agregarFilaExtra()?.querySelector('[data-c="monto"]').focus());
 $('pagos-extra').addEventListener('click', e => {
   if (e.target.closest('[data-quitar]')) { e.target.closest('.pago-extra').remove(); actualizar(); }
@@ -455,6 +517,17 @@ $('form').addEventListener('submit', async e => {
     const f = e.target;
     const tel = numeroInternacional();
     if (tel === null) throw new Error('Para otro país escribe tu celular con + y el indicativo, ej. +34 612 345 678.');
+    // Reparto entre varias personas (solo si se compran tablas y se abrió el reparto). Se valida antes de subir archivos.
+    let reparto = null;
+    if (!$('reparto').hidden && !$('reparto-box').hidden && filasReparto().length) {
+      reparto = filasReparto().map(fila => ({
+        nombre: fila.querySelector('[data-r="nombre"]').value.trim(),
+        telefono: fila.querySelector('[data-r="telefono"]').value.trim(),
+        cantidad: Number(fila.querySelector('[data-r="cantidad"]').value),
+      }));
+      const suma = reparto.reduce((t, x) => t + x.cantidad, 0);
+      if (suma !== Number(f.cantidad.value)) throw new Error(`Las tablas del reparto suman ${suma} y pediste ${f.cantidad.value}. Deben coincidir.`);
+    }
     // Los comprobantes van directo a Vercel Blob con un token del servidor; la compra solo guarda sus rutas.
     const subir = async (archivos, etiqueta) => {
       if (!esEfectivo() && !archivos.length) throw new Error(`Adjunta el comprobante de la consignación${etiqueta}.`);
@@ -483,6 +556,7 @@ $('form').addEventListener('submit', async e => {
     }
     const cuerpo = Object.fromEntries([...new FormData(f)].filter(([k]) => k !== 'comprobantes'));
     cuerpo.comprobantes = comprobantes;
+    if (reparto) cuerpo.reparto = reparto;
     cuerpo.pagosExtra = pagosExtra;
     $('msg').textContent = 'Registrando compra…';
     const res = await fetch('/api/publico/compras', {
