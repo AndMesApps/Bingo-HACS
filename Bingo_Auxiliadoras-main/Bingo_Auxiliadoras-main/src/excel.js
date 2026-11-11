@@ -27,11 +27,11 @@ const FORMATO = { texto: '@', entero: '#,##0', fecha: 'dd/mm/yyyy' };
 
 // Tipo de cada columna de los reportes (por nombre de reporte y posición).
 const TIPOS_REPORTE = {
-  compras: ['texto', 'fecha', 'texto', 'texto', 'texto', 'texto', 'texto', 'texto', 'entero', 'entero', 'dinero', 'dinero', 'dinero', 'estado', 'estado', 'estado', 'estado', 'largo'],
+  compras: ['texto', 'fecha', 'texto', 'texto', 'texto', 'texto', 'texto', 'texto', 'entero', 'entero', 'dinero', 'dinero', 'dinero', 'estado', 'estado', 'estado', 'estado', 'largo', 'largo'],
   pagos: ['fecha', 'texto', 'texto', 'dinero', 'dinero', 'texto', 'texto', 'estado'],
   deudas: ['texto', 'texto', 'texto', 'texto', 'dinero', 'dinero', 'dinero'],
   sobrantes: ['texto', 'texto', 'texto', 'dinero', 'entero', 'dinero', 'texto', 'estado', 'largo', 'largo'],
-  tablas: ['texto', 'estado', 'fecha', 'texto', 'texto', 'texto', 'texto'],
+  tablas: ['texto', 'estado', 'fecha', 'texto', 'texto', 'texto', 'texto', 'texto', 'texto'],
   premios: ['texto', 'texto', 'texto', 'dinero', 'texto', 'texto', 'texto', 'texto', 'estado', 'texto', 'largo'],
   gastos: ['fecha', 'texto', 'texto', 'dinero'],
 };

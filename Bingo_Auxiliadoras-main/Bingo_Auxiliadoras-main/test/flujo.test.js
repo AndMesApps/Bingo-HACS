@@ -112,6 +112,26 @@ test('saldo y deuda con pagos parciales', async () => {
   assert.equal(d.estado, 'verificada');
 });
 
+test('con varios pagos, el que queda pendiente sigue en "por verificar" aunque otro ya esté verificado', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  const c = await s.crearCompra(datos(1, {
+    montoPagado: 9, pagosExtra: [{ montoPagado: 1, fechaPago: new Date().toISOString().slice(0, 10), referencia: 'REF-PESO', comprobantes: comprobante() }],
+  }), comprobante());
+  const [p1, p2] = (await s.detalleCompra(c.id)).pagos;
+  await s.verificarPago(p1.id, 9);
+  // La compra ya está "verificada" pero su segundo pago sigue pendiente: debe aparecer para verificarlo.
+  assert.equal((await s.detalleCompra(c.id)).estado, 'verificada');
+  let lista = await s.listarCompras({ estado: 'por_verificar' });
+  assert.deepEqual(lista.map(x => x.id), [c.id]);
+  assert.equal(lista[0].pagosPendientes, 1);
+  assert.equal((await s.resumen()).compras.porVerificar, 1);
+  await s.verificarPago(p2.id, 1);
+  assert.deepEqual(await s.listarCompras({ estado: 'por_verificar' }), []);
+  assert.equal((await s.resumen()).compras.porVerificar, 0);
+  assert.equal((await s.detalleCompra(c.id)).saldo, 0);
+});
+
 test('verificar con monto 0 o pago ya procesado falla', async () => {
   const s = await nuevo();
   await tablas(s, 1);
@@ -1541,4 +1561,155 @@ test('reiniciar el sorteo borra balotas y ganadoras pero respeta compras y tabla
   // La ronda se puede volver a jugar desde cero.
   await s.iniciarRonda(p.id);
   assert.deepEqual((await s.estadoSorteo()).balotas, []);
+});
+
+// ---------- Reparto de las tablas de una compra entre varias personas ----------
+// El panel muestra los celulares guardados (internacionales) con + para que no se les agregue otro indicativo.
+const comoLoEnviaElPanel = lista => lista.map(x => ({ ...x, telefono: '+' + x.telefono }));
+const personas = [
+  { nombre: 'Ana Pérez', telefono: '3001111111', cantidad: 2 },
+  { nombre: 'Luis Gómez', telefono: '3002222222', cantidad: 1 },
+  { nombre: 'Eva Ruiz', telefono: '+34612345678', cantidad: 1 },
+];
+
+test('reparto: el formulario exige que las cantidades sumen las tablas de la compra', async () => {
+  const s = await nuevo();
+  await tablas(s, 6);
+  await assert.rejects(s.crearCompra(datos(4, { reparto: personas.slice(0, 2) }), comprobante()), /suman 3 y pidió 4/);
+  await assert.rejects(s.crearCompra(datos(4, { reparto: [{ ...personas[0], cantidad: 4 }, { nombre: '', telefono: '3003333333', cantidad: 0 }] }), comprobante()), /nombre de la persona 2/);
+  await assert.rejects(s.crearCompra(datos(4, { reparto: [{ ...personas[0], telefono: '12' , cantidad: 4 }] }), comprobante()), /celular de la persona 1/);
+  const ok = await s.crearCompra(datos(4, { reparto: personas }), comprobante());
+  const d = await s.detalleCompra(ok.id);
+  assert.equal(d.reparto.length, 3);
+  assert.equal(d.reparto[0].telefono, '583001111111'); // se guarda internacional
+  assert.equal(d.reparto[2].telefono, '34612345678');
+  assert.deepEqual(d.entregas, []); // aún no se envió
+});
+
+test('reparto: cada persona recibe solo sus tablas, con su WhatsApp y su enlace', async () => {
+  const mensajes = [];
+  const whatsapp = {
+    ...crearWhatsApp({}),
+    enviarTablas: async x => { mensajes.push(x); return { estado: 'enviado' }; },
+  };
+  const s = await nuevo({ whatsapp });
+  await tablas(s, 6);
+  const c = await s.crearCompra(datos(4, { reparto: personas }), comprobante());
+  await verificarTodo(s, c.id);
+  const e = await s.enviarTablas(c.id, { destinatarios: comoLoEnviaElPanel((await s.detalleCompra(c.id)).reparto), baseUrl: 'https://bingo.test' });
+
+  assert.equal(e.estado, 'enviada');
+  assert.equal(e.tablas.length, 4);
+  assert.equal(e.entregas.length, 3);
+  assert.deepEqual(e.entregas.map(x => x.tablas.length), [2, 1, 1]);
+  // Ninguna tabla se repite entre personas y juntas son las de la compra.
+  const juntas = e.entregas.flatMap(x => x.tablas);
+  assert.equal(new Set(juntas).size, 4);
+  assert.deepEqual([...juntas].sort(), [...e.tablas].sort());
+  // Un WhatsApp por persona, con sus tablas y su propio enlace.
+  assert.equal(mensajes.length, 3);
+  assert.deepEqual(mensajes.map(m => m.telefono), ['583001111111', '583002222222', '34612345678']);
+  assert.deepEqual(mensajes.map(m => m.seriales.length), [2, 1, 1]);
+  assert.equal(new Set(mensajes.map(m => m.enlace)).size, 3);
+  assert.equal(e.whatsappEstado, 'enviado');
+  assert.ok(e.entregas.every(x => x.whatsappEstado === 'enviado'));
+  // El enlace de cada persona solo muestra sus tablas.
+  const token = mensajes[1].enlace.split('?t=')[1];
+  const publica = await s.entregaPublica(token);
+  assert.equal(publica.nombre, 'Luis Gómez');
+  assert.deepEqual(publica.tablas, e.entregas[1].tablas);
+  const sello = await s.datosSelloEntrega(token);
+  assert.equal(sello.telefono, '583002222222');
+  // El listado de tablas muestra quién tiene cada una.
+  const lista = await s.listarTablas();
+  const deEva = lista.find(t => t.serial === e.entregas[2].tablas[0]);
+  assert.equal(deEva.compraNombre, 'Eva Ruiz');
+});
+
+test('reparto: quien administra puede repartir una compra que no lo pidió, y no puede descuadrar ni sobrepasar', async () => {
+  const mensajes = [];
+  const whatsapp = { ...crearWhatsApp({}), enviarTablas: async x => { mensajes.push(x); return { estado: 'enviado' }; } };
+  const s = await nuevo({ whatsapp });
+  await tablas(s, 5);
+  const c = await comprar(s, 3);
+  await verificarTodo(s, c.id);
+  await assert.rejects(s.enviarTablas(c.id, { cantidad: 3, destinatarios: personas.slice(1, 3) }), /suman 2 y se envían 3/);
+  assert.equal((await s.resumen()).tablas.disponibles, 5); // nada quedó asignado
+  const e = await s.enviarTablas(c.id, { cantidad: 3, destinatarios: [{ ...personas[0], cantidad: 2 }, { ...personas[1], cantidad: 1 }] });
+  assert.equal(e.entregas.length, 2);
+  assert.equal(mensajes.length, 2);
+  assert.equal(mensajes.some(m => m.nombre === 'Ana Pérez' && m.seriales.length === 2), true);
+});
+
+test('reparto: reintento y confirmación manual por persona, y el estado de la compra resume a todas', async () => {
+  let fallar = true;
+  const whatsapp = {
+    ...crearWhatsApp({}),
+    enviarTablas: async x => {
+      if (fallar && x.nombre === 'Luis Gómez') throw new Error('sin cobertura');
+      return { estado: 'enviado' };
+    },
+  };
+  const s = await nuevo({ whatsapp });
+  await tablas(s, 5);
+  const c = await s.crearCompra(datos(4, { reparto: personas }), comprobante());
+  await verificarTodo(s, c.id);
+  let e = await s.enviarTablas(c.id, { destinatarios: comoLoEnviaElPanel((await s.detalleCompra(c.id)).reparto) });
+  assert.equal(e.whatsappEstado, 'fallido');
+  assert.match(e.whatsappError, /Luis Gómez: sin cobertura/);
+  assert.deepEqual(e.entregas.map(x => x.whatsappEstado), ['enviado', 'fallido', 'enviado']);
+
+  fallar = false;
+  e = await s.reenviar(c.id, { canales: { whatsapp: true } }); // solo a quien no le llegó
+  assert.deepEqual(e.entregas.map(x => x.whatsappEstado), ['enviado', 'enviado', 'enviado']);
+  assert.equal(e.whatsappEstado, 'enviado');
+
+  // Enlace manual: exige elegir persona en una compra repartida.
+  await assert.rejects(s.enlaceWhatsapp(c.id, 'https://bingo.test'), /elige a qué persona/);
+  const link = await s.enlaceWhatsapp(c.id, 'https://bingo.test', e.entregas[0].id);
+  assert.match(link, /^https:\/\/wa\.me\/583001111111/);
+  await assert.rejects(s.enlaceWhatsapp(c.id, 'https://bingo.test', 999999), /no pertenece/);
+});
+
+test('reparto: sin reparto todo sigue igual y la ganadora de una tabla repartida es la persona que la recibió', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  const c = await comprar(s, 2);
+  await verificarTodo(s, c.id);
+  const e = await s.enviarTablas(c.id);
+  assert.deepEqual(e.entregas, []);
+  assert.deepEqual(e.reparto, []);
+  assert.equal(e.tablas.length, 2);
+});
+
+test('reparto: el envío automático respeta el reparto que pidió el comprador (sin alterar celulares de otros países)', async () => {
+  const mensajes = [];
+  const whatsapp = { ...crearWhatsApp({}), enviarTablas: async x => { mensajes.push(x); return { estado: 'enviado' }; } };
+  const s = await nuevo({ whatsapp });
+  await s.actualizarEvento({ nombre: 'Prueba', precioTabla: 10, moneda: 'USD', envioAutomatico: true });
+  await tablas(s, 6);
+  const c = await s.crearCompra(datos(4, { reparto: personas }), comprobante());
+  await verificarTodo(s, c.id);
+  const d = await s.detalleCompra(c.id);
+  assert.equal(d.estado, 'enviada');
+  assert.deepEqual(d.entregas.map(x => x.telefono), ['583001111111', '583002222222', '34612345678']);
+  assert.deepEqual(mensajes.map(m => m.telefono), ['583001111111', '583002222222', '34612345678']);
+});
+
+test('reparto: los reportes de Excel dicen quién recibió cada tabla', async () => {
+  const s = await nuevo();
+  await tablas(s, 6);
+  const c = await s.crearCompra(datos(4, { reparto: personas }), comprobante());
+  await verificarTodo(s, c.id);
+  await s.enviarTablas(c.id, { destinatarios: comoLoEnviaElPanel((await s.detalleCompra(c.id)).reparto) });
+  const compras = await s.reporte('compras');
+  assert.equal(compras.encabezados.at(-1), 'Repartida entre');
+  assert.match(compras.filas[0].at(-1), /Ana Pérez \(583001111111\): .* \| Luis Gómez .* \| Eva Ruiz \(34612345678\)/);
+  const t = await s.reporte('tablas');
+  const vendidas = t.filas.filter(f => f[1] === 'vendida');
+  assert.equal(vendidas.length, 4);
+  assert.deepEqual(vendidas.map(f => f[7]).sort(), ['Ana Pérez', 'Ana Pérez', 'Eva Ruiz', 'Luis Gómez']);
+  assert.ok(vendidas.every(f => f[4] === 'Ana Pérez')); // Nombre sigue siendo quien compró
+  assert.equal(t.filas.length, 6);
+  assert.equal(t.filas.find(f => f[1] === 'disponible')[7], '');
 });

@@ -7,6 +7,7 @@ const ALFABETO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const MAX_TABLAS_POR_COMPRA = 50;
 const MAX_TABLAS_LOTE = 500;
 const MAX_PAGOS_EXTRA = 4;
+const MAX_DESTINATARIOS = 10;
 const LOCK_VENTAS = 7001;
 const LOCK_TABLAS = 7002;
 // Bingo activo, y "el indicado o, si no se indica ninguno, el activo" para consultar un Bingo del histórico.
@@ -46,11 +47,19 @@ const SQL_COMPRAS = `
   SELECT c.*,
     COALESCE((SELECT SUM(p.monto_verificado) FROM pagos p WHERE p.compra_id = c.id AND p.estado = 'verificado'), 0) AS pagado,
     COALESCE((SELECT SUM(p.monto_reportado) FROM pagos p WHERE p.compra_id = c.id AND p.estado <> 'rechazado'), 0) AS reportado,
+    (SELECT COUNT(*)::int FROM pagos p WHERE p.compra_id = c.id AND p.estado = 'por_verificar') AS pagos_pendientes,
     (SELECT string_agg(DISTINCT p.metodo, ', ') FROM pagos p WHERE p.compra_id = c.id AND p.estado <> 'rechazado') AS metodos,
     (SELECT MAX(p.fecha_pago) FROM pagos p WHERE p.compra_id = c.id AND p.estado <> 'rechazado') AS fecha_pago,
     COALESCE((SELECT array_agg(x.serial ORDER BY x.serial) FROM (
       SELECT t.serial FROM tablas t WHERE t.compra_id = c.id
-      UNION ALL SELECT h.serial FROM tablas_historial h WHERE h.compra_id = c.id) x), '{}') AS tablas
+      UNION ALL SELECT h.serial FROM tablas_historial h WHERE h.compra_id = c.id) x), '{}') AS tablas,
+    -- Personas entre las que se repartieron las tablas (vacío si la compra no se repartió).
+    COALESCE((SELECT json_agg(json_build_object('id', e.id, 'nombre', e.nombre, 'telefono', e.telefono, 'cantidad', e.cantidad,
+        'token', e.token_entrega, 'whatsappEstado', e.whatsapp_estado, 'whatsappError', e.whatsapp_error,
+        'tablas', COALESCE((SELECT array_agg(y.serial) FROM (
+          SELECT t.serial FROM tablas t WHERE t.entrega_id = e.id
+          UNION ALL SELECT h.serial FROM tablas_historial h WHERE h.entrega_id = e.id) y), '{}')) ORDER BY e.id)
+      FROM entregas e WHERE e.compra_id = c.id), '[]'::json) AS entregas_json
   FROM compras c`;
 
 // Cuántas tablas cubre un monto al precio dado (siempre hacia abajo: nunca se regala una tabla).
@@ -73,6 +82,14 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
   const serialesDe = async (compraId, t = q) => (await t(
     'SELECT serial FROM tablas WHERE compra_id = $1 UNION SELECT serial FROM tablas_historial WHERE compra_id = $1', [compraId],
   )).map(r => r.serial).sort(porSerial);
+  const serialesDeEntrega = async (entregaId, t = q) => (await t(
+    'SELECT serial FROM tablas WHERE entrega_id = $1 UNION SELECT serial FROM tablas_historial WHERE entrega_id = $1', [entregaId],
+  )).map(r => r.serial).sort(porSerial);
+
+  // Lee un JSON guardado como texto o devuelto ya armado por la base; ante cualquier duda, lista vacía.
+  const jsonLista = v => {
+    try { const x = typeof v === 'string' ? JSON.parse(v || '[]') : v; return Array.isArray(x) ? x : []; } catch { return []; }
+  };
 
   async function exigirActivo(bingoId, que) {
     const [{ id }] = await q("SELECT id FROM bingos WHERE estado = 'activo'");
@@ -239,8 +256,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
 
   async function listarTablas() {
     const filas = await q(`SELECT t.serial, t.estado, t.vendida_en, c.id AS compra_id, c.codigo AS compra_codigo,
-        c.nombre AS compra_nombre, c.telefono AS compra_telefono
-      FROM tablas t LEFT JOIN compras c ON c.id = t.compra_id`);
+        COALESCE(e.nombre, c.nombre) AS compra_nombre, COALESCE(e.telefono, c.telefono) AS compra_telefono
+      FROM tablas t LEFT JOIN compras c ON c.id = t.compra_id LEFT JOIN entregas e ON e.id = t.entrega_id`);
     return filas.sort((a, b) => porSerial(a.serial, b.serial)).map(t => ({
       serial: t.serial, estado: t.estado, vendidaEn: t.vendida_en,
       compraId: t.compra_id, compraCodigo: t.compra_codigo, compraNombre: t.compra_nombre, compraTelefono: t.compra_telefono,
@@ -286,6 +303,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       tablasSugeridas: tablasPorMonto(pagado, precio),
       tablasReportadas: tablasPorMonto(num(c.reportado), precio),
       reportado: redondear(num(c.reportado)),
+      // Pagos de esta compra que aún esperan verificación (puede haber varios, aunque la compra ya esté verificada).
+      pagosPendientes: num(c.pagos_pendientes),
       metodos: c.metodos || '',
       fechaPago: c.fecha_pago || '',
       precioUnitario: precio,
@@ -311,6 +330,12 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       verificadaEn: c.verificada_en,
       enviadaEn: c.enviada_en,
       tablas: [...(c.tablas || [])].sort(porSerial),
+      // Reparto pedido por el comprador y personas entre las que ya se repartieron las tablas.
+      reparto: jsonLista(c.reparto),
+      entregas: jsonLista(c.entregas_json).map(e => ({
+        id: e.id, nombre: e.nombre, telefono: e.telefono, cantidad: e.cantidad, tokenEntrega: e.token,
+        whatsappEstado: e.whatsappEstado, whatsappError: e.whatsappError, tablas: [...(e.tablas || [])].sort(porSerial),
+      })),
     };
   }
 
@@ -332,7 +357,11 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
   }
 
   async function listarCompras({ estado, bingoId } = {}) {
-    const filas = estado
+    // "Por verificar" incluye toda compra con algún pago sin verificar, aunque otro de sus pagos ya se haya verificado.
+    const filas = estado === 'por_verificar'
+      ? await q(`${SQL_COMPRAS} WHERE (c.estado = 'por_verificar' OR (c.estado <> 'rechazada' AND EXISTS (
+          SELECT 1 FROM pagos p WHERE p.compra_id = c.id AND p.estado = 'por_verificar'))) AND c.bingo_id = ${DE_BINGO(1)} ORDER BY c.id DESC`, [bingoId ?? null])
+      : estado
       ? await q(`${SQL_COMPRAS} WHERE c.estado = $1 AND c.bingo_id = ${DE_BINGO(2)} ORDER BY c.id DESC`, [estado, bingoId ?? null])
       : await q(`${SQL_COMPRAS} WHERE c.bingo_id = ${DE_BINGO(1)} ORDER BY c.id DESC`, [bingoId ?? null]);
     return filas.map(compraDTO);
@@ -401,6 +430,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       referidoPor: texto(datos.referidoPor, 'Quién le habló del bingo', 120),
       metodo,
     };
+    const reparto = donacion ? [] : destinatariosValidos(datos.reparto, cantidad, datos.paisCodigo, 'pidió');
     const total = redondear(cantidad * e.precioTabla);
     const sobranteEstimado = donacion ? 0 : redondear(montoPagado - cubiertas * e.precioTabla);
     let sobranteDestino = donacion ? 'donacion' : '';
@@ -423,10 +453,10 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       const codigo = await codigoCompra(t);
       const [{ id }] = await t(
         `INSERT INTO compras (codigo, nombre, cedula, telefono, correo, ciudad, referido_por, cantidad, precio_unitario, total,
-           sobrante_destino, sobrante_nota, estado, creada_en, bingo_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'por_verificar', $13, ${ACTIVO}) RETURNING id`,
+           sobrante_destino, sobrante_nota, estado, creada_en, bingo_id, reparto)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'por_verificar', $13, ${ACTIVO}, $14) RETURNING id`,
         [codigo, d.nombre, d.cedula, d.telefono, d.correo, d.ciudad, d.referidoPor, cantidad, e.precioTabla, total,
-          sobranteDestino, sobranteNota, ahora()],
+          sobranteDestino, sobranteNota, ahora(), reparto.length ? JSON.stringify(reparto) : ''],
       );
       for (const p of pagos) {
         const [{ id: pagoId }] = await t(
@@ -440,13 +470,38 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
         }
       }
       await bitacora(donacion ? 'donación registrada' : 'compra registrada',
-        `${codigo} · ${d.nombre} · ${donacion ? 'donación' : cantidad + ' tabla(s)'} · pagó ${montoPagado} en ${pagos.length} pago(s)`, t);
+        `${codigo} · ${d.nombre} · ${donacion ? 'donación' : cantidad + ' tabla(s)'}${reparto.length ? ` repartidas entre ${reparto.length} personas` : ''} · pagó ${montoPagado} en ${pagos.length} pago(s)`, t);
       return { id: Number(id), codigo, total, tablasSugeridas: cubiertas, sobrante: sobranteEstimado, sobranteDestino, donacion };
     });
   }
 
   function normalizarTelefono(texto, pais) {
     return whatsapp.normalizarTelefono(texto, pais);
+  }
+
+  // Reparto de las tablas entre varias personas: [{ nombre, telefono, cantidad }] cuyas cantidades suman exactamente
+  // las tablas de la compra. Sin reparto (lista vacía o ausente) devuelve [] y la compra se entrega a quien compró.
+  function destinatariosValidos(lista, cantidad, pais, quien) {
+    if (lista == null || (Array.isArray(lista) && !lista.length)) return [];
+    if (!Array.isArray(lista)) throw new ErrorApp('El reparto de las tablas no es válido.');
+    if (lista.length > MAX_DESTINATARIOS) throw new ErrorApp(`Máximo ${MAX_DESTINATARIOS} personas por reparto.`);
+    const r = lista.map((x, i) => {
+      const n = `la persona ${i + 1} del reparto`;
+      let telefono;
+      try { telefono = normalizarTelefono(texto(x?.telefono, `El celular de ${n}`, 40), pais); } catch (err) {
+        throw err instanceof ErrorApp ? err : new ErrorApp(`El celular de ${n} no es válido.`);
+      }
+      return {
+        nombre: texto(x?.nombre, `El nombre de ${n}`, 120),
+        telefono,
+        cantidad: enteroPositivo(x?.cantidad, `Las tablas de ${n}`),
+      };
+    });
+    const suma = r.reduce((s, x) => s + x.cantidad, 0);
+    if (suma !== cantidad) {
+      throw new ErrorApp(`Las tablas del reparto suman ${suma} y ${quien ?? 'se envían'} ${cantidad}. Deben coincidir.`);
+    }
+    return r;
   }
 
   async function estadoPublico(codigo) {
@@ -586,7 +641,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
         await bitacora('envío automático omitido', `${c.codigo}: el pago cubre ${cubiertas} de ${c.cantidad} tabla(s); decide quien verifica`);
         return;
       }
-      await enviarTablas(compraId, { cantidad: c.cantidad, canales: { whatsapp: true, correo: Boolean(c.correo) }, baseUrl });
+      await enviarTablas(compraId, { cantidad: c.cantidad, destinatarios: jsonLista(c.reparto).map(x => ({ ...x, telefono: '+' + x.telefono })), canales: { whatsapp: true, correo: Boolean(c.correo) }, baseUrl });
     } catch (err) {
       try { await bitacora('envío automático falló', `compra ${compraId}: ${err.message}`); } catch { /* sin registro */ }
     }
@@ -615,7 +670,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
 
     // Todo ocurre en una sola transacción con el candado de ventas: la validación y la asignación no se pueden
     // intercalar con otra venta. Si algo falla, no queda ninguna tabla asignada.
-    const { seriales, token } = await db.tx(async t => {
+    const { seriales, token, entregas } = await db.tx(async t => {
       await t('SELECT pg_advisory_xact_lock($1)', [LOCK_VENTAS]);
       const [c] = await t('SELECT * FROM compras WHERE id = $1 FOR UPDATE', [compraId]);
       if (c.estado !== 'verificada') throw new ErrorApp('Esta compra ya fue procesada.', 409);
@@ -631,18 +686,36 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
         throw new ErrorApp(`El pago verificado (${pagado}) cubre solo ${cubiertas} tabla(s) a ${precio}. No se pueden enviar ${cantidad}.`, 409);
       }
 
-      // SKIP LOCKED: si otra venta tiene una tabla bloqueada, se toma la siguiente libre.
-      const asignadas = await t(
-        `UPDATE tablas SET estado = 'vendida', compra_id = $1, vendida_en = $2
-         WHERE estado = 'disponible' AND serial IN (
-           SELECT serial FROM tablas WHERE estado = 'disponible'
-           ORDER BY random() LIMIT $3 FOR UPDATE SKIP LOCKED
-         )
-         RETURNING serial`,
-        [compraId, ahora(), cantidad],
-      );
-      if (asignadas.length !== cantidad) {
-        throw new ErrorApp(`Faltan tablas: hay ${asignadas.length} disponibles y se piden ${cantidad}. Agrega más tablas.`, 409);
+      // Reparto entre varias personas: cada una queda con sus propias tablas y su propio enlace. Sin reparto, todo va a la compra.
+      const reparto = destinatariosValidos(opciones.destinatarios, cantidad, null, 'se envían');
+      const grupos = reparto.length ? reparto : [{ cantidad }];
+      const asignadas = [];
+      const entregas = [];
+      for (const g of grupos) {
+        let entregaId = null;
+        if (reparto.length) {
+          const tokenPersona = crypto.randomBytes(16).toString('hex');
+          [{ id: entregaId }] = await t(
+            'INSERT INTO entregas (compra_id, nombre, telefono, cantidad, token_entrega) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+            [compraId, g.nombre, g.telefono, g.cantidad, tokenPersona],
+          );
+          entregas.push({ id: entregaId, nombre: g.nombre, telefono: g.telefono, token: tokenPersona });
+        }
+        // SKIP LOCKED: si otra venta tiene una tabla bloqueada, se toma la siguiente libre.
+        const filas = await t(
+          `UPDATE tablas SET estado = 'vendida', compra_id = $1, vendida_en = $2, entrega_id = $4::int
+           WHERE estado = 'disponible' AND serial IN (
+             SELECT serial FROM tablas WHERE estado = 'disponible'
+             ORDER BY random() LIMIT $3 FOR UPDATE SKIP LOCKED
+           )
+           RETURNING serial`,
+          [compraId, ahora(), g.cantidad, entregaId],
+        );
+        if (filas.length !== g.cantidad) {
+          throw new ErrorApp(`Faltan tablas: hay ${asignadas.length + filas.length} disponibles y se piden ${cantidad}. Agrega más tablas.`, 409);
+        }
+        if (entregaId) entregas[entregas.length - 1].seriales = filas.map(r => r.serial).sort(porSerial);
+        asignadas.push(...filas);
       }
       // Verificación final: lo que la base dice que es de esta compra coincide exactamente con lo asignado.
       const [{ n }] = await t('SELECT COUNT(*)::int AS n FROM tablas WHERE compra_id = $1', [compraId]);
@@ -665,15 +738,60 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       if (sobrante > 0) await bitacora('sobrante', `${c.codigo}: ${sobrante} (${estadoSobrante.replace('_', ' ')})`, t);
       const lista = asignadas.map(r => r.serial).sort(porSerial);
       await bitacora('tablas asignadas', `${c.codigo}: ${lista.join(', ')} (pidió ${c.cantidad}, pagó ${pagado}, se aprobaron ${cantidad})`, t);
-      return { seriales: lista, token };
+      if (entregas.length) {
+        await bitacora('tablas repartidas', `${c.codigo}: ${entregas.map(e => `${e.nombre} (${e.seriales.length}): ${e.seriales.join(', ')}`).join(' | ')}`, t);
+      }
+      return { seriales: lista, token, entregas };
     });
 
     const c = await uno('SELECT * FROM compras WHERE id = $1', [compraId]);
     const enlace = enlaceEntrega(opciones.baseUrl, token);
-    if (canales.whatsapp) await entregarWhatsApp(c, seriales, enlace);
+    // Con reparto, WhatsApp va a cada persona con SUS tablas; el correo (si lo hay) es para quien compró, con todas.
+    if (canales.whatsapp) {
+      if (entregas.length) {
+        for (const e of entregas) await entregarWhatsAppA(c, e, e.seriales, enlaceEntrega(opciones.baseUrl, e.token));
+        await resumirWhatsApp(compraId);
+      } else {
+        await entregarWhatsApp(c, seriales, enlace);
+      }
+    }
     if (canales.correo) await entregarCorreo(c, seriales, enlace);
     if (canales.fisica) await bitacora('entrega física pendiente', c.codigo);
     return detalleCompra(compraId);
+  }
+
+  const personasDe = compraId => q('SELECT * FROM entregas WHERE compra_id = $1 ORDER BY id', [compraId]);
+
+  async function entregaDe(compraId, entregaId) {
+    const e = await uno('SELECT * FROM entregas WHERE id = $1 AND compra_id = $2', [entregaId, compraId]);
+    if (!e) throw new ErrorApp('Esa persona no pertenece a esta compra.', 404);
+    return e;
+  }
+
+  // El estado de WhatsApp de una compra repartida resume el de todas sus personas: enviado solo si a todas les llegó.
+  async function resumirWhatsApp(compraId) {
+    const es = await personasDe(compraId);
+    if (!es.length) return;
+    const estado = es.every(e => e.whatsapp_estado === 'enviado') ? 'enviado' : es.some(e => e.whatsapp_estado === 'fallido') ? 'fallido' : 'manual';
+    const error = es.filter(e => e.whatsapp_estado === 'fallido').map(e => `${e.nombre}: ${e.whatsapp_error}`).join(' · ').slice(0, 500) || null;
+    await q('UPDATE compras SET whatsapp_estado = $1::text, whatsapp_error = $2::text WHERE id = $3', [estado, error, compraId]);
+  }
+
+  // Envía por WhatsApp las tablas de una persona del reparto y deja anotado cómo salió.
+  async function entregarWhatsAppA(c, e, seriales, enlace) {
+    try {
+      const r = await whatsapp.enviarTablas({ telefono: e.telefono, nombre: e.nombre, seriales, enlace, codigo: c.codigo, extra: await extraMensaje() });
+      if (r.estado === 'enviado') {
+        await q("UPDATE entregas SET whatsapp_estado = 'enviado', whatsapp_error = NULL WHERE id = $1", [e.id]);
+        await bitacora('tablas enviadas', `${c.codigo} por WhatsApp a ${e.nombre}`);
+      } else {
+        await q("UPDATE entregas SET whatsapp_estado = 'manual', whatsapp_error = NULL WHERE id = $1", [e.id]);
+        await bitacora('envío manual pendiente', `${c.codigo}: WhatsApp no configurado (${e.nombre})`);
+      }
+    } catch (err) {
+      await q("UPDATE entregas SET whatsapp_estado = 'fallido', whatsapp_error = $1 WHERE id = $2", [String(err.message).slice(0, 500), e.id]);
+      await bitacora('falló envío WhatsApp', `${c.codigo} (${e.nombre}): ${err.message}`);
+    }
   }
 
   async function datosEntrega(compraId) {
@@ -685,11 +803,21 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
   }
 
   // Reintenta los canales indicados con las mismas tablas ya asignadas.
-  async function reenviar(compraId, { canales, baseUrl } = {}) {
+  // En una compra repartida, entregaId reintenta a una sola persona; sin él se reintenta a quienes aún no les llegó.
+  async function reenviar(compraId, { canales, baseUrl, entregaId } = {}) {
     const elegidos = canalesDe(canales);
     const { c, seriales } = await datosEntrega(compraId);
     const enlace = enlaceEntrega(baseUrl, c.token_entrega);
-    if (elegidos.whatsapp) await entregarWhatsApp(c, seriales, enlace);
+    if (elegidos.whatsapp) {
+      const personas = await personasDe(compraId);
+      if (personas.length) {
+        const destino = entregaId ? [await entregaDe(compraId, entregaId)] : personas.filter(e => e.whatsapp_estado !== 'enviado');
+        for (const e of destino) await entregarWhatsAppA(c, e, await serialesDeEntrega(e.id), enlaceEntrega(baseUrl, e.token_entrega));
+        await resumirWhatsApp(compraId);
+      } else {
+        await entregarWhatsApp(c, seriales, enlace);
+      }
+    }
     if (elegidos.correo) {
       if (!c.correo) throw new ErrorApp('Esta compra no tiene correo registrado.', 409);
       await entregarCorreo(c, seriales, enlace);
@@ -753,8 +881,13 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     }
   }
 
-  async function enlaceWhatsapp(compraId, baseUrl) {
+  async function enlaceWhatsapp(compraId, baseUrl, entregaId) {
     const { c, seriales } = await datosEntrega(compraId);
+    if (entregaId) {
+      const e = await entregaDe(compraId, entregaId);
+      return whatsapp.enlaceManual(e.telefono, e.nombre, await serialesDeEntrega(e.id), enlaceEntrega(baseUrl, e.token_entrega), c.codigo, await extraMensaje());
+    }
+    if ((await personasDe(compraId)).length) throw new ErrorApp('Esta compra se repartió: elige a qué persona enviarle sus tablas.');
     return whatsapp.enlaceManual(c.telefono, c.nombre, seriales, enlaceEntrega(baseUrl, c.token_entrega), c.codigo, await extraMensaje());
   }
 
@@ -765,12 +898,20 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
   }
 
   // Confirma a mano un envío que se hizo fuera del sistema (enlace wa.me / mailto).
-  async function marcarEnviadoManual(compraId, canal = 'whatsapp') {
+  async function marcarEnviadoManual(compraId, canal = 'whatsapp', entregaId) {
     const { c } = await datosEntrega(compraId);
     if (canal === 'correo') {
       await q("UPDATE compras SET correo_estado = 'enviado', correo_error = NULL WHERE id = $1", [compraId]);
     } else if (canal === 'whatsapp') {
-      await q("UPDATE compras SET whatsapp_estado = 'enviado', whatsapp_error = NULL WHERE id = $1", [compraId]);
+      if ((await personasDe(compraId)).length) {
+        // Compra repartida: se confirma a una persona (o a todas si no se indica) y el estado de la compra se recalcula.
+        if (entregaId) await entregaDe(compraId, entregaId);
+        await q("UPDATE entregas SET whatsapp_estado = 'enviado', whatsapp_error = NULL WHERE compra_id = $1 AND ($2::int IS NULL OR id = $2::int)",
+          [compraId, entregaId ?? null]);
+        await resumirWhatsApp(compraId);
+      } else {
+        await q("UPDATE compras SET whatsapp_estado = 'enviado', whatsapp_error = NULL WHERE id = $1", [compraId]);
+      }
     } else {
       throw new ErrorApp('Canal no válido.');
     }
@@ -792,6 +933,10 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
   // Vista pública del comprador: solo se obtiene con el token privado y solo muestra SUS tablas.
   async function entregaPublica(token) {
     if (!/^[a-f0-9]{32}$/.test(String(token || ''))) throw new ErrorApp('Enlace no válido.', 404);
+    // Enlace de una persona del reparto: solo ve las tablas que le tocaron a ella.
+    const p = await uno(`SELECT e.id, e.nombre, b.nombre AS bingo FROM entregas e JOIN compras c ON c.id = e.compra_id
+      JOIN bingos b ON b.id = c.bingo_id WHERE e.token_entrega = $1 AND c.estado = 'enviada'`, [token]);
+    if (p) return { nombre: p.nombre, evento: p.bingo, tablas: await serialesDeEntrega(p.id) };
     const c = await uno(`SELECT c.id, c.nombre, b.nombre AS bingo FROM compras c JOIN bingos b ON b.id = c.bingo_id
       WHERE c.token_entrega = $1 AND c.estado = 'enviada'`, [token]);
     if (!c) throw new ErrorApp('Enlace no válido.', 404);
@@ -801,6 +946,9 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
   // Datos con los que se sella cada imagen. Solo los usa la ruta de la imagen; nunca salen en el JSON público.
   async function datosSelloEntrega(token) {
     if (!/^[a-f0-9]{32}$/.test(String(token || ''))) throw new ErrorApp('Enlace no válido.', 404);
+    const p = await uno(`SELECT e.id, e.nombre, e.telefono, c.codigo FROM entregas e JOIN compras c ON c.id = e.compra_id
+      WHERE e.token_entrega = $1 AND c.estado = 'enviada'`, [token]);
+    if (p) return { nombre: p.nombre, telefono: p.telefono, codigo: p.codigo, tablas: await serialesDeEntrega(p.id) };
     const c = await uno("SELECT id, codigo, nombre, telefono FROM compras WHERE token_entrega = $1 AND estado = 'enviada'", [token]);
     if (!c) throw new ErrorApp('Enlace no válido.', 404);
     return { nombre: c.nombre, telefono: c.telefono, codigo: c.codigo, tablas: await serialesDe(c.id) };
@@ -906,10 +1054,14 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     };
   }
 
+  // Si las tablas de la compra se repartieron, la ganadora es la persona que recibió esa tabla.
   const SQL_GANADORES = `
-    SELECT g.*, c.codigo, c.nombre, c.cedula, c.telefono
+    SELECT g.*, c.codigo, c.cedula, COALESCE(e.nombre, c.nombre) AS nombre, COALESCE(e.telefono, c.telefono) AS telefono
     FROM premio_ganadores g
-    JOIN compras c ON c.id = g.compra_id`;
+    JOIN compras c ON c.id = g.compra_id
+    LEFT JOIN entregas e ON e.id = COALESCE(
+      (SELECT t.entrega_id FROM tablas t WHERE t.serial = g.serial AND t.compra_id = g.compra_id),
+      (SELECT h.entrega_id FROM tablas_historial h WHERE h.serial = g.serial AND h.compra_id = g.compra_id LIMIT 1))`;
 
   // Deja el sorteo del Bingo activo como nuevo (para repetir un ensayo): fuera balotas, ganadoras y entregas.
   // No toca compras, pagos, tablas ni la configuración de las rondas.
@@ -1132,7 +1284,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const serial = String(serialRaw ?? '').trim().toUpperCase();
     const tabla = await uno('SELECT * FROM tablas WHERE serial = $1', [serial]);
     if (!tabla) throw new ErrorApp('Esa tabla no existe.', 404);
-    const compra = tabla.compra_id ? await uno('SELECT codigo, nombre, telefono FROM compras WHERE id = $1', [tabla.compra_id]) : null;
+    const compra = tabla.compra_id ? await uno('SELECT c.codigo, COALESCE(e.nombre, c.nombre) AS nombre, COALESCE(e.telefono, c.telefono) AS telefono FROM compras c LEFT JOIN entregas e ON e.id = $2::int WHERE c.id = $1', [tabla.compra_id, tabla.entrega_id ?? null]) : null;
     const base = { serial, figura: p.figura, figuraNombre: FIGURAS[p.figura].nombre, comprador: compra };
     if (tabla.estado !== 'vendida' || !compra) return { ...base, cumple: false, motivo: 'Esa tabla no está vendida: no puede ganar.' };
     const r = await evaluarPremio(p, tabla);
@@ -1232,7 +1384,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
         entregadas: await cantidadEn('enviada'),
       },
       compras: {
-        porVerificar: compras.filter(c => c.estado === 'por_verificar').length,
+        porVerificar: compras.filter(c => c.estado === 'por_verificar' || c.pagosPendientes > 0).length,
         listasParaEnviar: compras.filter(c => c.estado === 'verificada').length,
         conDeuda: compras.filter(c => c.saldo > 0).length,
         // Tablas ya asignadas cuyo WhatsApp falta por enviar desde el celular (o falló).
@@ -1383,11 +1535,11 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
         tablasEntregadas: compras.reduce((s, c) => s + (c.estado === 'enviada' ? (c.tablasAprobadas ?? c.cantidad) : 0), 0),
       };
 
-      await t(`INSERT INTO tablas_historial (bingo_id, serial, compra_id, vendida_en)
-        SELECT $1, serial, compra_id, vendida_en FROM tablas WHERE compra_id IS NOT NULL`, [b.id]);
+      await t(`INSERT INTO tablas_historial (bingo_id, serial, compra_id, vendida_en, entrega_id)
+        SELECT $1, serial, compra_id, vendida_en, entrega_id FROM tablas WHERE compra_id IS NOT NULL`, [b.id]);
       // El trigger de control estricto solo permite liberar tablas vendidas dentro de esta transacción.
       await t("SELECT set_config('app.reinicio', '1', true)");
-      await t("UPDATE tablas SET estado = 'disponible', compra_id = NULL, vendida_en = NULL WHERE compra_id IS NOT NULL");
+      await t("UPDATE tablas SET estado = 'disponible', compra_id = NULL, vendida_en = NULL, entrega_id = NULL WHERE compra_id IS NOT NULL");
       await t("UPDATE premios SET ronda_estado = 'cerrada' WHERE ronda_estado = 'en_juego'");
       await t("UPDATE bingos SET estado = 'cerrado', config = $2, resumen = $3, cerrado_en = $4 WHERE id = $1",
         [b.id, JSON.stringify(eventoDeFila(evento, false)), JSON.stringify(resumenCierre), ahora()]);
@@ -1426,8 +1578,9 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     if (nombre === 'compras') {
       const filas = (await q(`${SQL_COMPRAS} WHERE c.bingo_id = $1 ORDER BY c.id`, [bid])).map(compraDTO);
       return {
-        encabezados: ['Código', 'Fecha', 'Nombre', 'Celular', 'Ciudad', 'Referido por', 'Cédula', 'Correo', 'Tablas pedidas', 'Tablas enviadas', 'Total', 'Pagado', 'Saldo', 'Estado', 'WhatsApp', 'Correo envío', 'Entrega física', 'Seriales'],
-        filas: filas.map(c => [c.codigo, c.creadaEn.slice(0, 10), c.nombre, c.telefono, c.ciudad, c.referidoPor, c.cedula, c.correo, c.cantidad, c.tablasAprobadas ?? '', c.total, c.pagado, c.saldo, c.estado, c.whatsappEstado, c.correoEstado, c.fisicaEstado, c.tablas.join(' ')]),
+        encabezados: ['Código', 'Fecha', 'Nombre', 'Celular', 'Ciudad', 'Referido por', 'Cédula', 'Correo', 'Tablas pedidas', 'Tablas enviadas', 'Total', 'Pagado', 'Saldo', 'Estado', 'WhatsApp', 'Correo envío', 'Entrega física', 'Seriales', 'Repartida entre'],
+        filas: filas.map(c => [c.codigo, c.creadaEn.slice(0, 10), c.nombre, c.telefono, c.ciudad, c.referidoPor, c.cedula, c.correo, c.cantidad, c.tablasAprobadas ?? '', c.total, c.pagado, c.saldo, c.estado, c.whatsappEstado, c.correoEstado, c.fisicaEstado, c.tablas.join(' '),
+          c.entregas.map(e => `${e.nombre} (${e.telefono}): ${e.tablas.join(' ')}`).join(' | ')]),
       };
     }
     if (nombre === 'sobrantes') {
@@ -1454,13 +1607,13 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     if (nombre === 'tablas') {
       // Del Bingo activo: todas las tablas; de uno cerrado: las que vendió, guardadas en el histórico.
       const filas = bingo.estado === 'activo'
-        ? await q(`SELECT t.serial, t.estado, t.vendida_en, c.codigo, c.nombre, c.cedula, c.telefono
-            FROM tablas t LEFT JOIN compras c ON c.id = t.compra_id ORDER BY t.serial`)
-        : await q(`SELECT h.serial, 'vendida' AS estado, h.vendida_en, c.codigo, c.nombre, c.cedula, c.telefono
-            FROM tablas_historial h JOIN compras c ON c.id = h.compra_id WHERE h.bingo_id = $1 ORDER BY h.serial`, [bid]);
+        ? await q(`SELECT t.serial, t.estado, t.vendida_en, c.codigo, c.nombre, c.cedula, c.telefono, e.nombre AS recibe, e.telefono AS recibe_telefono
+            FROM tablas t LEFT JOIN compras c ON c.id = t.compra_id LEFT JOIN entregas e ON e.id = t.entrega_id ORDER BY t.serial`)
+        : await q(`SELECT h.serial, 'vendida' AS estado, h.vendida_en, c.codigo, c.nombre, c.cedula, c.telefono, e.nombre AS recibe, e.telefono AS recibe_telefono
+            FROM tablas_historial h JOIN compras c ON c.id = h.compra_id LEFT JOIN entregas e ON e.id = h.entrega_id WHERE h.bingo_id = $1 ORDER BY h.serial`, [bid]);
       return {
-        encabezados: ['Serial', 'Estado', 'Vendida en', 'Código compra', 'Nombre', 'Cédula', 'Teléfono'],
-        filas: filas.map(t => [t.serial, t.estado, t.vendida_en ?? '', t.codigo ?? '', t.nombre ?? '', t.cedula ?? '', t.telefono ?? '']),
+        encabezados: ['Serial', 'Estado', 'Vendida en', 'Código compra', 'Nombre', 'Cédula', 'Teléfono', 'Recibe (si se repartió)', 'Teléfono de quien recibe'],
+        filas: filas.map(t => [t.serial, t.estado, t.vendida_en ?? '', t.codigo ?? '', t.nombre ?? '', t.cedula ?? '', t.telefono ?? '', t.recibe ?? '', t.recibe_telefono ?? '']),
       };
     }
     if (nombre === 'premios') {
