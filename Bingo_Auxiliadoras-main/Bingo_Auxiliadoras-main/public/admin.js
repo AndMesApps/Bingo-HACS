@@ -1473,7 +1473,7 @@ async function renderTransacciones() {
   const totalTablas = validas.reduce((s, c) => s + (esDonacion(c) ? 0 : (c.tablasAprobadas ?? c.cantidad)), 0);
   const fila = c => `
     <tr class="tx-fila" data-tx="${c.id}" data-texto="${esc([c.nombre, c.telefono, c.codigo].join(' ').toLowerCase())}">
-      <td class="tx-nombre"><strong>${esc(c.nombre)}</strong><br><span class="muted mono">${esc(c.codigo)}</span></td>
+      <td class="tx-nombre"><a href="#" class="tx-nombre-link" data-tx-nombre="${c.id}" title="Ver el detalle y verificar"><strong>${esc(c.nombre)}</strong></a><br><span class="muted mono">${esc(c.codigo)}</span></td>
       <td>${esc(c.telefono)}</td>
       <td class="num" title="Verificado: ${esc(dinero(c.pagado))}">${esc(dinero(c.reportado))}</td>
       <td>${esc(formaPago(c.metodos))}</td>
@@ -1508,6 +1508,11 @@ async function renderTransacciones() {
   filtrar();
   $('vista').querySelectorAll('[data-ftx]').forEach(b => b.addEventListener('click', () => { filtroTx = b.dataset.ftx; mostrar('transacciones'); }));
   $('vista').querySelectorAll('[data-tx-ver]').forEach(b => b.addEventListener('click', () => alternarDetalleTx(b)));
+  $('vista').querySelectorAll('[data-tx-nombre]').forEach(l => l.addEventListener('click', e => {
+    e.preventDefault();
+    const ojo = $('vista').querySelector(`[data-tx-ver="${l.dataset.txNombre}"]`);
+    if (ojo) alternarDetalleTx(ojo);
+  }));
   if (txAbierta) {
     const ojo = $('vista').querySelector(`[data-tx-ver="${txAbierta}"]`);
     txAbierta = null;
