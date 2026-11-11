@@ -724,9 +724,11 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       // Sobrante = lo verificado por encima de las tablas entregadas. Si el comprador eligió donarlo queda como
       // donación; si pidió devolución, por devolver; si no eligió nada, por definir para que la administración decida.
       const sobrante = Math.max(0, redondear(pagado - cantidad * precio));
+      // La administración puede decidir al enviar (opciones.sobranteDestino) y eso manda sobre lo que eligió el comprador.
+      const destinoSobrante = ['donacion', 'devolucion'].includes(opciones.sobranteDestino) ? opciones.sobranteDestino : c.sobrante_destino;
       const estadoSobrante = sobrante <= 0 ? 'ninguno'
-        : c.sobrante_destino === 'donacion' ? 'donado'
-          : c.sobrante_destino === 'devolucion' ? 'por_devolver' : 'por_definir';
+        : destinoSobrante === 'donacion' ? 'donado'
+          : destinoSobrante === 'devolucion' ? 'por_devolver' : 'por_definir';
 
       const token = crypto.randomBytes(16).toString('hex');
       await t(
