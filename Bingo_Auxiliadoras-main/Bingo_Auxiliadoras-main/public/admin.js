@@ -688,6 +688,7 @@ $('vista').addEventListener('submit', async e => {
     if (canales.fisica) partes.push('entrega física pendiente');
     const malo = (canales.whatsapp && r.whatsappEstado === 'fallido') || (canales.correo && r.correoEstado === 'fallido');
     msg(`Tablas asignadas: ${r.tablas.join(', ')}. ${partes.join(' · ')}.`, malo);
+    if (volverATransacciones(envio)) return mostrar('transacciones');
     filtroCompras = 'enviada';
     mostrar('compras');
   } catch (err) {
@@ -1576,6 +1577,8 @@ function detalleTx(d, operadoras = []) {
         ${entrega}
       </div>
     </div>
+    ${d.estado === 'verificada' ? `<h3>Asignar y enviar tablas</h3>${panelEnvio(d)}` : ''}
+    ${d.estado === 'enviada' ? `<h3>Entrega</h3>${estadoEntrega(d)}` : ''}
     <h3>Pagos</h3>
     ${d.pagos.map(p => `<div class="kv" style="flex-direction:column;align-items:flex-start"><div class="row" style="width:100%"><span>${esc(p.fechaPago)} · ${esc(p.metodo)}${p.referencia ? ' · ' + esc(p.referencia) : ''}</span>
       <span>${esc(dinero(p.montoReportado))}${p.montoVerificado != null ? ` (verificado ${esc(dinero(p.montoVerificado))})` : ''}
