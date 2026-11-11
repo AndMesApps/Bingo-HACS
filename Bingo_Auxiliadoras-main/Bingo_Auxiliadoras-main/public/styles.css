@@ -221,3 +221,5 @@ table.informe tfoot td { font-weight: 700; border-top: 2px solid var(--line); }
 
 /* Premios con varias ganadoras */
 .ganadora { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; }
+.tx a.tx-nombre-link { color: inherit; text-decoration: underline dotted; cursor: pointer; }
+.tx a.tx-nombre-link:hover { text-decoration: underline; }
