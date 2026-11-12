@@ -318,7 +318,16 @@ function panelEnvio(c) {
       </div>
       <p class="muted" data-reparto-suma style="margin:8px 0 0">${rep.length ? `${rep.length} persona(s) · ${sumaRep} tabla(s) en total.` : ''}</p>
     </div>
-    <p class="muted" data-sobrante-info data-eleccion="${esc(c.sobranteDestino)}" data-nota="${esc(c.sobranteNota)}" style="margin:8px 0 0"></p>
+    <div data-sobrante-info data-eleccion="${esc(c.sobranteDestino)}" data-nota="${esc(c.sobranteNota)}" data-donar="${c.sobranteDonar || 0}" style="margin:8px 0 0">
+      <p class="muted" data-sobrante-txt style="margin:0"></p>
+      <div data-sobrante-split hidden style="margin-top:8px;display:none">
+        <div class="row" style="justify-content:flex-start;align-items:flex-end;gap:14px">
+          <label style="flex:0 1 200px">Donar a las Hermanas <input name="donarSobrante" type="number" min="0" step="any" inputmode="decimal"></label>
+          <span data-sobrante-devolver></span>
+        </div>
+        <p class="muted" style="margin:6px 0 0">Si el comprador pidió devolución, lo que no se done queda «por devolver» en la pestaña Sobrantes.</p>
+      </div>
+    </div>
     <div class="checks">
       <label><input type="checkbox" name="whatsapp" checked> WhatsApp</label>
       <label class="${c.correo ? '' : 'off'}"><input type="checkbox" name="correo" ${c.correo ? 'checked' : 'disabled'}> Correo${c.correo ? '' : ' (sin correo)'}</label>
@@ -366,6 +375,9 @@ function estadoEntrega(c) {
 // ---------- Sobrantes: lo pagado por encima de las tablas entregadas ----------
 const ESTADO_SOBRANTE = { por_definir: 'por definir', donado: 'donado', por_devolver: 'por devolver', devuelto: 'devuelto', ninguno: 'ninguno' };
 const ELECCION = { donacion: 'quiso donarlo', devolucion: 'pidió que se lo devuelvan', '': 'no eligió' };
+// Un sobrante puede dividirse: una parte donada y el resto por devolver.
+const textoReparto = c => c.sobranteEstado === 'por_definir' ? '' : (c.sobranteDonar > 0 && c.sobranteDevolver > 0
+  ? `Dona ${dinero(c.sobranteDonar)} · devolver ${dinero(c.sobranteDevolver)}` : '');
 
 function filaSobrante(c) {
   const b = (act, texto, clase = 'ghost') => `<button type="button" class="${clase}" data-act="${act}" data-id="${c.id}">${texto}</button>`;
@@ -374,9 +386,9 @@ function filaSobrante(c) {
     : c.sobranteEstado === 'por_devolver' ? b('sobrante-devuelto', 'Marcar devuelto', '') : '';
   return `
     <div class="kv" style="align-items:center">
-      <span>Sobrante ${dinero(c.sobranteMonto)}: <span class="pill ${c.sobranteEstado === 'donado' || c.sobranteEstado === 'devuelto' ? 'enviado' : 'pendiente'}">${esc(ESTADO_SOBRANTE[c.sobranteEstado])}</span>
+      <span>Sobrante ${dinero(c.sobranteMonto)}${textoReparto(c) ? ` (${esc(textoReparto(c))})` : ''}: <span class="pill ${c.sobranteEstado === 'donado' || c.sobranteEstado === 'devuelto' ? 'enviado' : 'pendiente'}">${esc(ESTADO_SOBRANTE[c.sobranteEstado])}</span>
         <span class="muted">(${esc(ELECCION[c.sobranteDestino] ?? '')})</span>
-        ${c.sobranteNota ? `<br><span class="muted">Cómo devolverlo: ${esc(c.sobranteNota)}</span>` : ''}
+        ${c.sobranteNota && c.sobranteEstado !== 'donado' ? `<br><span class="muted">Cómo devolverlo: ${esc(c.sobranteNota)}</span>` : ''}
         ${c.sobranteResolucion ? `<br><span class="muted">${c.sobranteEstado === 'devuelto' ? 'Devuelto' : 'Nota'}: ${esc(c.sobranteResolucion)}</span>` : ''}</span>
       <span class="actions" style="margin:0">${botones}</span>
     </div>`;
@@ -385,7 +397,7 @@ function filaSobrante(c) {
 async function renderSobrantes() {
   const lista = await api('GET', '/admin/sobrantes');
   const pend = lista.filter(c => c.sobranteEstado === 'por_definir' || c.sobranteEstado === 'por_devolver');
-  const total = pend.reduce((s, c) => s + c.sobranteMonto, 0);
+  const total = pend.reduce((s, c) => s + (c.sobranteEstado === 'por_definir' ? c.sobranteMonto : c.sobranteDevolver), 0);
   $('vista').innerHTML = `
     <div class="note">Cuando alguien paga más de lo que valen sus tablas, el excedente queda aquí. Si el comprador lo donó, suma a los ingresos.
       Si pidió devolución, el dinero no cuenta como ingreso hasta que lo devuelvas y anotes cómo.</div>
@@ -486,17 +498,43 @@ async function cargarPagos(card) {
 function pintarSobranteEnvio(form) {
   const i = form.cantidad;
   const info = form.querySelector('[data-sobrante-info]');
-  const sobra = Math.round((Number(i.dataset.pagado) - Number(i.value || 0) * Number(i.dataset.precio)) * 100) / 100;
-  if (!(sobra > 0)) { info.textContent = sobra < 0 ? `Falta ${dinero(-sobra)} para cubrir esas tablas.` : 'Sin sobrante.'; return; }
-  const eleccion = { donacion: 'quiso donarlo', devolucion: `pidió devolución${info.dataset.nota ? ` («${info.dataset.nota}»)` : ''}` }[info.dataset.eleccion] || 'no eligió qué hacer: tú decidirás después';
-  info.textContent = `Sobran ${dinero(sobra)}; el comprador ${eleccion}.`;
+  const txt = info.querySelector('[data-sobrante-txt]');
+  const split = info.querySelector('[data-sobrante-split]');
+  const campo = form.donarSobrante;
+  const r2 = n => Math.round(n * 100) / 100;
+  const sobra = r2(Number(i.dataset.pagado) - Number(i.value || 0) * Number(i.dataset.precio));
+  if (!(sobra > 0)) {
+    split.style.display = 'none';
+    campo.value = '';
+    campo.max = '';
+    txt.textContent = sobra < 0 ? `Falta ${dinero(-sobra)} para cubrir esas tablas.` : 'Sin sobrante.';
+    return;
+  }
+  const pidioParte = Number(info.dataset.donar) > 0 && info.dataset.eleccion === 'devolucion';
+  const eleccion = info.dataset.eleccion === 'donacion' ? 'quiso donarlo'
+    : info.dataset.eleccion === 'devolucion' ? `${pidioParte ? `quiso donar ${dinero(Number(info.dataset.donar))} y que le devuelvan el resto` : 'pidió devolución'}${info.dataset.nota ? ` («${info.dataset.nota}»)` : ''}`
+    : 'no eligió qué hacer: tú decides';
+  txt.textContent = `Sobran ${dinero(sobra)}; el comprador ${eleccion}. Indica cuánto se dona y cuánto se devuelve.`;
+  split.style.display = 'block';
+  campo.max = sobra;
+  if (!campo.dataset.editado) {
+    campo.value = info.dataset.eleccion === 'donacion' ? sobra : Math.min(Number(info.dataset.donar) || 0, sobra);
+  } else if (Number(campo.value) > sobra) campo.value = sobra;
+  const donar = Math.min(Math.max(Number(campo.value) || 0, 0), sobra);
+  split.querySelector('[data-sobrante-devolver]').innerHTML = `Se devuelven <strong>${esc(dinero(r2(sobra - donar)))}</strong>`;
 }
 $('vista').addEventListener('change', e => {
   const sf = e.target.closest('form[data-enviar]');
   if (!sf || e.target.name !== 'opcionSobrante') return;
   const os = sf.querySelector('[data-opcion-sobrante]');
   sf.cantidad.value = e.target.value === 'mas' ? os.dataset.cubre : os.dataset.pidio;
+  sf.donarSobrante.dataset.editado = '';
   pintarSobranteEnvio(sf);
+  if (e.target.value === 'donacion' && sf.donarSobrante.max) {
+    sf.donarSobrante.value = sf.donarSobrante.max;
+    sf.donarSobrante.dataset.editado = '1';
+    pintarSobranteEnvio(sf);
+  }
 });
 $('vista').addEventListener('input', e => {
   const fr = e.target.closest('form[data-enviar]');
@@ -504,7 +542,8 @@ $('vista').addEventListener('input', e => {
 });
 $('vista').addEventListener('input', e => {
   const sf = e.target.closest('form[data-enviar]');
-  if (sf && e.target.name === 'cantidad') pintarSobranteEnvio(sf);
+  if (sf && e.target.name === 'donarSobrante') e.target.dataset.editado = '1';
+  if (sf && (e.target.name === 'cantidad' || e.target.name === 'donarSobrante')) pintarSobranteEnvio(sf);
 });
 new MutationObserver(() => document.querySelectorAll('form[data-enviar]').forEach(f => {
   if (!f.dataset.pintado) { f.dataset.pintado = '1'; pintarSobranteEnvio(f); }
@@ -692,14 +731,18 @@ $('vista').addEventListener('submit', async e => {
     if (!destinatarios.length) return msg('Agrega al menos una persona al reparto o pulsa "No repartir".', true);
   }
   // Si pidió menos de lo que pagó: la administración decide si se le asigna una tabla más o el resto queda en donación.
-  const os = envio.querySelector('[data-opcion-sobrante]');
-  const sobranteDestino = os && !os.hidden && envio.opcionSobrante.value === 'donacion' ? 'donacion' : undefined;
+  // Sobrante dividido: cuánto se dona (el resto queda por devolver).
+  let sobranteDonar;
+  if (envio.querySelector('[data-sobrante-split]').style.display !== 'none') {
+    sobranteDonar = Number(envio.donarSobrante.value || 0);
+    if (!(sobranteDonar >= 0) || sobranteDonar > Number(envio.donarSobrante.max) + 1e-9) return msg(`Lo que se dona debe estar entre 0 y ${dinero(Number(envio.donarSobrante.max))}.`, true);
+  }
   const quien = destinatarios ? `${destinatarios.length} persona(s) (${destinatarios.map(d => d.nombre).join(', ')})` : envio.dataset.nombre;
   if (!confirm(`¿Asignar ${cantidad} tabla(s) a ${quien} y enviarlas? Esta acción no se puede deshacer.`)) return;
   const boton = envio.querySelector('button[type="submit"]');
   boton.disabled = true;
   try {
-    const r = await api('POST', `/admin/compras/${envio.dataset.enviar}/enviar`, { cantidad, canales, destinatarios, sobranteDestino });
+    const r = await api('POST', `/admin/compras/${envio.dataset.enviar}/enviar`, { cantidad, canales, destinatarios, sobranteDonar });
     const partes = [];
     if (canales.whatsapp) partes.push(r.whatsappEstado === 'enviado' ? 'WhatsApp enviado' : r.whatsappEstado === 'manual' ? 'WhatsApp: usa "Enviar por WhatsApp"' : 'WhatsApp falló');
     if (canales.correo) partes.push(r.correoEstado === 'enviado' ? 'correo enviado' : r.correoEstado === 'manual' ? 'correo: usa "Correo manual"' : 'correo falló');
