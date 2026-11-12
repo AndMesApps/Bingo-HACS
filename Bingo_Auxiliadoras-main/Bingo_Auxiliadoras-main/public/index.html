@@ -131,7 +131,12 @@
         <div class="metodos" role="radiogroup" aria-label="Qué hacer con el dinero restante">
           <label><input type="radio" name="sobranteDestino" value="donacion"> Lo dono a las Hermanas</label>
           <label><input type="radio" name="sobranteDestino" value="devolucion"> Quiero que me lo devuelvan</label>
+          <label><input type="radio" name="sobranteDestino" value="mixto"> Dono una parte y me devuelven el resto</label>
         </div>
+        <label id="campo-sobrante-donar" style="margin-top:12px" hidden>¿Cuánto donas a las Hermanas?
+          <input name="sobranteDonar" type="number" min="0.01" step="any" inputmode="decimal" placeholder="Ej. 20000">
+          <span class="muted" id="sobrante-resto"></span>
+        </label>
         <label id="campo-sobrante-nota" style="margin-top:12px" hidden>¿Cómo te lo devolvemos? (cuenta, llave, efectivo…)
           <textarea name="sobranteNota" rows="2" maxlength="300" placeholder="Ej. Nequi 300 123 4567 a nombre de Ana Pérez"></textarea>
         </label>
@@ -300,7 +305,7 @@ function mostrarPago() {
 }
 
 // Si el valor pagado no es múltiplo del precio, el comprador decide qué hacer con lo que sobra (consignación o efectivo).
-function mostrarSobrante(tablas, sobra) {
+function mostrarSobrante(tablas, sobra, derecho = tablas) {
   const f = $('form');
   const visible = tablas >= 1 && sobra > 0;
   $('sobrante-box').hidden = !visible;
@@ -308,12 +313,24 @@ function mostrarSobrante(tablas, sobra) {
     r.required = visible;
     if (!visible) r.checked = false;
   }
-  const devolver = visible && f.querySelector('input[name="sobranteDestino"]:checked')?.value === 'devolucion';
+  const eleccion = visible ? f.querySelector('input[name="sobranteDestino"]:checked')?.value : '';
+  const mixto = eleccion === 'mixto';
+  const devolver = eleccion === 'devolucion' || mixto;
   $('campo-sobrante-nota').hidden = !devolver;
   f.sobranteNota.required = devolver;
   if (!devolver) f.sobranteNota.value = '';
+  // Dividir el sobrante: lo que se dona más lo que se devuelve suma lo que sobra.
+  $('campo-sobrante-donar').hidden = !mixto;
+  f.sobranteDonar.required = mixto;
+  if (mixto) {
+    f.sobranteDonar.max = Math.max(0.01, Math.round((sobra - 0.01) * 100) / 100);
+    const donar = Number(f.sobranteDonar.value) || 0;
+    $('sobrante-resto').textContent = donar > 0 && donar < sobra ? `Te devolvemos ${dinero(Math.round((sobra - donar) * 100) / 100, evento.moneda)}.` : `Debe ser menos de ${dinero(sobra, evento.moneda)}.`;
+  } else f.sobranteDonar.value = '';
   if (visible) {
-    $('sobrante-txt').textContent = `Con ese valor tienes derecho a ${tablas} tabla(s) y te sobran ${dinero(sobra, evento.moneda)}. ¿Qué quieres hacer con ese dinero?`;
+    $('sobrante-txt').textContent = derecho > tablas
+      ? `Pagaste para ${derecho} tabla(s) y pediste ${tablas}, así que te sobran ${dinero(sobra, evento.moneda)}. Si prefieres más tablas, súbele el número arriba. Si no, ¿qué hacemos con ese dinero?`
+      : `Con ese valor tienes derecho a ${tablas} tabla(s) y te sobran ${dinero(sobra, evento.moneda)}. ¿Qué quieres hacer con ese dinero?`;
   }
 }
 
@@ -420,7 +437,8 @@ function actualizar() {
   $('calc-n').textContent = n;
   mostrarInsuficiente(n < 1 ? valor : 0);
   const donando = mostrarDonar(n);
-  mostrarSobrante(donando ? 0 : n, n >= 1 && !donando ? Math.round((valor - n * evento.precioTabla) * 100) / 100 : 0);
+  const base = pedidas >= 1 && pedidas < n ? pedidas : n; // el sobrante se cuenta contra las tablas que pidió
+  mostrarSobrante(donando ? 0 : base, n >= 1 && !donando ? Math.round((valor - base * evento.precioTabla) * 100) / 100 : 0, n);
   if (donando) {
     calc.classList.add('alerta');
     $('calc-txt').textContent = `Con ${dinero(valor, evento.moneda)} te corresponden ${n} tabla(s), pero elegiste donar todo: no se te asignarán tablas.`;
@@ -556,6 +574,9 @@ $('form').addEventListener('submit', async e => {
     }
     const cuerpo = Object.fromEntries([...new FormData(f)].filter(([k]) => k !== 'comprobantes'));
     cuerpo.comprobantes = comprobantes;
+    // «Dono una parte y me devuelven el resto» viaja como devolución con la parte donada.
+    if (cuerpo.sobranteDestino === 'mixto') cuerpo.sobranteDestino = 'devolucion';
+    else delete cuerpo.sobranteDonar;
     if (reparto) cuerpo.reparto = reparto;
     cuerpo.pagosExtra = pagosExtra;
     $('msg').textContent = 'Registrando compra…';

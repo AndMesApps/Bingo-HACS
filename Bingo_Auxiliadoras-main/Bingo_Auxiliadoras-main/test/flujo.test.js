@@ -1732,3 +1732,47 @@ test('pidió menos de lo que pagó: la administración elige una tabla más o de
   assert.equal(d.sobranteMonto, 10);
   assert.equal(d.sobranteEstado, 'donado');
 });
+
+test('sobrante dividido: el comprador dona una parte y le devuelven el resto', async () => {
+  const s = await nuevo();
+  await tablas(s, 6);
+  // Pidió 3 (30) y pagó 50: sobran 20; dona 10 y devuelve 10.
+  await assert.rejects(s.crearCompra(datos(3, { montoPagado: 50, sobranteDestino: 'devolucion', sobranteNota: 'Nequi', sobranteDonar: 25 }), comprobante()), /entre 0 y/);
+  const c = await s.crearCompra(datos(3, { montoPagado: 50, sobranteDestino: 'devolucion', sobranteNota: 'Nequi 300', sobranteDonar: 10 }), comprobante());
+  await s.verificarPago((await s.detalleCompra(c.id)).pagos[0].id, 50);
+  await s.enviarTablas(c.id, { cantidad: 3 });
+  let d = await s.detalleCompra(c.id);
+  assert.equal(d.sobranteMonto, 20);
+  assert.equal(d.sobranteDonar, 10);
+  assert.equal(d.sobranteDevolver, 10);
+  assert.equal(d.sobranteEstado, 'por_devolver');
+  let r = await s.resumen();
+  assert.equal(r.dinero.donaciones, 10);
+  assert.equal(r.dinero.porDevolver, 10);
+  await s.gestionarSobrante(c.id, { accion: 'devuelto', nota: 'Nequi 300 hoy' });
+  r = await s.resumen();
+  assert.equal(r.dinero.donaciones, 10);
+  assert.equal(r.dinero.porDevolver, 0);
+  assert.equal(r.dinero.devuelto, 10);
+  const fila = (await s.reporte('sobrantes')).filas.find(f => f[0] === d.codigo);
+  assert.deepEqual(fila.slice(5, 8), [20, 10, 10]);
+});
+
+test('sobrante dividido: la administración lo define al enviar, aunque el comprador pidiera otra cosa', async () => {
+  const s = await nuevo();
+  await tablas(s, 6);
+  const c = await s.crearCompra(datos(2, { montoPagado: 50, sobranteDestino: 'devolucion', sobranteNota: 'Nequi 300' }), comprobante());
+  await s.verificarPago((await s.detalleCompra(c.id)).pagos[0].id, 50);
+  await assert.rejects(s.enviarTablas(c.id, { cantidad: 2, sobranteDonar: 99 }), /entre 0 y/);
+  await s.enviarTablas(c.id, { cantidad: 2, sobranteDonar: 12 });
+  const d = await s.detalleCompra(c.id);
+  assert.equal(d.sobranteMonto, 30);
+  assert.equal(d.sobranteDonar, 12);
+  assert.equal(d.sobranteDevolver, 18);
+  assert.equal(d.sobranteEstado, 'por_devolver');
+  // Donarlo todo al enviar cierra el sobrante como donado.
+  const e = await s.crearCompra(datos(2, { montoPagado: 50, sobranteDestino: 'devolucion', sobranteNota: 'x' }), comprobante());
+  await s.verificarPago((await s.detalleCompra(e.id)).pagos[0].id, 50);
+  await s.enviarTablas(e.id, { cantidad: 2, sobranteDonar: 30 });
+  assert.equal((await s.detalleCompra(e.id)).sobranteEstado, 'donado');
+});

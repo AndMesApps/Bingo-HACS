@@ -350,3 +350,6 @@ ALTER TABLE entregas ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE tablas ADD COLUMN IF NOT EXISTS entrega_id INTEGER REFERENCES entregas(id);
 ALTER TABLE tablas_historial ADD COLUMN IF NOT EXISTS entrega_id INTEGER REFERENCES entregas(id);
+
+ALTER TABLE compras ADD COLUMN IF NOT EXISTS sobrante_donar NUMERIC(12,2) NOT NULL DEFAULT 0;
+UPDATE compras SET sobrante_donar = sobrante_monto WHERE sobrante_estado = 'donado' AND sobrante_donar = 0;

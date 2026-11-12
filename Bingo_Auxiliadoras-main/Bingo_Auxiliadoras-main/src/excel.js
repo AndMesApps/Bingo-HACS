@@ -30,7 +30,7 @@ const TIPOS_REPORTE = {
   compras: ['texto', 'fecha', 'texto', 'texto', 'texto', 'texto', 'texto', 'texto', 'entero', 'entero', 'dinero', 'dinero', 'dinero', 'estado', 'estado', 'estado', 'estado', 'largo', 'largo'],
   pagos: ['fecha', 'texto', 'texto', 'dinero', 'dinero', 'texto', 'texto', 'estado'],
   deudas: ['texto', 'texto', 'texto', 'texto', 'dinero', 'dinero', 'dinero'],
-  sobrantes: ['texto', 'texto', 'texto', 'dinero', 'entero', 'dinero', 'texto', 'estado', 'largo', 'largo'],
+  sobrantes: ['texto', 'texto', 'texto', 'dinero', 'entero', 'dinero', 'dinero', 'dinero', 'texto', 'estado', 'largo', 'largo'],
   tablas: ['texto', 'estado', 'fecha', 'texto', 'texto', 'texto', 'texto', 'texto', 'texto'],
   premios: ['texto', 'texto', 'texto', 'dinero', 'texto', 'texto', 'texto', 'texto', 'estado', 'texto', 'largo'],
   gastos: ['fecha', 'texto', 'texto', 'dinero'],
@@ -39,7 +39,7 @@ const TITULOS_REPORTE = {
   compras: 'Compras', pagos: 'Pagos', deudas: 'Deudas', sobrantes: 'Sobrantes', tablas: 'Tablas', premios: 'Premios', gastos: 'Gastos',
 };
 // Columnas que se suman en la fila de totales.
-const TOTALES_REPORTE = { compras: [8, 9, 10, 11, 12], pagos: [3, 4], deudas: [4, 5, 6], sobrantes: [3, 4, 5], premios: [3], gastos: [3] };
+const TOTALES_REPORTE = { compras: [8, 9, 10, 11, 12], pagos: [3, 4], deudas: [4, 5, 6], sobrantes: [3, 4, 5, 6, 7], premios: [3], gastos: [3] };
 
 const letra = n => { let s = ''; for (let i = n + 1; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + ((i - 1) % 26)) + s; return s; };
 
