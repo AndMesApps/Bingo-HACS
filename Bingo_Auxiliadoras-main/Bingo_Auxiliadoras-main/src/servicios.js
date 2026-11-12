@@ -48,6 +48,7 @@ const SQL_COMPRAS = `
     COALESCE((SELECT SUM(p.monto_verificado) FROM pagos p WHERE p.compra_id = c.id AND p.estado = 'verificado'), 0) AS pagado,
     COALESCE((SELECT SUM(p.monto_reportado) FROM pagos p WHERE p.compra_id = c.id AND p.estado <> 'rechazado'), 0) AS reportado,
     (SELECT COUNT(*)::int FROM pagos p WHERE p.compra_id = c.id AND p.estado = 'por_verificar') AS pagos_pendientes,
+    COALESCE((SELECT SUM(p.monto_reportado) FROM pagos p WHERE p.compra_id = c.id AND p.estado = 'por_verificar'), 0) AS pendiente_monto,
     (SELECT string_agg(DISTINCT p.metodo, ', ') FROM pagos p WHERE p.compra_id = c.id AND p.estado <> 'rechazado') AS metodos,
     (SELECT MAX(p.fecha_pago) FROM pagos p WHERE p.compra_id = c.id AND p.estado <> 'rechazado') AS fecha_pago,
     COALESCE((SELECT array_agg(x.serial ORDER BY x.serial) FROM (
@@ -310,7 +311,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       precioUnitario: precio,
       total,
       pagado,
-      saldo: redondear(Math.max(0, total - pagado)),
+      // Lo que aún falta por pagar: no cuenta como deuda lo que ya reportó y está esperando verificación.
+      saldo: redondear(Math.max(0, total - pagado - num(c.pendiente_monto))),
       estado: c.estado,
       whatsappEstado: c.whatsapp_estado,
       whatsappError: c.whatsapp_error,
@@ -1368,6 +1370,14 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       WHERE p.estado = 'verificado' AND c.bingo_id = ${B}`);
     const porVerificar = await suma(`SELECT COALESCE(SUM(p.monto_reportado), 0) AS n FROM pagos p JOIN compras c ON c.id = p.compra_id
       WHERE p.estado = 'por_verificar' AND c.bingo_id = ${B}`);
+    // Por estado y forma de pago: el efectivo (metodo «Efectivo») aparte de consignación y transferencia.
+    const montoPagos = (estado, columna, efectivo) => suma(`SELECT COALESCE(SUM(p.${columna}), 0) AS n FROM pagos p JOIN compras c ON c.id = p.compra_id
+      WHERE p.estado = '${estado}' AND c.bingo_id = ${B} AND (p.metodo ILIKE '%efectivo%') = ${efectivo}`);
+    const porVerificarTransferencia = await montoPagos('por_verificar', 'monto_reportado', false);
+    const porVerificarEfectivo = await montoPagos('por_verificar', 'monto_reportado', true);
+    const verificadoTransferencia = await montoPagos('verificado', 'monto_verificado', false);
+    const verificadoEfectivo = await montoPagos('verificado', 'monto_verificado', true);
+    const totalRecaudado = redondear(porVerificarTransferencia + porVerificarEfectivo + verificadoTransferencia + verificadoEfectivo);
     const premiosPagados = await suma(`SELECT COALESCE(SUM(g.monto), 0) AS n FROM premio_ganadores g JOIN premios p ON p.id = g.premio_id
       WHERE g.entregado = true AND p.bingo_id = ${B}`);
     const premiosProgramados = await suma(`SELECT COALESCE(SUM(monto), 0) AS n FROM premios WHERE bingo_id = ${B}`);
@@ -1387,6 +1397,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       compras,
       dinero: {
         cobrado, porVerificar, porCobrar, premiosPagados, premiosProgramados, gastos,
+        porVerificarTransferencia, porVerificarEfectivo, verificadoTransferencia, verificadoEfectivo, totalRecaudado,
         donaciones, porDevolver, devuelto,
         // Ventas + donaciones reales: lo cobrado menos lo que hay que devolver o ya se devolvió.
         ingresos: redondear(cobrado - porDevolver - devuelto),
@@ -1403,12 +1414,17 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const cantidadEn = async estado => num((await q(
       `SELECT COALESCE(SUM(COALESCE(tablas_aprobadas, cantidad)), 0) AS n FROM compras WHERE estado = $1 AND bingo_id = ${ACTIVO}`, [estado]))[0].n);
 
+    // Tablas que ya se pidieron o pagaron pero todavía no se asignan (esperan verificación o envío).
+    const porAsignar = (await cantidadEn('por_verificar')) + (await cantidadEn('verificada'));
     return {
       dinero,
       tablas: {
         total: disponibles + vendidas,
         disponibles,
         vendidas,
+        asignadas: vendidas,
+        porAsignar,
+        vendidasTotal: vendidas + porAsignar,
         libresParaVender: await tablasLibresParaVender(),
         porEnviar: await cantidadEn('verificada'),
         entregadas: await cantidadEn('enviada'),
