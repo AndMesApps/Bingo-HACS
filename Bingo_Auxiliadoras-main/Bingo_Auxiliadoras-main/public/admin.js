@@ -140,7 +140,7 @@ async function renderResumen() {
   const invitacion = personal
     ? (personal.includes(enlace) ? personal : `${personal}\n\n${enlace}`)
     : `Te invitamos a ${r.evento.nombre || 'nuestro bingo'} de las Hermanas Auxiliadoras de Cristo Sacerdote. Compra tus tablas aquí: ${enlace}`;
-  const pct = t.total ? Math.round((t.vendidas / t.total) * 100) : 0;
+  const pct = t.total ? Math.round((t.vendidasTotal / t.total) * 100) : 0;
   const pendientes = r.compras.porVerificar + r.compras.listasParaEnviar;
   const sobrantesPend = r.dinero.porDevolver > 0;
   $('vista').innerHTML = `
@@ -178,16 +178,30 @@ async function renderResumen() {
     ${sobrantesPend ? `<div class="note"><strong>${dinero(r.dinero.porDevolver)}</strong> de sobrantes esperan una decisión o una devolución.
       <button type="button" class="ghost" data-vista-ir="sobrantes" style="margin-left:8px">Ver sobrantes</button></div>` : ''}
     <div class="card">
-      <div class="row"><strong>Tablas vendidas</strong><span>${t.vendidas} de ${t.total} (${pct}%)</span></div>
+      <div class="row"><strong>Tablas vendidas</strong><span>${t.vendidasTotal} de ${t.total} (${pct}%)</span></div>
       <div style="height:12px;border-radius:999px;background:var(--azul-claro);overflow:hidden;margin-top:8px" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100">
         <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--azul-medio),var(--azul-oscuro))"></div>
       </div>
     </div>
-    <h2>Dinero</h2>
+    <h2>Dinero recaudado</h2>
     <div class="stats">
-      <div class="card stat"><span class="muted">Cobrado (verificado)</span><strong>${dinero(d.cobrado)}</strong></div>
-      <div class="card stat"><span class="muted">Por verificar</span><strong>${dinero(d.porVerificar)}</strong></div>
-      <div class="card stat"><span class="muted">Por cobrar (deuda)</span><strong>${dinero(d.porCobrar)}</strong></div>
+      <div class="card stat"><span class="muted">Por verificar (Transferencia)</span><strong>${dinero(d.porVerificarTransferencia)}</strong></div>
+      <div class="card stat"><span class="muted">Por verificar (Efectivo)</span><strong>${dinero(d.porVerificarEfectivo)}</strong></div>
+      <div class="card stat"><span class="muted">Verificado (Transferencia)</span><strong>${dinero(d.verificadoTransferencia)}</strong></div>
+      <div class="card stat"><span class="muted">Verificado (Efectivo)</span><strong>${dinero(d.verificadoEfectivo)}</strong></div>
+      <div class="card stat"><span class="muted">Por cobrar</span><strong class="${d.porCobrar > 0 ? 'neg' : ''}">${dinero(d.porCobrar)}</strong></div>
+      <div class="card stat" style="border-color:var(--accent)"><span class="muted">Total dinero recaudado (todo)</span><strong>${dinero(d.totalRecaudado)}</strong></div>
+    </div>
+    <p class="muted">Total recaudado = lo verificado + lo que está por verificar. «Por cobrar» es solo lo que alguien todavía no ha pagado: lo que ya reportó y espera verificación no se cuenta como deuda.</p>
+    <h2>Tablas</h2>
+    <div class="stats">
+      <div class="card stat"><span class="muted">Total tablas asignadas</span><strong>${t.asignadas}</strong></div>
+      <div class="card stat"><span class="muted">Total tablas por asignar</span><strong>${t.porAsignar}</strong></div>
+      <div class="card stat" style="border-color:var(--accent)"><span class="muted">Total tablas vendidas</span><strong>${t.vendidasTotal}</strong></div>
+    </div>
+    <p class="muted">Vendidas = asignadas + por asignar (las que ya se pidieron y esperan verificación o envío). Disponibles para vender: ${t.libresParaVender} de ${t.total}.</p>
+    <h2>Otros movimientos</h2>
+    <div class="stats">
       <div class="card stat"><span class="muted">Donaciones (sobrantes donados)</span><strong>${dinero(d.donaciones)}</strong></div>
       <div class="card stat"><span class="muted">Por devolver a compradores</span><strong class="${d.porDevolver > 0 ? 'neg' : ''}">${dinero(d.porDevolver)}</strong></div>
       <div class="card stat"><span class="muted">Ya devuelto</span><strong>${dinero(d.devuelto)}</strong></div>
@@ -199,12 +213,11 @@ async function renderResumen() {
     <div class="card"><h2>Cobrado por método</h2>
       ${d.porMetodo.map(m => `<div class="kv"><span>${esc(m.metodo)}</span><strong>${dinero(m.monto)}</strong></div>`).join('') || '<p class="muted">Aún no hay pagos verificados.</p>'}
     </div>
-    <h2>Tablas</h2>
+    <h2>Detalle de tablas</h2>
     <div class="stats">
       <div class="card stat"><span class="muted">Disponibles</span><strong>${t.disponibles}</strong></div>
       <div class="card stat"><span class="muted">Libres para vender</span><strong>${t.libresParaVender}</strong></div>
-      <div class="card stat"><span class="muted">Vendidas</span><strong>${t.vendidas}</strong></div>
-      <div class="card stat"><span class="muted">Por enviar</span><strong>${t.porEnviar}</strong></div>
+      <div class="card stat"><span class="muted">Por enviar (verificadas)</span><strong>${t.porEnviar}</strong></div>
       <div class="card stat"><span class="muted">Entregadas</span><strong>${t.entregadas}</strong></div>
     </div>
     <h2>Pendientes</h2>

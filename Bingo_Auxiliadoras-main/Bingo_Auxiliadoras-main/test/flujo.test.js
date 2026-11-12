@@ -216,8 +216,10 @@ test('importar ignora repetidos y vacíos', async () => {
 
 test('reporte de deudas solo incluye saldos positivos', async () => {
   const s = await nuevo();
-  await tablas(s, 2);
-  await comprar(s, 1);
+  await tablas(s, 4);
+  await comprar(s, 1); // pagó todo y espera verificación: no es deuda
+  assert.equal((await s.reporte('deudas')).filas.length, 0);
+  await comprar(s, 2, { montoPagado: 12 }); // reportó menos de lo que pidió: sí debe
   const r = await s.reporte('deudas');
   assert.equal(r.filas.length, 1);
   await assert.rejects(s.reporte('nada'), /no existe/);
@@ -1775,4 +1777,32 @@ test('sobrante dividido: la administración lo define al enviar, aunque el compr
   await s.verificarPago((await s.detalleCompra(e.id)).pagos[0].id, 50);
   await s.enviarTablas(e.id, { cantidad: 2, sobranteDonar: 30 });
   assert.equal((await s.detalleCompra(e.id)).sobranteEstado, 'donado');
+});
+
+test('dashboard: dinero por estado y forma de pago, sin contar como deuda lo que espera verificación', async () => {
+  const s = await nuevo();
+  await tablas(s, 15);
+  // A: transferencia de 30 por 3 tablas, sin verificar.
+  const a = await s.crearCompra(datos(3, { montoPagado: 30, metodo: 'Consignación' }), comprobante());
+  // B: efectivo de 20 por 2 tablas, ya verificado (listo para enviar).
+  const b = await s.crearCompra(datos(2, { montoPagado: 20, metodo: 'Efectivo' }), []);
+  await verificarTodo(s, b.id, 20);
+  // C: transferencia de 40 por 4 tablas, verificada y enviada.
+  const c = await s.crearCompra(datos(4, { montoPagado: 40, metodo: 'Consignación' }), comprobante());
+  await verificarTodo(s, c.id, 40);
+  await s.enviarTablas(c.id);
+  const r = await s.resumen();
+  assert.equal(r.dinero.porVerificarTransferencia, 30);
+  assert.equal(r.dinero.porVerificarEfectivo, 0);
+  assert.equal(r.dinero.verificadoTransferencia, 40);
+  assert.equal(r.dinero.verificadoEfectivo, 20);
+  assert.equal(r.dinero.totalRecaudado, 90);
+  assert.equal(r.dinero.porCobrar, 0, 'lo reportado y por verificar no es deuda');
+  assert.equal(r.tablas.asignadas, 4);
+  assert.equal(r.tablas.porAsignar, 5);
+  assert.equal(r.tablas.vendidasTotal, 9);
+  assert.equal((await s.detalleCompra(a.id)).saldo, 0);
+  // Si alguien reportó menos de lo que pidió, esa diferencia sí es deuda.
+  await s.crearCompra(datos(5, { montoPagado: 30 }), comprobante());
+  assert.equal((await s.resumen()).dinero.porCobrar, 20);
 });
