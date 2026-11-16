@@ -271,7 +271,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       const bytes = crypto.randomBytes(6);
       let s = '';
       for (const b of bytes) s += ALFABETO[b % ALFABETO.length];
-      const codigo = `BNG-${s}`;
+      const codigo = `HAC-${s}`;
       if (!(await t('SELECT 1 FROM compras WHERE codigo = $1', [codigo])).length) return codigo;
     }
     throw new Error('No se pudo generar un código de compra.');

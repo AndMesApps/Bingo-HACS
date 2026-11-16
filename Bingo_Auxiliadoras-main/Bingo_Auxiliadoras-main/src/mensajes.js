@@ -81,7 +81,7 @@ const ETIQUETAS = [
   { nombre: 'cantidad', descripcion: 'Cuántas tablas son (2 tablas)' },
   { nombre: 'numeros', descripcion: 'Los números de sus tablas (12 y 87)' },
   { nombre: 'enlace', descripcion: 'El enlace privado para descargar sus tablas' },
-  { nombre: 'codigo', descripcion: 'El código de la compra (BNG-AB12CD)' },
+  { nombre: 'codigo', descripcion: 'El código de la compra (HAC-AB12CD)' },
   { nombre: 'conexion_bloque', descripcion: 'Los datos de la reunión (enlace, ID y hora), o un aviso si todavía no están' },
 ];
 const NOMBRES_ETIQUETAS = new Set(ETIQUETAS.map(e => e.nombre));
