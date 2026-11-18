@@ -65,6 +65,7 @@ module.exports = async (req, res) => {
       { metodo: 'POST', patron: /^\/compras\/(\d+)\/rechazar$/, handler: admin(async (p, req, res) => res.json(await servicios.rechazarCompra(id(p)))) },
 
       { metodo: 'POST', patron: /^\/pagos\/(\d+)\/verificar$/, handler: admin(async (p, req, res) => res.json(await servicios.verificarPago(id(p), req.body?.montoVerificado, { baseUrl: baseUrl(req), operador: await servicios.operadorDe(req.body?.operador) }))) },
+      { metodo: 'POST', patron: /^\/pagos\/(\d+)\/revertir$/, handler: admin(async (p, req, res) => res.json(await servicios.revertirVerificacion(id(p), { operador: await servicios.operadorDe(req.body?.operador) }))) },
       { metodo: 'POST', patron: /^\/pagos\/(\d+)\/rechazar$/, handler: admin(async (p, req, res) => res.json(await servicios.rechazarPago(id(p), { baseUrl: baseUrl(req), operador: await servicios.operadorDe(req.body?.operador) }))) },
 
       {

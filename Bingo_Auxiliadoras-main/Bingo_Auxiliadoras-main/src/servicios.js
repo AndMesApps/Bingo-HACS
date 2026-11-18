@@ -623,13 +623,48 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     return detalleCompra(c.id);
   }
 
-  async function rechazarPago(pagoId, { baseUrl, operador = '' } = {}) {
+  // Si ya no queda ningún pago verificado, la compra vuelve a "por verificar"; si es donación, se recalcula el monto donado.
+  async function reajustarTrasQuitarVerificado(t, c) {
+    const pagado = await pagadoDe(c.id, t);
+    if (c.cantidad === 0 && c.estado === 'donacion') {
+      if (pagado > 0) await t('UPDATE compras SET sobrante_monto = $1::numeric, sobrante_donar = $1::numeric WHERE id = $2', [pagado, c.id]);
+      else await t("UPDATE compras SET estado = 'por_verificar', verificada_en = NULL, sobrante_monto = 0, sobrante_donar = 0, sobrante_estado = 'ninguno', sobrante_en = NULL WHERE id = $1", [c.id]);
+    } else if (c.estado === 'verificada' && !(pagado > 0)) {
+      await t("UPDATE compras SET estado = 'por_verificar', verificada_en = NULL WHERE id = $1", [c.id]);
+    }
+  }
+
+  // Deshace una verificación: el pago vuelve a "por verificar" para revisarlo de nuevo (verificarlo con otro monto o rechazarlo).
+  async function revertirVerificacion(pagoId, { operador = '' } = {}) {
     const p = await uno('SELECT * FROM pagos WHERE id = $1', [pagoId]);
     if (!p) throw new ErrorApp('Pago no encontrado.', 404);
-    if (p.estado !== 'por_verificar') throw new ErrorApp('Este pago ya fue procesado.', 409);
-    await q("UPDATE pagos SET estado = 'rechazado', verificado_en = $1, verificado_por = $3 WHERE id = $2", [ahora(), pagoId, operador]);
-    const c = await uno('SELECT codigo FROM compras WHERE id = $1', [p.compra_id]);
-    await bitacora('pago rechazado', `${c.codigo}: ${p.referencia}${operador ? ` · por ${operador}` : ''}`);
+    if (p.estado !== 'verificado') throw new ErrorApp('Solo se puede revertir la verificación de un pago verificado.', 409);
+    const c = await uno('SELECT * FROM compras WHERE id = $1', [p.compra_id]);
+    if (c.estado === 'enviada') throw new ErrorApp('Ya se enviaron las tablas de esta compra; no se puede revertir la verificación.', 409);
+    await db.tx(async t => {
+      const act = await t("UPDATE pagos SET estado = 'por_verificar', monto_verificado = NULL, verificado_en = NULL, verificado_por = '' WHERE id = $1 AND estado = 'verificado' RETURNING id", [pagoId]);
+      if (!act.length) throw new ErrorApp('Este pago ya cambió de estado.', 409);
+      await reajustarTrasQuitarVerificado(t, c);
+      await bitacora('verificación revertida', `${c.codigo}: ${p.metodo} ${p.referencia} (${p.monto_verificado})${operador ? ` · por ${operador}` : ''}`, t);
+    });
+    return detalleCompra(c.id);
+  }
+
+  async function rechazarPago(pagoId,{ baseUrl, operador = '' } = {}) {
+    const p = await uno('SELECT * FROM pagos WHERE id = $1', [pagoId]);
+    if (!p) throw new ErrorApp('Pago no encontrado.', 404);
+    if (p.estado === 'rechazado') throw new ErrorApp('Este pago ya fue rechazado.', 409);
+    const c = await uno('SELECT * FROM compras WHERE id = $1', [p.compra_id]);
+    // Un pago ya verificado también se puede anular (p. ej. se registró por error), mientras no se hayan enviado las tablas.
+    if (p.estado === 'verificado' && c.estado === 'enviada') {
+      throw new ErrorApp('Ya se enviaron las tablas de esta compra; no se puede anular un pago verificado.', 409);
+    }
+    await db.tx(async t => {
+      const act = await t("UPDATE pagos SET estado = 'rechazado', verificado_en = $1, verificado_por = $3 WHERE id = $2 AND estado <> 'rechazado' RETURNING id", [ahora(), pagoId, operador]);
+      if (!act.length) throw new ErrorApp('Este pago ya fue rechazado.', 409);
+      if (p.estado === 'verificado') await reajustarTrasQuitarVerificado(t, c);
+      await bitacora(p.estado === 'verificado' ? 'pago verificado anulado' : 'pago rechazado', `${c.codigo}: ${p.metodo} ${p.referencia} (${p.monto_verificado ?? p.monto_reportado})${operador ? ` · por ${operador}` : ''}`, t);
+    });
     await enviarSiCorresponde(p.compra_id, baseUrl);
     return detalleCompra(p.compra_id);
   }
@@ -1681,7 +1716,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     evento, actualizarEvento, piezaInvitacion,
     tablasDisponibles, tablasLibresParaVender, generarTablas, importarTablas, listarTablas,
     crearCompra, estadoPublico, detalleCompra, listarCompras,
-    reiniciarSorteo, operadorDe, registrarPagoManual, verificarPago, rechazarPago, convertirDonacion,
+    reiniciarSorteo, operadorDe, registrarPagoManual, verificarPago, rechazarPago, revertirVerificacion, convertirDonacion,
     enviarTablas, reenviar, enlaceWhatsapp, enlaceCorreo, marcarEnviadoManual, entregaFisica, entregaPublica, rechazarCompra,
     gestionarSobrante, listarSobrantes, datosSelloEntrega,
     comprobanteDe,

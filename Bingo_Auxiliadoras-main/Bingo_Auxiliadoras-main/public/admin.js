@@ -473,6 +473,19 @@ function controlesVerificarPago(p, precioUnitario, operadoras) {
         </div>`;
 }
 
+// Anular un pago ya verificado (p. ej. registrado por error). No se ofrece si las tablas ya fueron enviadas.
+function botonAnularPago(p, d, operadoras) {
+  if (p.estado !== 'verificado' || d.estado === 'enviada') return '';
+  return `
+        <div class="row" style="width:100%;margin-top:6px">
+          ${selectorOperadora(operadoras)}
+          <div class="actions">
+            <button type="button" class="ghost" data-act="revertir-pago" data-id="${p.id}">Revertir verificación</button>
+            <button type="button" class="danger" data-act="rechazar-pago" data-id="${p.id}" data-verificado="1">Anular / rechazar pago</button>
+          </div>
+        </div>`;
+}
+
 // Registrar un pago recibido que no pasó por el formulario (p. ej. completar un saldo).
 function formPagoManual(compraId, operadoras) {
   return `
@@ -501,6 +514,7 @@ async function cargarPagos(card) {
       ${p.comprobantes.map(c => `<button type="button" class="ghost" data-act="ver-comprobante" data-id="${c.id}">Ver ${esc(c.nombre)}</button>`).join('')}
       ${p.comprobantes.length === 0 && p.estado === 'por_verificar' ? '<span class="muted">Sin comprobante (pago en efectivo): confirma que recibiste el dinero.</span>' : ''}
       ${p.estado === 'por_verificar' ? controlesVerificarPago(p, d.precioUnitario, operadoras) : ''}
+      ${botonAnularPago(p, d, operadoras)}
     </div>`).join('') || '<p class="muted">Sin pagos.</p>';
 
   const manual = d.estado !== 'rechazada' ? formPagoManual(d.id, operadoras) : '';
@@ -688,8 +702,16 @@ $('vista').addEventListener('click', async e => {
       filtroCompras = 'verificada';
       return mostrar('compras');
     }
+    if (act === 'revertir-pago') {
+      if (!confirm('¿Revertir la verificación de este pago? Volverá a "por verificar" y podrás verificarlo de nuevo o rechazarlo.')) return;
+      await api('POST', `/admin/pagos/${id}/revertir`, { operador: operadoraElegida(btn.closest('.row')) });
+      if (volverATransacciones(btn)) { msg('Verificación revertida.'); return mostrar('transacciones'); }
+      msg('Verificación revertida: el pago volvió a "por verificar".');
+      filtroCompras = 'por_verificar';
+      return mostrar('compras');
+    }
     if (act === 'rechazar-pago') {
-      if (!confirm('¿Rechazar este pago?')) return;
+      if (!confirm(btn.dataset.verificado ? '¿Anular este pago ya verificado? Dejará de contarse como dinero recibido.' : '¿Rechazar este pago?')) return;
       await api('POST', `/admin/pagos/${id}/rechazar`, { operador: operadoraElegida(btn.closest('.row')) });
       if (volverATransacciones(btn)) { msg('Pago rechazado.'); return mostrar('transacciones'); }
       msg('Pago rechazado.');
@@ -1657,6 +1679,7 @@ function detalleTx(d, operadoras = []) {
     ${d.pagos.map(p => `<div class="kv" style="flex-direction:column;align-items:flex-start"><div class="row" style="width:100%"><span>${esc(p.fechaPago)} · ${esc(p.metodo)}${p.referencia ? ' · ' + esc(p.referencia) : ''}</span>
       <span>${esc(dinero(p.montoReportado))}${p.montoVerificado != null ? ` (verificado ${esc(dinero(p.montoVerificado))})` : ''}
       <span class="pill ${esc(p.estado)}">${esc(p.estado.replace('_', ' '))}</span></span></div>
+      ${botonAnularPago(p, d, operadoras)}
       </div>`).join('') || '<p class="muted">Sin pagos.</p>'}
     ${d.estado !== 'rechazada' ? formPagoManual(d.id, operadoras) : ''}
     <h3>Documentos adjuntos</h3>

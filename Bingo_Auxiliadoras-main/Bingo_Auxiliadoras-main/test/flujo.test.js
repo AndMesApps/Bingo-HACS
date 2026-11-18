@@ -526,6 +526,36 @@ test('pago en efectivo registrado por el administrador: el sobrante queda por de
   assert.equal(r.sobranteNota, 'Entregar en efectivo en la parroquia');
 });
 
+test('un pago ya verificado se puede anular o revertir, cada subpago por separado, mientras no se envíen las tablas', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  await s.actualizarEvento({ precioTabla: 20000 });
+  const c = await s.crearCompra(datos(3, { montoPagado: 60000 }), comprobante());
+  const transf = (await s.detalleCompra(c.id)).pagos[0];
+  await s.verificarPago(transf.id, 60000);
+  await s.registrarPagoManual(c.id, { monto: 60000, metodo: 'Efectivo' }); // registrado por error
+  let d = await s.detalleCompra(c.id);
+  assert.equal(d.pagado, 120000);
+  const efectivo = d.pagos.find(p => p.metodo === 'Efectivo');
+
+  d = await s.rechazarPago(efectivo.id, { operador: 'Carmen' });
+  assert.equal(d.pagado, 60000, 'solo cuenta el pago bueno');
+  assert.equal(d.estado, 'verificada');
+  assert.equal(d.pagos.find(p => p.id === efectivo.id).estado, 'rechazado');
+  await assert.rejects(s.rechazarPago(efectivo.id), /ya fue rechazado/);
+
+  d = await s.revertirVerificacion(transf.id);
+  assert.equal(d.pagado, 0);
+  assert.equal(d.estado, 'por_verificar', 'sin pagos verificados vuelve a por verificar');
+  assert.equal(d.pagos.find(p => p.id === transf.id).estado, 'por_verificar');
+  await assert.rejects(s.revertirVerificacion(transf.id), /pago verificado/);
+
+  await s.verificarPago(transf.id, 60000);
+  await s.enviarTablas(c.id);
+  await assert.rejects(s.rechazarPago(transf.id), /ya se enviaron/i);
+  await assert.rejects(s.revertirVerificacion(transf.id), /ya se enviaron/i);
+});
+
 test('sobrante por definir puede donarse; enviar menos tablas genera sobrante; sin sobrante no hay gestión', async () => {
   const s = await nuevo();
   await tablas(s, 5);
