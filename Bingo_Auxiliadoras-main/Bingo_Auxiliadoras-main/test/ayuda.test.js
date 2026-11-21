@@ -63,3 +63,18 @@ test('ayuda: lo que no existe no devuelve temas sueltos', () => {
   assert.deepEqual(buscar(secs, '   ', 6), []);
   assert.equal(norm('Contraseña ÁÉÍÓÚ'), 'contrasena aeiou');
 });
+
+test('mensajes sueltos: PDF de tablas y Zoom van por separado', () => {
+  const { textoTablasPdf, textoZoom } = require('../src/mensajes');
+  const t = textoTablasPdf({ nombre: 'TERESITA PÉREZ', seriales: ['12', '87'], enlace: 'https://x.co/t?t=a', codigo: 'HAC-AB12CD' });
+  assert.match(t, /Teresita/);
+  assert.match(t, /2 tablas \(N° 12 y 87\)/);
+  assert.doesNotMatch(t, /zoom/i);
+  assert.doesNotMatch(t, /https?:/);
+  assert.ok(t.includes('Código de su compra: HAC-AB12CD\nNuevamente, muchas gracias por su apoyo. Suerte en el juego'));
+  const z = textoZoom({ nombre: 'TERESITA PÉREZ', fechaSorteo: '2026-11-22', enlaceConexion: 'https://zoom.us/j/123\nID de reunión: 123' });
+  assert.match(z, /https:\/\/zoom\.us\/j\/123/);
+  assert.match(z, /domingo 22 de noviembre del 2026/);
+  assert.doesNotMatch(z, /HAC-/);
+  assert.equal(textoZoom({ nombre: 'Ana', enlaceConexion: '' }), '');
+});

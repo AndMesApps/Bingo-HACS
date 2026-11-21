@@ -1,7 +1,7 @@
 const crypto = require('node:crypto');
 const { crearCorreo } = require('./correo');
 const { FIGURAS, FIGURA_POR_DEFECTO, evaluarTabla } = require('./figuras');
-const { limpiarConexion, validarPlantilla, valoresDelMensaje, renderizar, PLANTILLA_ORIGINAL, ETIQUETAS } = require('./mensajes');
+const { textoTablasPdf, textoZoom, limpiarConexion, validarPlantilla, valoresDelMensaje, renderizar, PLANTILLA_ORIGINAL, ETIQUETAS } = require('./mensajes');
 
 const ALFABETO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const MAX_TABLAS_POR_COMPRA = 50;
@@ -631,6 +631,12 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       else await t("UPDATE compras SET estado = 'por_verificar', verificada_en = NULL, sobrante_monto = 0, sobrante_donar = 0, sobrante_estado = 'ninguno', sobrante_en = NULL WHERE id = $1", [c.id]);
     } else if (c.estado === 'verificada' && !(pagado > 0)) {
       await t("UPDATE compras SET estado = 'por_verificar', verificada_en = NULL WHERE id = $1", [c.id]);
+    } else if (c.estado === 'enviada') {
+      // Tablas ya entregadas: la compra sigue enviada; solo se recalcula el sobrante con lo que queda verificado.
+      const sobrante = Math.max(0, redondear(pagado - num(c.total)));
+      const donar = Math.min(num(c.sobrante_donar), sobrante);
+      if (sobrante > 0) await t('UPDATE compras SET sobrante_monto = $1::numeric, sobrante_donar = $2::numeric WHERE id = $3', [sobrante, donar, c.id]);
+      else await t("UPDATE compras SET sobrante_monto = 0, sobrante_donar = 0, sobrante_estado = 'ninguno', sobrante_en = NULL WHERE id = $1", [c.id]);
     }
   }
 
@@ -657,7 +663,15 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const c = await uno('SELECT * FROM compras WHERE id = $1', [p.compra_id]);
     // Un pago ya verificado también se puede anular (p. ej. se registró por error), mientras no se hayan enviado las tablas.
     if (p.estado === 'verificado' && c.estado === 'enviada') {
-      throw new ErrorApp('Ya se enviaron las tablas de esta compra; no se puede anular un pago verificado.', 409);
+      // Con las tablas ya enviadas solo se anula lo que sobra (p. ej. un pago registrado dos veces): lo que queda
+      // verificado debe seguir cubriendo las tablas entregadas, y el sobrante no puede haberse devuelto ya.
+      const quedaria = redondear(await pagadoDe(c.id) - num(p.monto_verificado));
+      if (quedaria < num(c.total)) {
+        throw new ErrorApp('Ya se enviaron las tablas de esta compra y sin este pago no quedarían cubiertas; no se puede anular.', 409);
+      }
+      if (c.sobrante_estado === 'devuelto') {
+        throw new ErrorApp('El sobrante de esta compra ya se devolvió; no se puede anular un pago.', 409);
+      }
     }
     await db.tx(async t => {
       const act = await t("UPDATE pagos SET estado = 'rechazado', verificado_en = $1, verificado_por = $3 WHERE id = $2 AND estado <> 'rechazado' RETURNING id", [ahora(), pagoId, operador]);
@@ -954,6 +968,29 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     }
     if ((await personasDe(compraId)).length) throw new ErrorApp('Esta compra se repartió: elige a qué persona enviarle sus tablas.');
     return whatsapp.enlaceManual(c.telefono, c.nombre, seriales, enlaceEntrega(baseUrl, c.token_entrega), c.codigo, await extraMensaje());
+  }
+
+  // Mensajes sueltos por WhatsApp, uno por mensaje: tipo 'tablas' (acompaña al PDF) o 'zoom' (solo la conexión).
+  // Devuelve { enlace (wa.me con el texto), texto, token, cantidad } para que el panel adjunte el PDF cuando puede.
+  async function mensajeSuelto(compraId, baseUrl, entregaId, tipo) {
+    if (!['tablas', 'zoom'].includes(tipo)) throw new ErrorApp('Tipo de mensaje no válido.');
+    const { c, seriales } = await datosEntrega(compraId);
+    let persona = c;
+    let lista = seriales;
+    let token = c.token_entrega;
+    if (entregaId) {
+      persona = await entregaDe(compraId, entregaId);
+      lista = await serialesDeEntrega(persona.id);
+      token = persona.token_entrega;
+    } else if ((await personasDe(compraId)).length) {
+      throw new ErrorApp('Esta compra se repartió: elige a qué persona enviarle el mensaje.');
+    }
+    const extra = await extraMensaje();
+    const texto = tipo === 'zoom'
+      ? textoZoom({ nombre: persona.nombre, ...extra })
+      : textoTablasPdf({ nombre: persona.nombre, seriales: lista, codigo: c.codigo });
+    if (!texto) throw new ErrorApp('Todavía no has puesto los datos de conexión (Zoom). Hazlo en Configuración.', 409);
+    return { enlace: whatsapp.enlaceTexto(persona.telefono, texto), texto, token, cantidad: lista.length, nombre: persona.nombre };
   }
 
   async function enlaceCorreo(compraId, baseUrl) {
@@ -1717,7 +1754,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     tablasDisponibles, tablasLibresParaVender, generarTablas, importarTablas, listarTablas,
     crearCompra, estadoPublico, detalleCompra, listarCompras,
     reiniciarSorteo, operadorDe, registrarPagoManual, verificarPago, rechazarPago, revertirVerificacion, convertirDonacion,
-    enviarTablas, reenviar, enlaceWhatsapp, enlaceCorreo, marcarEnviadoManual, entregaFisica, entregaPublica, rechazarCompra,
+    enviarTablas, reenviar, enlaceWhatsapp, mensajeSuelto, enlaceCorreo, marcarEnviadoManual, entregaFisica, entregaPublica, rechazarCompra,
     gestionarSobrante, listarSobrantes, datosSelloEntrega,
     comprobanteDe,
     listarPremios, crearPremio, asignarGanador, cerrarRonda, quitarGanadora, quitarGanador, entregarPremio, pagarPremio,

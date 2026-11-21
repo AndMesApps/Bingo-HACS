@@ -160,6 +160,36 @@ const textoDeMensaje = datos => renderizar((datos && datos.plantilla) || PLANTIL
 // Texto para WhatsApp (el *texto* entre asteriscos sale en negrita).
 const textoWhatsApp = datos => textoDeMensaje(datos);
 
+// ---------- Dos mensajes separados: (1) las tablas en PDF y (2) el enlace de Zoom ----------
+// Mensaje 1: acompaña al PDF de las tablas (el PDF se adjunta aparte).
+function textoTablasPdf({ nombre, seriales = [], codigo, ahora } = {}) {
+  const v = valoresDelMensaje({ nombre, seriales, codigo, ahora });
+  return renderizar(`{saludo} {nombre}, esperando estén super bien.
+
+*¡Tus tablas de bingo!*
+
+Le enviamos {cantidad} (N° {numeros}) en PDF, listas para imprimir: 4 por hoja, con líneas punteadas para recortarlas. Cada tabla va marcada con su nombre y teléfono y no se puede transferir.
+
+Código de su compra: {codigo}
+Nuevamente, muchas gracias por su apoyo. Suerte en el juego☺️`, v);
+}
+
+// Mensaje 2: solo la conexión a la reunión. Devuelve '' si todavía no hay datos de conexión.
+function textoZoom({ nombre, fechaSorteo, enlaceConexion, ahora } = {}) {
+  const conexion = limpiarConexion(enlaceConexion);
+  if (!conexion) return '';
+  const fecha = fechaLarga(fechaSorteo);
+  return [
+    `${saludoDe(ahora)} ${primerNombre(nombre)}, este es el enlace para conectarse al bingo${fecha ? ` del ${fecha}` : ''}:`,
+    '',
+    conexion,
+    '',
+    'No es requerido que tenga cámara abierta; es importante que tenga facilidad para escribir por el chat de la reunión, para cantar bingo, si corresponde.',
+    '',
+    'Gracias, feliz día.',
+  ].join('\n');
+}
+
 // ---------- Correo ----------
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // Convierte las direcciones web del texto en enlaces.
@@ -189,7 +219,7 @@ function mensajeCorreo(datos) {
 }
 
 module.exports = {
-  fechaLarga, saludoDe, primerNombre, nombreCompleto, lista, textoWhatsApp, mensajeCorreo, textoAHtml,
+  fechaLarga, saludoDe, primerNombre, nombreCompleto, lista, textoWhatsApp, textoTablasPdf, textoZoom, mensajeCorreo, textoAHtml,
   compactarInvitacion, limpiarConexion, validarPlantilla, valoresDelMensaje, renderizar,
   PLANTILLA_ORIGINAL, ETIQUETAS, ASUNTO,
 };

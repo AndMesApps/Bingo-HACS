@@ -556,6 +556,30 @@ test('un pago ya verificado se puede anular o revertir, cada subpago por separad
   await assert.rejects(s.revertirVerificacion(transf.id), /ya se enviaron/i);
 });
 
+test('con las tablas ya enviadas se puede anular un pago duplicado, pero no uno que deje las tablas sin cubrir', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  await s.actualizarEvento({ precioTabla: 20000 });
+  const c = await s.crearCompra(datos(3, { montoPagado: 60000 }), comprobante());
+  const bueno = (await s.detalleCompra(c.id)).pagos[0];
+  await s.verificarPago(bueno.id, 60000);
+  await s.registrarPagoManual(c.id, { monto: 60000, metodo: 'Consignación' }); // el mismo pago, registrado dos veces
+  await s.enviarTablas(c.id, { cantidad: 3 });
+  let d = await s.detalleCompra(c.id);
+  assert.equal(d.estado, 'enviada');
+  assert.equal(d.pagado, 120000);
+  assert.equal(d.sobranteMonto, 60000);
+  const duplicado = d.pagos.find(p => p.id !== bueno.id);
+
+  d = await s.rechazarPago(duplicado.id, { operador: 'Olga' });
+  assert.equal(d.estado, 'enviada', 'las tablas siguen entregadas');
+  assert.equal(d.pagado, 60000);
+  assert.equal(d.sobranteMonto, 0, 'ya no hay sobrante');
+  assert.equal(d.sobranteEstado, 'ninguno');
+  assert.equal(d.tablas.length, 3);
+  await assert.rejects(s.rechazarPago(bueno.id), /no quedarían cubiertas/);
+});
+
 test('sobrante por definir puede donarse; enviar menos tablas genera sobrante; sin sobrante no hay gestión', async () => {
   const s = await nuevo();
   await tablas(s, 5);

@@ -41,6 +41,11 @@ function crearWhatsApp({ token, phoneId, plantilla, idioma = 'es', codigoPais = 
     return `https://wa.me/${numero}?text=${encodeURIComponent(mensajeTablas(nombre, seriales, enlace, codigo, extra))}`;
   }
 
+  // Enlace wa.me con un texto ya escrito (para los mensajes sueltos: PDF de tablas, Zoom).
+  function enlaceTexto(telefono, texto) {
+    return `https://wa.me/${numeroGuardado(telefono)}?text=${encodeURIComponent(texto)}`;
+  }
+
   // Devuelve { estado: 'enviado' | 'manual', enlace? } o lanza error si la API rechaza el envío.
   async function enviarTablas({ telefono, nombre, seriales, enlace, codigo, extra }) {
     if (!configurado) return { estado: 'manual', enlace: enlaceManual(telefono, nombre, seriales, enlace, codigo, extra) };
@@ -71,7 +76,7 @@ function crearWhatsApp({ token, phoneId, plantilla, idioma = 'es', codigoPais = 
     return { estado: 'enviado' };
   }
 
-  return { configurado, enviarTablas, enlaceManual, mensajeTablas, normalizarTelefono };
+  return { configurado, enviarTablas, enlaceManual, enlaceTexto, mensajeTablas, normalizarTelefono };
 }
 
 module.exports = { crearWhatsApp };

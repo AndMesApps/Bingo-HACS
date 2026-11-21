@@ -20,6 +20,15 @@ async function api(metodo, url, cuerpo) {
   return data;
 }
 
+// Celular o tablet (incluye iPad, que se anuncia como Mac): ahí WhatsApp se abre con wa.me (la app); en computador, con WhatsApp Web.
+const esMovil = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+// A partir del enlace wa.me del servidor arma el que corresponde al aparato.
+function enlaceChat(enlaceWaMe) {
+  if (esMovil()) return enlaceWaMe;
+  const u = new URL(enlaceWaMe);
+  return `https://web.whatsapp.com/send?phone=${u.pathname.replace(/D/g, '')}&text=${encodeURIComponent(u.searchParams.get('text') || '')}`;
+}
+
 function msg(texto, malo) {
   $('msg').textContent = texto;
   $('msg').className = 'msg' + (malo ? ' bad' : '');
@@ -366,12 +375,14 @@ function estadoEntrega(c) {
         WhatsApp: <span class="pill ${esc(e.whatsappEstado)}">${esc(e.whatsappEstado.replace('_', ' '))}</span> ${e.whatsappError ? `<span class="neg">${esc(e.whatsappError)}</span>` : ''}</span>
       <span class="actions" style="margin:0">${e.whatsappEstado !== 'enviado' ? bp('enlace', 'Enviar por WhatsApp', '') + bp('marcar', 'Marcar enviado') : bp('enlace', 'Enviar de nuevo')}
         ${e.whatsappEstado === 'fallido' ? bp('reenviar', 'Reintentar') : ''}
+        ${bp('msg-tablas', '1 · Tablas en PDF')}${bp('msg-zoom', '2 · Enlace de Zoom')}
         ${enlacePersona ? `<button type="button" class="ghost" data-copiar="${esc(enlacePersona)}">Copiar enlace</button>` : ''}</span>
     </div>`;
   }).join('');
   const wa = personas || fila('WhatsApp', c.whatsappEstado, c.whatsappError,
     (c.whatsappEstado !== 'enviado' ? b('enlace', 'whatsapp', 'Enviar por WhatsApp', '') + b('marcar', 'whatsapp', 'Marcar enviado') : b('enlace', 'whatsapp', 'Enviar de nuevo por WhatsApp'))
-    + (c.whatsappEstado === 'fallido' ? b('reenviar', 'whatsapp', 'Reintentar') : ''));
+    + (c.whatsappEstado === 'fallido' ? b('reenviar', 'whatsapp', 'Reintentar') : '')
+    + b('msg-tablas', 'whatsapp', '1 · Tablas en PDF') + b('msg-zoom', 'whatsapp', '2 · Enlace de Zoom'));
   const co = c.correo ? fila('Correo', c.correoEstado, c.correoError,
     b('reenviar', 'correo', 'Reintentar') + b('enlace-correo', 'correo', 'Correo manual')
     + (c.correoEstado !== 'enviado' ? b('marcar', 'correo', 'Marcar enviado') : '')) : '';
@@ -475,12 +486,15 @@ function controlesVerificarPago(p, precioUnitario, operadoras) {
 
 // Anular un pago ya verificado (p. ej. registrado por error). No se ofrece si las tablas ya fueron enviadas.
 function botonAnularPago(p, d, operadoras) {
-  if (p.estado !== 'verificado' || d.estado === 'enviada') return '';
+  if (p.estado !== 'verificado') return '';
+  // Con las tablas ya enviadas solo se puede anular un pago que sobra (lo demás sigue cubriendo lo entregado).
+  const enviada = d.estado === 'enviada';
+  if (enviada && (d.pagado - (p.montoVerificado || 0) < d.total || d.sobranteEstado === 'devuelto')) return '';
   return `
         <div class="row" style="width:100%;margin-top:6px">
           ${selectorOperadora(operadoras)}
           <div class="actions">
-            <button type="button" class="ghost" data-act="revertir-pago" data-id="${p.id}">Revertir verificación</button>
+            ${enviada ? '' : `<button type="button" class="ghost" data-act="revertir-pago" data-id="${p.id}">Revertir verificación</button>`}
             <button type="button" class="danger" data-act="rechazar-pago" data-id="${p.id}" data-verificado="1">Anular / rechazar pago</button>
           </div>
         </div>`;
@@ -642,6 +656,52 @@ $('vista').addEventListener('click', async e => {
       const estado = canal === 'correo' ? r.correoEstado : r.whatsappEstado;
       msg(estado === 'enviado' ? 'Enviado.' : 'No se pudo enviar automáticamente. Revisa el error o usa el envío manual.', estado !== 'enviado');
       return mostrar('compras');
+    }
+    if (act === 'msg-zoom') {
+      // Abre el chat de la persona en WhatsApp Web (misma pestaña que las tablas) con el mensaje de Zoom ya escrito.
+      const ventana = window.open('', 'whatsapp-web');
+      try {
+        const r = await api('GET', `/admin/compras/${id}/mensaje-whatsapp?tipo=zoom${entregaId ? `&entrega=${entregaId}` : ''}`);
+        const web = enlaceChat(r.enlace);
+        if (ventana) ventana.location.href = web; else window.open(web, '_blank');
+        msg(esMovil() ? 'Se abrió WhatsApp con el enlace de Zoom. Envíalo.' : 'Se abrió el chat en WhatsApp Web con el enlace de Zoom. Envíalo.');
+      } catch (err) { ventana?.close(); throw err; }
+      return;
+    }
+    if (act === 'msg-tablas') {
+      // Genera el PDF sellado con nombre y teléfono, lo descarga con el nombre de la persona y abre su chat en WhatsApp Web.
+      // (Una página web no puede adjuntar archivos sola: el PDF se arrastra o se adjunta con el clip.)
+      const ventana = window.open('', 'whatsapp-web'); // se abre ya, antes de esperar, para que no la bloquee el navegador
+      try {
+        const r = await api('GET', `/admin/compras/${id}/mensaje-whatsapp?tipo=tablas${entregaId ? `&entrega=${entregaId}` : ''}`);
+        const limpio = String(r.nombre || 'Cliente').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        const partes = Math.ceil(r.cantidad / 20); // el PDF trae hasta 20 tablas por archivo
+        const archivos = [];
+        for (let p = 1; p <= partes; p++) {
+          const res = await fetch(`/api/publico/entrega/${encodeURIComponent(r.token)}/pdf?parte=${p}`);
+          if (!res.ok) throw new Error('No se pudo generar el PDF de las tablas.');
+          archivos.push(new File([await res.blob()], `Tablas-Bingo-${limpio}${partes > 1 ? `-parte${p}` : ''}.pdf`, { type: 'application/pdf' }));
+        }
+        if (esMovil() && navigator.canShare?.({ files: archivos })) {
+          ventana?.close();
+          try { await navigator.share({ files: archivos, text: r.texto }); } catch (err) { if (err.name !== 'AbortError') throw err; }
+          msg('Elige a la persona en WhatsApp y envía el PDF. Luego envía el mensaje 2 (Zoom).');
+          return;
+        }
+        for (const f of archivos) {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(f);
+          a.download = f.name;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        }
+        const web = enlaceChat(r.enlace);
+        if (ventana) ventana.location.href = web; else window.open(web, '_blank');
+        msg(esMovil()
+          ? `PDF descargado (${archivos.map(f => f.name).join(', ')}) y WhatsApp abierto. Adjunta el PDF (clip → Documento) y envía. Luego envía el mensaje 2 (Zoom).`
+          : `PDF descargado (${archivos.map(f => f.name).join(', ')}) y chat abierto en WhatsApp Web. Arrastra el PDF al chat (o clip → Documento), envía. Luego envía el mensaje 2 (Zoom).`);
+      } catch (err) { ventana?.close(); throw err; }
+      return;
     }
     if (act === 'enlace' || act === 'enlace-correo') {
       const { enlace } = await api('GET', `/admin/compras/${id}/${act === 'enlace' ? 'enlace-whatsapp' : 'enlace-correo'}${entregaId ? `?entrega=${entregaId}` : ''}`);
