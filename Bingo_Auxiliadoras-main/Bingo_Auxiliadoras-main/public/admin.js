@@ -1998,6 +1998,7 @@ async function renderAportes() {
   const [{ aportes, totales }, { actual }] = await Promise.all([api('GET', '/admin/informes/aportes'), api('GET', '/admin/bingos')]);
   const faltan = a => !a.efectivo && (!a.entidad || !a.numeroComprobante);
   const lista = soloFaltantes ? aportes.filter(faltan) : aportes;
+  const faltaTexto = a => [!a.efectivo && !a.entidad ? 'Falta la entidad' : '', !a.efectivo && !a.numeroComprobante ? 'Falta el N° de comprobante' : ''].filter(Boolean).join(' · ');
   const concepto = a => (a.concepto === 'donacion' ? 'Donación' : `${a.tablas} tabla(s)${a.pagosDeLaCompra > 1 ? ' (pago parcial)' : ''}`);
   const filas = lista.map((a, i) => `
     <tr data-pago="${a.pagoId}">
@@ -2007,6 +2008,7 @@ async function renderAportes() {
       <td>${esc(concepto(a))}</td>
       <td>${a.efectivo ? 'Efectivo' : `<input data-campo="entidad" list="lista-entidades" value="${esc(a.entidad)}" placeholder="Entidad">`}</td>
       <td><input data-campo="numeroComprobante" value="${esc(a.numeroComprobante)}" placeholder="N° comprobante"></td>
+      <td>${faltaTexto(a) ? `<div class="falta">${esc(faltaTexto(a))}</div>` : ''}<input data-campo="observacion" value="${esc(a.observacion)}" placeholder="Observación"></td>
     </tr>`).join('');
   $('vista').innerHTML = `
     <div class="card">
@@ -2021,9 +2023,9 @@ async function renderAportes() {
       <p class="muted">Generado el ${esc(new Date().toLocaleDateString('es-CO'))} · ${totales.registros} aporte(s) · Total ${esc(dinero(totales.valor))} · Donaciones ${esc(dinero(totales.donaciones))}</p>
       <datalist id="lista-entidades">${ENTIDADES.map(e => `<option value="${esc(e)}">`).join('')}</datalist>
       <div class="tabla-scroll"><table class="informe aportes">
-        <thead><tr><th>#</th><th>Nombres y apellidos</th><th>Valor</th><th>Concepto</th><th>Entidad / efectivo</th><th>N° comprobante</th></tr></thead>
-        <tbody>${filas || '<tr><td colspan="6" class="muted">No hay aportes para mostrar.</td></tr>'}</tbody>
-        <tfoot><tr><td></td><td>Total</td><td class="num">${esc(dinero(totales.valor))}</td><td colspan="3"></td></tr></tfoot>
+        <thead><tr><th>#</th><th>Nombres y apellidos</th><th>Valor</th><th>Concepto</th><th>Entidad / efectivo</th><th>N° comprobante</th><th>Observaciones</th></tr></thead>
+        <tbody>${filas || '<tr><td colspan="7" class="muted">No hay aportes para mostrar.</td></tr>'}</tbody>
+        <tfoot><tr><td></td><td>Total</td><td class="num">${esc(dinero(totales.valor))}</td><td colspan="4"></td></tr></tfoot>
       </table></div>
     </div>`;
   $('imprimir-aportes').addEventListener('click', () => window.print());

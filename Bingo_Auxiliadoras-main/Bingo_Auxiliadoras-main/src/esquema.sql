@@ -332,6 +332,7 @@ ALTER TABLE pagos ADD COLUMN IF NOT EXISTS verificado_por TEXT NOT NULL DEFAULT 
 -- Entidad financiera de origen y número del comprobante (informe de aportes).
 ALTER TABLE pagos ADD COLUMN IF NOT EXISTS entidad TEXT NOT NULL DEFAULT '';
 ALTER TABLE pagos ADD COLUMN IF NOT EXISTS num_comprobante TEXT NOT NULL DEFAULT '';
+ALTER TABLE pagos ADD COLUMN IF NOT EXISTS observacion TEXT NOT NULL DEFAULT '';
 -- Causa por la que se rechazó o anuló un pago.
 ALTER TABLE pagos ADD COLUMN IF NOT EXISTS motivo TEXT NOT NULL DEFAULT '';
 

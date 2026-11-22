@@ -76,6 +76,7 @@ const CANALES = ['whatsapp', 'correo', 'fisica'];
 const MIGRACION_GASTOS_PREMIOS = `
   ALTER TABLE pagos ADD COLUMN IF NOT EXISTS entidad TEXT NOT NULL DEFAULT '';
   ALTER TABLE pagos ADD COLUMN IF NOT EXISTS num_comprobante TEXT NOT NULL DEFAULT '';
+  ALTER TABLE pagos ADD COLUMN IF NOT EXISTS observacion TEXT NOT NULL DEFAULT '';
   ALTER TABLE pagos ADD COLUMN IF NOT EXISTS motivo TEXT NOT NULL DEFAULT '';
   ALTER TABLE gastos ADD COLUMN IF NOT EXISTS premio_ganador_id INTEGER;
   CREATE UNIQUE INDEX IF NOT EXISTS gastos_premio_ganador_uq ON gastos (premio_ganador_id) WHERE premio_ganador_id IS NOT NULL;
@@ -383,6 +384,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       motivo: p.motivo ?? '',
       entidad: p.entidad ?? '',
       numeroComprobante: p.num_comprobante ?? '',
+      observacion: p.observacion ?? '',
     };
   }
 
@@ -749,19 +751,20 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
   }
 
   // Entidad financiera de origen y número del comprobante de un pago (para el informe de aportes).
-  async function guardarDatosComprobante(pagoId, { entidad, numeroComprobante } = {}) {
+  async function guardarDatosComprobante(pagoId, { entidad, numeroComprobante, observacion } = {}) {
     const p = await uno('SELECT * FROM pagos WHERE id = $1', [pagoId]);
     if (!p) throw new ErrorApp('Pago no encontrado.', 404);
     const ent = entidad === undefined ? p.entidad : String(entidad ?? '').trim().slice(0, 80);
     const num_ = numeroComprobante === undefined ? p.num_comprobante : String(numeroComprobante ?? '').trim().slice(0, 60);
-    await q('UPDATE pagos SET entidad = $1, num_comprobante = $2 WHERE id = $3', [ent, num_, pagoId]);
-    return { id: Number(pagoId), entidad: ent, numeroComprobante: num_ };
+    const obs = observacion === undefined ? p.observacion : String(observacion ?? '').trim().slice(0, 300);
+    await q('UPDATE pagos SET entidad = $1, num_comprobante = $2, observacion = $3 WHERE id = $4', [ent, num_, obs, pagoId]);
+    return { id: Number(pagoId), entidad: ent, numeroComprobante: num_, observacion: obs };
   }
 
   // Informe de aportes: una fila por pago no rechazado, con quién aportó, cuánto, en qué concepto y desde qué entidad.
   async function informeAportes({ bingoId } = {}) {
     const filas = await q(`
-      SELECT p.id, p.monto_reportado, p.monto_verificado, p.metodo, p.estado, p.entidad, p.num_comprobante, p.fecha_pago,
+      SELECT p.id, p.monto_reportado, p.monto_verificado, p.metodo, p.estado, p.entidad, p.num_comprobante, p.observacion, p.fecha_pago,
              c.id AS compra_id, c.codigo, c.nombre, c.cantidad, c.estado AS compra_estado,
              (SELECT COUNT(*)::int FROM pagos x WHERE x.compra_id = c.id AND x.estado <> 'rechazado') AS n_pagos
       FROM pagos p JOIN compras c ON c.id = p.compra_id
@@ -774,7 +777,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
         pagoId: f.id, compraId: f.compra_id, codigo: f.codigo, nombre: f.nombre,
         valor: num(f.monto_verificado ?? f.monto_reportado),
         concepto: donacion ? 'donacion' : 'tablas', tablas: donacion ? 0 : f.cantidad, pagosDeLaCompra: f.n_pagos,
-        efectivo, entidad: efectivo ? 'Efectivo' : (f.entidad || ''), numeroComprobante: f.num_comprobante || '',
+        efectivo, entidad: efectivo ? 'Efectivo' : (f.entidad || ''), numeroComprobante: f.num_comprobante || '', observacion: f.observacion || '',
         fechaPago: f.fecha_pago, estado: f.estado,
       };
     });

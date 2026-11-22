@@ -250,3 +250,6 @@ table.aportes input.guardado { outline: 2px solid var(--ok); }
   table.aportes input::placeholder { color: transparent; }
   table.aportes tr { break-inside: avoid; }
 }
+
+.falta { color: #b45309; font-size: .82rem; margin-bottom: 2px; }
+@media print { .falta { color: #000; font-weight: 600; } }

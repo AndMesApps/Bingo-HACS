@@ -2021,5 +2021,7 @@ test('informe de aportes: una fila por pago con entidad y número de comprobante
   assert.equal(r.aportes[0].tablas, 2);
   assert.equal(r.aportes[0].entidad, 'Nequi');
   assert.equal(r.aportes[0].numeroComprobante, 'M123');
+  await s.guardarDatosComprobante(pago.id, { observacion: 'Falta foto' });
+  assert.equal((await s.informeAportes()).aportes[0].observacion, 'Falta foto');
   assert.equal(r.totales.valor, 40000);
 });
