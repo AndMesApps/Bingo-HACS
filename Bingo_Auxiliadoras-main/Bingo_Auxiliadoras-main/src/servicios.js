@@ -1,6 +1,6 @@
 const crypto = require('node:crypto');
 const { crearCorreo } = require('./correo');
-const { FIGURAS, FIGURA_POR_DEFECTO, evaluarTabla } = require('./figuras');
+const { FIGURAS, FIGURA_POR_DEFECTO, definirFigura, figuraPersonalizada, evaluarTabla } = require('./figuras');
 const { textoTablasPdf, textoZoom, limpiarConexion, validarPlantilla, valoresDelMensaje, renderizar, PLANTILLA_ORIGINAL, ETIQUETAS } = require('./mensajes');
 
 const ALFABETO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -71,8 +71,29 @@ const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const CORREO_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CANALES = ['whatsapp', 'correo', 'fisica'];
 
+// Cambio de esquema de "premio entregado = gasto". Es el mismo de src/esquema.sql; se aplica solo, una vez por instancia,
+// por si la base de producción todavía no se migró (es idempotente y no cambia datos existentes).
+const MIGRACION_GASTOS_PREMIOS = `
+  ALTER TABLE pagos ADD COLUMN IF NOT EXISTS motivo TEXT NOT NULL DEFAULT '';
+  ALTER TABLE gastos ADD COLUMN IF NOT EXISTS premio_ganador_id INTEGER;
+  CREATE UNIQUE INDEX IF NOT EXISTS gastos_premio_ganador_uq ON gastos (premio_ganador_id) WHERE premio_ganador_id IS NOT NULL;
+  INSERT INTO gastos (fecha, concepto, categoria, monto, creado_en, bingo_id, premio_ganador_id)
+    SELECT COALESCE(NULLIF(SUBSTR(g.entregado_en, 1, 10), ''), SUBSTR(p.creado_en, 1, 10)),
+           'Premio ' || p.ronda || ': ' || p.premio || ' (tabla ' || g.serial || ')', 'Premios', g.monto,
+           COALESCE(g.entregado_en, p.creado_en), p.bingo_id, g.id
+    FROM premio_ganadores g JOIN premios p ON p.id = g.premio_id
+    WHERE g.entregado = true AND g.monto > 0
+      AND NOT EXISTS (SELECT 1 FROM gastos x WHERE x.premio_ganador_id = g.id)
+    ON CONFLICT DO NOTHING;`;
+
 function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
-  const q = (sql, params) => db.query(sql, params);
+  let esquemaListo;
+  const asegurarEsquema = () => esquemaListo ??= db.exec(MIGRACION_GASTOS_PREMIOS).catch(async err => {
+    // Otra instancia pudo aplicarlo al mismo tiempo: si la columna ya existe, todo bien.
+    try { await db.query('SELECT premio_ganador_id FROM gastos LIMIT 0'); } catch { esquemaListo = undefined; throw err; }
+  });
+  const q = async (sql, params) => { await asegurarEsquema(); return db.query(sql, params); };
+  const tx = async fn => { await asegurarEsquema(); return db.tx(fn); };
   const uno = async (sql, params) => (await q(sql, params))[0];
 
   // Dentro de una transacción se usa el ejecutor "t", no q, para ver los cambios no confirmados.
@@ -221,7 +242,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     if (!Number.isInteger(n) || n < 1 || n > MAX_TABLAS_LOTE) {
       throw new ErrorApp(`Indica una cantidad entre 1 y ${MAX_TABLAS_LOTE}.`);
     }
-    const creadas = await db.tx(async t => {
+    const creadas = await tx(async t => {
       await t('SELECT pg_advisory_xact_lock($1)', [LOCK_TABLAS]);
       let total = 0;
       while (total < n) {
@@ -243,7 +264,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       String(entrada || '').split(/[\r\n,;\t]+/).map(s => s.trim().toUpperCase()).filter(Boolean),
     )].map(s => s.slice(0, 40));
     if (!seriales.length) throw new ErrorApp('No hay seriales para importar.');
-    const insertadas = await db.tx(async t => {
+    const insertadas = await tx(async t => {
       await t('SELECT pg_advisory_xact_lock($1)', [LOCK_TABLAS]);
       const filas = await t(
         'INSERT INTO tablas (serial, creada_en) SELECT unnest($1::text[]), $2 ON CONFLICT DO NOTHING RETURNING serial',
@@ -357,6 +378,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       creadoEn: p.creado_en,
       verificadoEn: p.verificado_en,
       verificadoPor: p.verificado_por ?? '',
+      motivo: p.motivo ?? '',
     };
   }
 
@@ -460,7 +482,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       }
     }
 
-    return db.tx(async t => {
+    return tx(async t => {
       await t('SELECT pg_advisory_xact_lock($1)', [LOCK_VENTAS]);
       if (cantidad > await tablasLibresParaVender(t)) {
         throw new ErrorApp('No hay suficientes tablas disponibles para esta cantidad. Intenta con menos tablas.', 409);
@@ -543,7 +565,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
   // Cambio de opinión: quien donó sin tablas decide recibirlas. La compra vuelve al flujo normal (por verificar, o lista
   // para enviar si el pago ya estaba verificado) con la cantidad que cubre su pago o la que indique quien administra.
   async function convertirDonacion(compraId, { cantidad } = {}) {
-    await db.tx(async t => {
+    await tx(async t => {
       await t('SELECT pg_advisory_xact_lock($1)', [LOCK_VENTAS]);
       const [c] = await t('SELECT * FROM compras WHERE id = $1 FOR UPDATE', [compraId]);
       if (!c) throw new ErrorApp('Compra no encontrada.', 404);
@@ -591,7 +613,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const monto = montoPositivo(datos.monto, 'El monto');
     const metodo = texto(datos.metodo, 'Método de pago', 40);
     const referencia = String(datos.referencia ?? '').trim().slice(0, 60) || 'Manual';
-    await db.tx(async t => {
+    await tx(async t => {
       await t(
         `INSERT INTO pagos (compra_id, monto_reportado, monto_verificado, metodo, referencia, fecha_pago, estado, creado_en, verificado_en, verificado_por)
          VALUES ($1, $2, $2, $3, $4, $5, 'verificado', $6, $6, $7)`,
@@ -610,7 +632,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     if (p.estado !== 'por_verificar') throw new ErrorApp('Este pago ya fue procesado.', 409);
     const monto = montoPositivo(montoVerificado, 'El monto verificado');
     const c = await uno('SELECT * FROM compras WHERE id = $1', [p.compra_id]);
-    await db.tx(async t => {
+    await tx(async t => {
       const act = await t(
         "UPDATE pagos SET estado = 'verificado', monto_verificado = $1, verificado_en = $2, verificado_por = $4 WHERE id = $3 AND estado = 'por_verificar' RETURNING id",
         [monto, ahora(), pagoId, operador],
@@ -647,7 +669,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     if (p.estado !== 'verificado') throw new ErrorApp('Solo se puede revertir la verificación de un pago verificado.', 409);
     const c = await uno('SELECT * FROM compras WHERE id = $1', [p.compra_id]);
     if (c.estado === 'enviada') throw new ErrorApp('Ya se enviaron las tablas de esta compra; no se puede revertir la verificación.', 409);
-    await db.tx(async t => {
+    await tx(async t => {
       const act = await t("UPDATE pagos SET estado = 'por_verificar', monto_verificado = NULL, verificado_en = NULL, verificado_por = '' WHERE id = $1 AND estado = 'verificado' RETURNING id", [pagoId]);
       if (!act.length) throw new ErrorApp('Este pago ya cambió de estado.', 409);
       await reajustarTrasQuitarVerificado(t, c);
@@ -656,7 +678,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     return detalleCompra(c.id);
   }
 
-  async function rechazarPago(pagoId,{ baseUrl, operador = '' } = {}) {
+  async function rechazarPago(pagoId, { baseUrl, operador = '', motivo = '' } = {}) {
+    motivo = String(motivo ?? '').trim().slice(0, 300);
     const p = await uno('SELECT * FROM pagos WHERE id = $1', [pagoId]);
     if (!p) throw new ErrorApp('Pago no encontrado.', 404);
     if (p.estado === 'rechazado') throw new ErrorApp('Este pago ya fue rechazado.', 409);
@@ -673,13 +696,35 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
         throw new ErrorApp('El sobrante de esta compra ya se devolvió; no se puede anular un pago.', 409);
       }
     }
-    await db.tx(async t => {
-      const act = await t("UPDATE pagos SET estado = 'rechazado', verificado_en = $1, verificado_por = $3 WHERE id = $2 AND estado <> 'rechazado' RETURNING id", [ahora(), pagoId, operador]);
+    await tx(async t => {
+      const act = await t("UPDATE pagos SET estado = 'rechazado', verificado_en = $1, verificado_por = $3, motivo = $4 WHERE id = $2 AND estado <> 'rechazado' RETURNING id", [ahora(), pagoId, operador, motivo]);
       if (!act.length) throw new ErrorApp('Este pago ya fue rechazado.', 409);
-      if (p.estado === 'verificado') await reajustarTrasQuitarVerificado(t, c);
-      await bitacora(p.estado === 'verificado' ? 'pago verificado anulado' : 'pago rechazado', `${c.codigo}: ${p.metodo} ${p.referencia} (${p.monto_verificado ?? p.monto_reportado})${operador ? ` · por ${operador}` : ''}`, t);
+      if (p.estado === 'verificado') {
+        await reajustarTrasQuitarVerificado(t, c);
+        // Si al anular no queda ningún pago verificado ni pendiente, la compra queda anulada (no vuelve a "por verificar").
+        const [{ n }] = await t("SELECT COUNT(*)::int AS n FROM pagos WHERE compra_id = $1 AND estado IN ('verificado','por_verificar')", [c.id]);
+        if (n === 0 && c.estado !== 'enviada') {
+          await t("UPDATE compras SET estado = 'rechazada', verificada_en = NULL, sobrante_monto = 0, sobrante_donar = 0, sobrante_estado = 'ninguno', sobrante_en = NULL WHERE id = $1", [c.id]);
+          await bitacora('compra anulada', `${c.codigo}${motivo ? ` · motivo: ${motivo}` : ''}`, t);
+        }
+      }
+      await bitacora(p.estado === 'verificado' ? 'pago verificado anulado' : 'pago rechazado', `${c.codigo}: ${p.metodo} ${p.referencia} (${p.monto_verificado ?? p.monto_reportado})${operador ? ` · por ${operador}` : ''}${motivo ? ` · motivo: ${motivo}` : ''}`, t);
     });
     await enviarSiCorresponde(p.compra_id, baseUrl);
+    return detalleCompra(p.compra_id);
+  }
+
+  // Escribe o corrige la causa de un pago ya rechazado o anulado.
+  async function anotarMotivoPago(pagoId, motivo = '') {
+    const p = await uno('SELECT * FROM pagos WHERE id = $1', [pagoId]);
+    if (!p) throw new ErrorApp('Pago no encontrado.', 404);
+    if (p.estado !== 'rechazado') throw new ErrorApp('Solo se escribe la causa de un pago rechazado o anulado.', 409);
+    motivo = String(motivo ?? '').trim().slice(0, 300);
+    const c = await uno('SELECT codigo FROM compras WHERE id = $1', [p.compra_id]);
+    await tx(async t => {
+      await t('UPDATE pagos SET motivo = $1 WHERE id = $2', [motivo, pagoId]);
+      await bitacora('causa de anulación escrita', `${c.codigo}: ${p.metodo} ${p.referencia}${motivo ? ` · motivo: ${motivo}` : ''}`, t);
+    });
     return detalleCompra(p.compra_id);
   }
 
@@ -734,7 +779,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
 
     // Todo ocurre en una sola transacción con el candado de ventas: la validación y la asignación no se pueden
     // intercalar con otra venta. Si algo falla, no queda ninguna tabla asignada.
-    const { seriales, token, entregas } = await db.tx(async t => {
+    const { seriales, token, entregas } = await tx(async t => {
       await t('SELECT pg_advisory_xact_lock($1)', [LOCK_VENTAS]);
       const [c] = await t('SELECT * FROM compras WHERE id = $1 FOR UPDATE', [compraId]);
       if (c.estado !== 'verificada') throw new ErrorApp('Esta compra ya fue procesada.', 409);
@@ -990,7 +1035,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       ? textoZoom({ nombre: persona.nombre, ...extra })
       : textoTablasPdf({ nombre: persona.nombre, seriales: lista, codigo: c.codigo });
     if (!texto) throw new ErrorApp('Todavía no has puesto los datos de conexión (Zoom). Hazlo en Configuración.', 409);
-    return { enlace: whatsapp.enlaceTexto(persona.telefono, texto), texto, token, cantidad: lista.length, nombre: persona.nombre };
+    return { enlace: whatsapp.enlaceTexto(persona.telefono, texto), texto, token, cantidad: lista.length, nombre: persona.nombre, telefono: persona.telefono };
   }
 
   async function enlaceCorreo(compraId, baseUrl) {
@@ -1101,7 +1146,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     if (c.estado === 'enviada') throw new ErrorApp('Ya se enviaron las tablas; no se puede rechazar.', 409);
     if (c.estado === 'rechazada') throw new ErrorApp('La compra ya está rechazada.', 409);
     if (await pagadoDe(compraId) > 0) throw new ErrorApp('Tiene pagos verificados. Regístralo como devolución antes de rechazarla.', 409);
-    await db.tx(async t => {
+    await tx(async t => {
       await t("UPDATE pagos SET estado = 'rechazado', verificado_en = $1 WHERE compra_id = $2 AND estado = 'por_verificar'", [ahora(), compraId]);
       await t("UPDATE compras SET estado = 'rechazada' WHERE id = $1", [compraId]);
       await bitacora('compra rechazada', c.codigo, t);
@@ -1147,7 +1192,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       premio: p.premio,
       monto: num(p.monto),
       figura: p.figura,
-      figuraNombre: FIGURAS[p.figura]?.nombre ?? p.figura,
+      figuraNombre: definirFigura(p.figura)?.nombre ?? p.figura,
+      figuraCasillas: definirFigura(p.figura)?.casillas ?? null,
       rondaEstado: p.ronda_estado,
       ganadores,
       empate: ganadores.length > 1,
@@ -1171,8 +1217,9 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
   async function reiniciarSorteo({ confirmar } = {}) {
     if (confirmar !== true) throw new ErrorApp('Confirma que quieres reiniciar el sorteo.');
     const activo = "(SELECT id FROM bingos WHERE estado = 'activo')";
-    return db.tx(async t => {
+    return tx(async t => {
       const ids = `(SELECT id FROM premios WHERE bingo_id = ${activo})`;
+      await t(`DELETE FROM gastos WHERE premio_ganador_id IN (SELECT id FROM premio_ganadores WHERE premio_id IN ${ids})`);
       const g = await t(`DELETE FROM premio_ganadores WHERE premio_id IN ${ids} RETURNING id`);
       const b = await t(`DELETE FROM balotas WHERE premio_id IN ${ids} RETURNING id`);
       await t(`UPDATE premios SET serial = NULL, compra_id = NULL, pagado = false, pagado_en = NULL,
@@ -1195,13 +1242,69 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     return premioDTO(p, ganadores);
   }
 
+  // La figura llega como un id de la lista, o como { figura: 'personalizada', casillas: [0, 6, ...] } si la dibujó.
+  function figuraDeDatos(datos) {
+    if (datos.figura === 'personalizada' || Array.isArray(datos.casillas)) {
+      const f = figuraPersonalizada(datos.casillas);
+      if (f === 'personalizada:') throw new ErrorApp('Dibuja la figura: marca al menos una casilla de la tabla.');
+      return f;
+    }
+    const figura = datos.figura ?? FIGURA_POR_DEFECTO;
+    if (!definirFigura(figura)) throw new ErrorApp('Esa figura no existe.');
+    return figura;
+  }
+
+  // Cambia la figura de una ronda que todavía no se ha jugado (sin balotas ni ganadoras).
+  async function cambiarFigura(premioId, datos) {
+    const p = await premioActivo(premioId);
+    const hay = (await q('SELECT 1 FROM balotas WHERE premio_id = $1 LIMIT 1', [premioId])).length
+      || (await q('SELECT 1 FROM premio_ganadores WHERE premio_id = $1 LIMIT 1', [premioId])).length;
+    if (p.ronda_estado === 'cerrada' || hay) throw new ErrorApp('Esta ronda ya tiene balotas o ganadoras: no se puede cambiar la figura. Reinicia el sorteo si fue un ensayo.', 409);
+    const figura = figuraDeDatos(datos);
+    await q('UPDATE premios SET figura = $1 WHERE id = $2', [figura, premioId]);
+    await bitacora('figura cambiada', `${p.ronda}: ${definirFigura(figura).nombre}`);
+    return premioPorId(premioId);
+  }
+
+  // Edita nombre, premio, monto y/o figura de una ronda. El monto no se puede tocar si ya se entregó parte del premio
+  // (lo ya pagado no cambia); la figura solo mientras no haya balotas ni ganadoras (ver cambiarFigura).
+  async function editarPremio(premioId, datos = {}) {
+    const p = await premioActivo(premioId);
+    const ronda = datos.ronda === undefined ? p.ronda : texto(datos.ronda, 'Nombre de la ronda', 80);
+    const premio = datos.premio === undefined ? p.premio : texto(datos.premio, 'Premio', 120);
+    const monto = datos.monto === undefined ? num(p.monto) : redondear(datos.monto || 0);
+    if (monto < 0) throw new ErrorApp('El monto del premio no puede ser negativo.');
+    if (monto !== num(p.monto) && await entregasDe(premioId) > 0) throw new ErrorApp('Ya se entregó parte de este premio: no se puede cambiar el monto.', 409);
+    if (datos.figura !== undefined || Array.isArray(datos.casillas)) {
+      const nueva = figuraDeDatos(datos);
+      if (nueva !== p.figura) await cambiarFigura(premioId, datos);
+    }
+    await q('UPDATE premios SET ronda = $1, premio = $2, monto = $3 WHERE id = $4', [ronda, premio, monto, premioId]);
+    if (monto !== num(p.monto)) await repartir(premioId);
+    await bitacora('ronda editada', `${ronda}: ${premio}`);
+    return premioPorId(premioId);
+  }
+
+  // Elimina una ronda con sus balotas y ganadoras, siempre que no se haya entregado ningún premio de ella.
+  async function eliminarPremio(premioId) {
+    const p = await premioActivo(premioId);
+    if (await entregasDe(premioId) > 0) throw new ErrorApp('A esta ronda ya se le entregó un premio: no se puede eliminar.', 409);
+    if (num(p.pagado ? 1 : 0)) throw new ErrorApp('Este premio ya figura como pagado: no se puede eliminar.', 409);
+    await tx(async t => {
+      await t('DELETE FROM premio_ganadores WHERE premio_id = $1', [premioId]);
+      await t('DELETE FROM balotas WHERE premio_id = $1', [premioId]);
+      await t('DELETE FROM premios WHERE id = $1', [premioId]);
+      await bitacora('ronda eliminada', `${p.ronda}: ${p.premio}`, t);
+    });
+    return { eliminada: true };
+  }
+
   async function crearPremio(datos) {
     const ronda = texto(datos.ronda, 'Nombre de la ronda', 80);
     const premio = texto(datos.premio, 'Premio', 120);
     const monto = redondear(datos.monto || 0);
     if (monto < 0) throw new ErrorApp('El monto del premio no puede ser negativo.');
-    const figura = datos.figura ?? FIGURA_POR_DEFECTO;
-    if (!FIGURAS[figura]) throw new ErrorApp('Esa figura no existe.');
+    const figura = figuraDeDatos(datos);
     const [{ id }] = await q(`INSERT INTO premios (ronda, premio, monto, figura, creado_en, bingo_id) VALUES ($1, $2, $3, $4, $5, ${ACTIVO}) RETURNING id`, [ronda, premio, monto, figura, ahora()]);
     await bitacora('ronda creada', `${ronda}: ${premio}`);
     return premioPorId(id);
@@ -1229,7 +1332,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     if (await entregasDe(premioId) > 0) throw new ErrorApp('Ya se entregó parte de este premio: no se pueden agregar más ganadoras.', 409);
     if (p.ronda_estado === 'en_juego') {
       const r = await evaluarPremio(p, tabla);
-      if (!r.cumple) throw new ErrorApp(`La tabla ${serial} no cumple la figura "${FIGURAS[p.figura].nombre}": le faltan ${r.faltan} balota(s).`, 409);
+      if (!r.cumple) throw new ErrorApp(`La tabla ${serial} no cumple la figura "${definirFigura(p.figura).nombre}": le faltan ${r.faltan} balota(s).`, 409);
     }
     const nueva = await q('INSERT INTO premio_ganadores (premio_id, serial, compra_id, creado_en) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING RETURNING id', [premioId, serial, tabla.compra_id, ahora()]);
     if (!nueva.length) throw new ErrorApp(`La tabla ${serial} ya está registrada como ganadora de esta ronda.`, 409);
@@ -1288,7 +1391,11 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const quien = String(recibidoPor ?? '').trim().slice(0, 160);
     await q('UPDATE premio_ganadores SET entregado = true, entregado_en = $1, recibido_por = $2, entrega_nota = $3 WHERE id = $4',
       [ahora(), quien, String(nota ?? '').trim().slice(0, 500), ganadorId]);
-    await bitacora('premio pagado', `${p.ronda}: ${num(g.monto)} (tabla ${g.serial}${quien ? `, recibió ${quien}` : ''})`);
+    if (num(g.monto) > 0) {
+      await q(`INSERT INTO gastos (fecha, concepto, categoria, monto, creado_en, bingo_id, premio_ganador_id) VALUES ($1, $2, 'Premios', $3, $4, $5, $6)
+        ON CONFLICT DO NOTHING`, [ahora().slice(0, 10), `Premio ${p.ronda}: ${p.premio} (tabla ${g.serial})`, num(g.monto), ahora(), p.bingo_id, ganadorId]);
+    }
+    await bitacora('premio pagado', `${p.ronda}: ${num(g.monto)} (tabla ${g.serial}${quien ? `, recibió ${quien}` : ''}); registrado en Gastos`);
     return premioPorId(p.id);
   }
 
@@ -1341,7 +1448,32 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const p = await uno("SELECT * FROM premios WHERE ronda_estado = 'en_juego' AND bingo_id = " + ACTIVO);
     const figuras = Object.entries(FIGURAS).map(([id, f]) => ({ id, nombre: f.nombre }));
     if (!p) return { ronda: null, balotas: [], figuras };
-    return { ronda: await premioPorId(p.id), balotas: await balotasDe(p.id), figuras };
+    const balotas = await balotasDe(p.id);
+    return { ronda: await premioPorId(p.id), balotas, figuras, candidatas: await candidatasDe(p, balotas) };
+  }
+
+  // Revisa todas las tablas vendidas contra las balotas cantadas y devuelve las que ya cumplen o están a 3 balotas
+  // o menos de cumplir la figura de la ronda, de la más cercana a la más lejana.
+  async function candidatasDe(p, balotas) {
+    const filas = await q(`SELECT t.serial, t.numeros, COALESCE(e.nombre, c.nombre) AS nombre, COALESCE(e.telefono, c.telefono) AS telefono
+      FROM tablas t JOIN compras c ON c.id = t.compra_id LEFT JOIN entregas e ON e.id = t.entrega_id
+      WHERE t.estado = 'vendida' AND t.numeros IS NOT NULL`);
+    const registradas = new Set((await q('SELECT serial FROM premio_ganadores WHERE premio_id = $1', [p.id])).map(x => x.serial));
+    const cantadas = new Set(balotas);
+    const ultima = balotas[balotas.length - 1];
+    const res = [];
+    for (const f of filas) {
+      const numeros = JSON.parse(f.numeros);
+      const r = evaluarTabla(p.figura, numeros, cantadas);
+      if (r.faltan > 3) continue;
+      res.push({
+        serial: f.serial, nombre: f.nombre, telefono: f.telefono, faltan: r.faltan, numerosFaltan: r.numerosFaltan,
+        yaRegistrada: registradas.has(f.serial),
+        // en un empate de verdad la tabla se completa con la última balota
+        conUltima: r.cumple && ultima !== undefined && !evaluarTabla(p.figura, numeros, balotas.slice(0, -1)).cumple,
+      });
+    }
+    return res.sort((a, b) => a.faltan - b.faltan || a.serial.localeCompare(b.serial)).slice(0, 60);
   }
 
   async function iniciarRonda(premioId) {
@@ -1388,7 +1520,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const tabla = await uno('SELECT * FROM tablas WHERE serial = $1', [serial]);
     if (!tabla) throw new ErrorApp('Esa tabla no existe.', 404);
     const compra = tabla.compra_id ? await uno('SELECT c.codigo, COALESCE(e.nombre, c.nombre) AS nombre, COALESCE(e.telefono, c.telefono) AS telefono FROM compras c LEFT JOIN entregas e ON e.id = $2::int WHERE c.id = $1', [tabla.compra_id, tabla.entrega_id ?? null]) : null;
-    const base = { serial, figura: p.figura, figuraNombre: FIGURAS[p.figura].nombre, comprador: compra };
+    const base = { serial, figura: p.figura, figuraNombre: definirFigura(p.figura).nombre, figuraCasillas: definirFigura(p.figura).casillas, comprador: compra };
     if (tabla.estado !== 'vendida' || !compra) return { ...base, cumple: false, motivo: 'Esa tabla no está vendida: no puede ganar.' };
     const r = await evaluarPremio(p, tabla);
     const yaRegistrada = (await q('SELECT 1 FROM premio_ganadores WHERE premio_id = $1 AND serial = $2', [premioId, serial])).length > 0;
@@ -1401,13 +1533,13 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       : yaRegistrada ? 'Cumple la figura, pero ya está registrada como ganadora de esta ronda.'
         : !aTiempo ? 'Cumple la figura, pero ya estaba completa antes de la última balota: revisa si cantó a tiempo.'
           : ganadoras.length ? 'Cumple la figura: sería un empate con las tablas ya registradas.' : 'Cumple la figura.';
-    return { ...base, numeros: JSON.parse(tabla.numeros), marcadas: r.marcadas, faltan: r.faltan, cumple: r.cumple, yaRegistrada, aTiempo, ganadoras, motivo };
+    return { ...base, ronda: p.ronda, numerosFaltan: r.numerosFaltan, numeros: JSON.parse(tabla.numeros), marcadas: r.marcadas, faltan: r.faltan, cumple: r.cumple, yaRegistrada, aTiempo, ganadoras, motivo };
   }
 
   // ---------- Gastos ----------
   async function listarGastos(bingoId) {
     return (await q(`SELECT * FROM gastos WHERE bingo_id = ${DE_BINGO(1)} ORDER BY fecha DESC, id DESC`, [bingoId ?? null])).map(g => ({
-      id: g.id, fecha: g.fecha, concepto: g.concepto, categoria: g.categoria, monto: num(g.monto),
+      id: g.id, fecha: g.fecha, concepto: g.concepto, categoria: g.categoria, monto: num(g.monto), premio: g.premio_ganador_id != null,
     }));
   }
 
@@ -1425,6 +1557,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const g = await uno('SELECT * FROM gastos WHERE id = $1', [id]);
     if (!g) throw new ErrorApp('Gasto no encontrado.', 404);
     await exigirActivo(g.bingo_id, 'Este gasto');
+    if (g.premio_ganador_id != null) throw new ErrorApp('Este gasto es la entrega de un premio y se registró solo: no se borra desde aquí.', 409);
     await q('DELETE FROM gastos WHERE id = $1', [id]);
     await bitacora('gasto eliminado', `${g.concepto}: ${g.monto}`);
     return { ok: true };
@@ -1453,7 +1586,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     const premiosPagados = await suma(`SELECT COALESCE(SUM(g.monto), 0) AS n FROM premio_ganadores g JOIN premios p ON p.id = g.premio_id
       WHERE g.entregado = true AND p.bingo_id = ${B}`);
     const premiosProgramados = await suma(`SELECT COALESCE(SUM(monto), 0) AS n FROM premios WHERE bingo_id = ${B}`);
-    const gastos = await suma(`SELECT COALESCE(SUM(monto), 0) AS n FROM gastos WHERE bingo_id = ${B}`);
+    const gastos = await suma(`SELECT COALESCE(SUM(monto), 0) AS n FROM gastos WHERE bingo_id = ${B} AND premio_ganador_id IS NULL`);
     const porCobrar = redondear(compras.reduce((s, c) => s + c.saldo, 0));
     // Dinero recibido por encima de las tablas: donado (suma a ingresos), por devolver (no es de la organización) o ya devuelto.
     // Un sobrante puede dividirse: sobrante_donar es lo donado y (sobrante_monto - sobrante_donar) lo que se devuelve.
@@ -1547,7 +1680,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       WHERE p.bingo_id = $1 AND g.entregado = true AND ${R('g.entregado_en')}`);
     const premiosPendientes = redondear(num((await filasBingo(`SELECT (SELECT COALESCE(SUM(monto), 0) FROM premios WHERE bingo_id = $1)
       - (SELECT COALESCE(SUM(g.monto), 0) FROM premio_ganadores g JOIN premios p ON p.id = g.premio_id WHERE p.bingo_id = $1 AND g.entregado = true) AS n`))[0].n));
-    const gastos = await total(`SELECT COALESCE(SUM(monto), 0) AS n FROM gastos WHERE bingo_id = $1 AND ${R('fecha')}`);
+    const gastos = await total(`SELECT COALESCE(SUM(monto), 0) AS n FROM gastos WHERE bingo_id = $1 AND premio_ganador_id IS NULL AND ${R('fecha')}`);
     const ingresos = redondear(cobrado - porDevolver - devuelto);
     const resultados = {
       cobrado, porDevolver, devuelto, donaciones,
@@ -1584,7 +1717,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
 
     // --- Gastos por categoría ---
     const gastosPorCategoria = (await filas(`SELECT categoria AS clave, COUNT(*)::int AS cantidad, SUM(monto) AS monto
-      FROM gastos WHERE bingo_id = $1 AND ${R('fecha')} GROUP BY categoria ORDER BY SUM(monto) DESC`))
+      FROM gastos WHERE bingo_id = $1 AND premio_ganador_id IS NULL AND ${R('fecha')} GROUP BY categoria ORDER BY SUM(monto) DESC`))
       .map(r => ({ clave: r.clave, cantidad: r.cantidad, monto: redondear(r.monto) }));
 
     // --- Estado de los pagos ---
@@ -1634,7 +1767,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
   async function reiniciarBingo(datos = {}) {
     if (datos.confirmar !== true) throw new ErrorApp('Confirma que quieres cerrar este Bingo y empezar uno nuevo.');
     const nombre = texto(datos.nombre, 'El nombre del nuevo Bingo', 120);
-    const r = await db.tx(async t => {
+    const r = await tx(async t => {
       await t('SELECT pg_advisory_xact_lock($1)', [LOCK_VENTAS]);
       await t('SELECT pg_advisory_xact_lock($1)', [LOCK_TABLAS]);
       const [b] = await t("SELECT * FROM bingos WHERE estado = 'activo' FOR UPDATE");
@@ -1753,11 +1886,11 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     evento, actualizarEvento, piezaInvitacion,
     tablasDisponibles, tablasLibresParaVender, generarTablas, importarTablas, listarTablas,
     crearCompra, estadoPublico, detalleCompra, listarCompras,
-    reiniciarSorteo, operadorDe, registrarPagoManual, verificarPago, rechazarPago, revertirVerificacion, convertirDonacion,
+    reiniciarSorteo, operadorDe, registrarPagoManual, verificarPago, rechazarPago, anotarMotivoPago, revertirVerificacion, convertirDonacion,
     enviarTablas, reenviar, enlaceWhatsapp, mensajeSuelto, enlaceCorreo, marcarEnviadoManual, entregaFisica, entregaPublica, rechazarCompra,
     gestionarSobrante, listarSobrantes, datosSelloEntrega,
     comprobanteDe,
-    listarPremios, crearPremio, asignarGanador, cerrarRonda, quitarGanadora, quitarGanador, entregarPremio, pagarPremio,
+    listarPremios, crearPremio, cambiarFigura, editarPremio, eliminarPremio, asignarGanador, cerrarRonda, quitarGanadora, quitarGanador, entregarPremio, pagarPremio,
     estadoSorteo, iniciarRonda, pausarRonda, cantarBalota, deshacerBalota, verificarTabla,
     mensajeActual, vistaPreviaMensaje,
     listarGastos, crearGasto, eliminarGasto,

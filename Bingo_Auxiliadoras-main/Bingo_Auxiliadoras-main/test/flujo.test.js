@@ -1860,3 +1860,126 @@ test('dashboard: dinero por estado y forma de pago, sin contar como deuda lo que
   await s.crearCompra(datos(5, { montoPagado: 30 }), comprobante());
   assert.equal((await s.resumen()).dinero.porCobrar, 20);
 });
+
+test('figura dibujada: se cumple con todas las casillas marcadas y el centro es libre', () => {
+  const { definirFigura, figuraPersonalizada } = require('../src/figuras');
+  const fig = figuraPersonalizada([0, 12, 6, 0, 99]); // repetidas, centro y fuera de rango se descartan
+  assert.equal(fig, 'personalizada:0,6');
+  assert.equal(definirFigura(fig).nombre, 'Figura dibujada (2 casillas)');
+  assert.equal(definirFigura('personalizada:'), null);
+  assert.equal(evaluarTabla(fig, FILA1, [1]).faltan, 1);
+  assert.deepEqual(evaluarTabla(fig, FILA1, [1]).numerosFaltan, [FILA1[6]]);
+  assert.equal(evaluarTabla(fig, FILA1, [1, FILA1[6]]).cumple, true);
+});
+
+test('sorteo: figura dibujada, cambiarla antes de jugar y monitor de tablas cercanas', async () => {
+  const s = await nuevo();
+  const { p, serial } = await ronda(s, 'linea');
+  await assert.rejects(() => s.crearPremio({ ronda: 'X', premio: 'Y', figura: 'personalizada', casillas: [] }), /Dibuja la figura/);
+  const d = await s.crearPremio({ ronda: 'Z', premio: 'Y', figura: 'personalizada', casillas: [0, 4, 20, 24] });
+  assert.deepEqual(d.figuraCasillas, [0, 4, 20, 24]);
+  const c = await s.cambiarFigura(d.id, { figura: 'personalizada', casillas: [0, 1] });
+  assert.equal(c.figura, 'personalizada:0,1');
+  await assert.rejects(() => s.cambiarFigura(d.id, { figura: 'nada' }), /no existe/);
+  await s.iniciarRonda(p.id);
+  for (const n of [1, 16, 31]) await s.cantarBalota(p.id, n);
+  let est = await s.estadoSorteo();
+  assert.equal(est.candidatas.find(x => x.serial === serial).faltan, 2);
+  await s.cantarBalota(p.id, 46);
+  await s.cantarBalota(p.id, 61);
+  est = await s.estadoSorteo();
+  const cand = est.candidatas.find(x => x.serial === serial);
+  assert.equal(cand.faltan, 0);
+  assert.equal(cand.conUltima, true);
+  await assert.rejects(() => s.cambiarFigura(p.id, { figura: 'equis' }), /no se puede cambiar/);
+});
+
+test('rondas: se editan y se eliminan mientras no se haya entregado ningún premio', async () => {
+  const s = await nuevo();
+  const { p, serial } = await ronda(s, 'linea');
+  const e = await s.editarPremio(p.id, { ronda: 'Ronda 1', premio: 'Nevera', monto: 50, figura: 'personalizada', casillas: [0, 4] });
+  assert.equal(e.ronda, 'Ronda 1');
+  assert.equal(e.monto, 50);
+  assert.equal(e.figura, 'personalizada:0,4');
+  // sin tocar la figura se conserva
+  assert.equal((await s.editarPremio(p.id, { premio: 'Moto' })).figura, 'personalizada:0,4');
+  await assert.rejects(() => s.editarPremio(p.id, { monto: -1 }), /negativo/);
+  // con ganadora ya no se cambia la figura pero sí el monto, y el reparto se recalcula
+  await s.asignarGanador(p.id, serial);
+  await assert.rejects(() => s.editarPremio(p.id, { figura: 'equis' }), /no se puede cambiar/);
+  const m = await s.editarPremio(p.id, { monto: 80 });
+  assert.equal(m.ganadores[0].monto, 80);
+  // entregado: ya no se cambia el monto ni se elimina
+  await s.entregarPremio(m.ganadores[0].id, { recibidoPor: 'Ana' });
+  await assert.rejects(() => s.editarPremio(p.id, { monto: 10 }), /no se puede cambiar el monto/);
+  await assert.rejects(() => s.eliminarPremio(p.id), /no se puede eliminar/);
+  // una ronda sin entregas se elimina con sus balotas
+  const q2 = await s.crearPremio({ ronda: 'Otra', premio: 'X', monto: 1 });
+  await s.iniciarRonda(q2.id);
+  await s.cantarBalota(q2.id, 5);
+  assert.deepEqual(await s.eliminarPremio(q2.id), { eliminada: true });
+  assert.equal((await s.listarPremios()).some(x => x.id === q2.id), false);
+  assert.equal((await s.estadoSorteo()).ronda, null);
+});
+
+test('premio entregado: se registra solo en Gastos, sin restarse dos veces en el balance', async () => {
+  const s = await nuevo();
+  const { p, serial } = await ronda(s, 'linea');
+  await s.crearGasto({ concepto: 'Impresión', monto: 5, categoria: 'Impresión' });
+  const antes = await s.resumen();
+  await s.iniciarRonda(p.id);
+  for (const n of [1, 16, 31, 46, 61]) await s.cantarBalota(p.id, n);
+  await s.asignarGanador(p.id, serial);
+  assert.equal((await s.listarGastos()).filter(g => g.premio).length, 0, 'asignar no es entregar');
+  await s.pagarPremio(p.id, { recibidoPor: 'Ana' });
+  const gastos = await s.listarGastos();
+  const g = gastos.find(x => x.premio);
+  assert.equal(g.monto, 5);
+  assert.equal(g.categoria, 'Premios');
+  assert.match(g.concepto, new RegExp(`tabla ${serial}`));
+  await assert.rejects(() => s.eliminarGasto(g.id), /no se borra desde aquí/);
+  const despues = await s.resumen();
+  assert.equal(despues.dinero.gastos, 5, 'los totales de gastos no incluyen el premio');
+  assert.equal(despues.dinero.premiosPagados, 5);
+  assert.equal(despues.dinero.balance, antes.dinero.balance - 5, 'el premio se resta una sola vez');
+  // reiniciar el sorteo borra la entrega y su gasto
+  await s.reiniciarSorteo({ confirmar: true });
+  assert.equal((await s.listarGastos()).filter(x => x.premio).length, 0);
+  assert.equal((await s.resumen()).dinero.balance, antes.dinero.balance);
+});
+
+test('al anular el único pago verificado de una compra, la compra queda anulada (rechazada), no por verificar', async () => {
+  const s = await nuevo();
+  await tablas(s, 3);
+  await s.actualizarEvento({ precioTabla: 20000 });
+  const c = await s.crearCompra(datos(1, { montoPagado: 20000 }), comprobante());
+  const pago = (await s.detalleCompra(c.id)).pagos[0];
+  await s.verificarPago(pago.id, 20000);
+  const d = await s.rechazarPago(pago.id);
+  assert.equal(d.estado, 'rechazada');
+  assert.equal(d.pagado, 0);
+});
+
+test('al anular un pago se guarda la causa', async () => {
+  const s = await nuevo();
+  await tablas(s, 3);
+  await s.actualizarEvento({ precioTabla: 20000 });
+  const c = await s.crearCompra(datos(1, { montoPagado: 20000 }), comprobante());
+  const pago = (await s.detalleCompra(c.id)).pagos[0];
+  await s.verificarPago(pago.id, 20000);
+  const d = await s.rechazarPago(pago.id, { motivo: '  Pago duplicado  ' });
+  assert.equal(d.pagos[0].motivo, 'Pago duplicado');
+});
+
+test('se puede escribir la causa de un pago ya anulado', async () => {
+  const s = await nuevo();
+  await tablas(s, 3);
+  await s.actualizarEvento({ precioTabla: 20000 });
+  const c = await s.crearCompra(datos(1, { montoPagado: 20000 }), comprobante());
+  const pago = (await s.detalleCompra(c.id)).pagos[0];
+  await assert.rejects(s.anotarMotivoPago(pago.id, 'x'), /rechazado o anulado/);
+  await s.verificarPago(pago.id, 20000);
+  await s.rechazarPago(pago.id);
+  const d = await s.anotarMotivoPago(pago.id, 'Registro doble');
+  assert.equal(d.pagos[0].motivo, 'Registro doble');
+});

@@ -61,7 +61,7 @@ const VISTAS = {
   config: { titulo: 'Configuración', render: renderConfig },
   informes: { titulo: 'Informes', render: renderInformes },
   reportes: { titulo: 'Reportes', render: renderReportes },
-  bingos: { titulo: 'Bingos', render: renderBingos },
+  bingos: { titulo: 'Bingo', render: renderBingos },
   bitacora: { titulo: 'Bitácora', render: renderBitacora },
   manual: { titulo: 'Manual', render: renderManual },
 };
@@ -239,7 +239,7 @@ async function renderResumen() {
 }
 
 // ---------- Compras ----------
-const ESTADOS_COMPRA = [['por_verificar', 'Por verificar'], ['verificada', 'Listas para enviar'], ['enviada', 'Enviadas'], ['donacion', 'Donaciones'], ['rechazada', 'Rechazadas'], ['', 'Todas']];
+const ESTADOS_COMPRA = [['por_verificar', 'Por verificar'], ['verificada', 'Listas para enviar'], ['enviada', 'Enviadas'], ['donacion', 'Donaciones'], ['rechazada', 'Anuladas'], ['', 'Todas']];
 // En Compras se agrega un filtro con las enviadas a las que falta mandarles el WhatsApp desde el celular.
 const FILTROS_COMPRAS = [...ESTADOS_COMPRA.slice(0, 3), ['wa_pendiente', 'WhatsApp por enviar'], ...ESTADOS_COMPRA.slice(3)];
 
@@ -268,7 +268,7 @@ function tarjetaCompra(c) {
   <article class="card" data-compra="${c.id}" ${c.estado === 'por_verificar' ? 'data-abrir' : ''}>
     <div class="row">
       <strong>${esc(c.nombre)}</strong>
-      <span class="pill ${esc(c.estado)}">${esc(c.estado.replace('_', ' '))}</span>
+      <span class="pill ${esc(c.estado)}">${esc(c.estado === 'rechazada' ? 'anulada' : c.estado.replace('_', ' '))}</span>
     </div>
     <p class="muted">${contacto}</p>
     ${c.referidoPor ? `<p class="muted">Se enteró por: ${esc(c.referidoPor)}</p>` : ''}
@@ -525,6 +525,7 @@ async function cargarPagos(card) {
         <span class="pill ${esc(p.estado)}">${esc(p.estado.replace('_', ' '))}</span>
       </div>
       <span class="muted">Reportado ${dinero(p.montoReportado)}${p.montoVerificado != null ? ` · Verificado ${dinero(p.montoVerificado)}` : ''}${p.verificadoPor ? ` · ${p.estado === 'rechazado' ? 'Rechazado' : 'Aprobado'} por <strong>${esc(p.verificadoPor)}</strong>` : ''}</span>
+      ${p.motivo ? `<span class="muted">Causa: ${esc(p.motivo)}</span>` : ''}
       ${p.comprobantes.map(c => `<button type="button" class="ghost" data-act="ver-comprobante" data-id="${c.id}">Ver ${esc(c.nombre)}</button>`).join('')}
       ${p.comprobantes.length === 0 && p.estado === 'por_verificar' ? '<span class="muted">Sin comprobante (pago en efectivo): confirma que recibiste el dinero.</span>' : ''}
       ${p.estado === 'por_verificar' ? controlesVerificarPago(p, d.precioUnitario, operadoras) : ''}
@@ -680,7 +681,7 @@ $('vista').addEventListener('click', async e => {
         for (let p = 1; p <= partes; p++) {
           const res = await fetch(`/api/publico/entrega/${encodeURIComponent(r.token)}/pdf?parte=${p}`);
           if (!res.ok) throw new Error('No se pudo generar el PDF de las tablas.');
-          archivos.push(new File([await res.blob()], `Tablas-Bingo-${limpio}${partes > 1 ? `-parte${p}` : ''}.pdf`, { type: 'application/pdf' }));
+          archivos.push(new File([await res.blob()], `Tablas-Bingo-${limpio}${String(r.telefono || '').replace(/\D/g, '') ? `-${String(r.telefono).replace(/\D/g, '')}` : ''}${partes > 1 ? `-parte${p}` : ''}.pdf`, { type: 'application/pdf' }));
         }
         if (esMovil() && navigator.canShare?.({ files: archivos })) {
           ventana?.close();
@@ -771,8 +772,9 @@ $('vista').addEventListener('click', async e => {
       return mostrar('compras');
     }
     if (act === 'rechazar-pago') {
-      if (!confirm(btn.dataset.verificado ? '¿Anular este pago ya verificado? Dejará de contarse como dinero recibido.' : '¿Rechazar este pago?')) return;
-      await api('POST', `/admin/pagos/${id}/rechazar`, { operador: operadoraElegida(btn.closest('.row')) });
+      const motivo = prompt((btn.dataset.verificado ? 'Anular este pago ya verificado: dejará de contarse como dinero recibido.' : 'Rechazar este pago.') + '\n\n¿Cuál es la causa? (por ejemplo: pago duplicado, no llegó a la cuenta). Pulsa Aceptar para continuar o Cancelar para no hacer nada.', '');
+      if (motivo === null) return;
+      await api('POST', `/admin/pagos/${id}/rechazar`, { operador: operadoraElegida(btn.closest('.row')), motivo });
       if (volverATransacciones(btn)) { msg('Pago rechazado.'); return mostrar('transacciones'); }
       msg('Pago rechazado.');
       return mostrar('compras');
@@ -962,6 +964,69 @@ function tarjetaGanadora(p, g) {
   </div>`;
 }
 
+// ---- Figuras: vista pequeña y editor para dibujarlas en la tabla de 5x5 ----
+let FIGURAS_LISTA = [];
+
+function miniFigura(casillas) {
+  if (!casillas) return '';
+  const on = new Set(casillas);
+  return `<div class="mini-figura" title="Casillas que hay que completar">${Array.from({ length: 25 }, (_, i) =>
+    `<span class="${i === 12 ? 'libre' : on.has(i) ? 'on' : ''}"></span>`).join('')}</div>`;
+}
+
+const PRESETS_FIGURA = {
+  'Marco': [0, 1, 2, 3, 4, 5, 9, 10, 14, 15, 19, 20, 21, 22, 23, 24],
+  'Equis': [0, 4, 6, 8, 16, 18, 20, 24],
+  'Esquinas': [0, 4, 20, 24],
+  'Letra T': [0, 1, 2, 3, 4, 7, 17, 22],
+  'Letra L': [0, 5, 10, 15, 20, 21, 22, 23, 24],
+  'Cartón lleno': Array.from({ length: 25 }, (_, i) => i).filter(i => i !== 12),
+  'Limpiar': [],
+};
+
+// Selector de figura: lista de figuras ya hechas + "Dibujar mi propia figura" con la tabla para marcar casillas.
+function selectorFigura(actual, casillas) {
+  const propia = String(actual || '').startsWith('personalizada:');
+  return `<div data-fig-sel data-inicial="${propia && casillas ? esc(JSON.stringify(casillas)) : ''}">
+    <label>Figura que gana
+      <select data-fig-select>${FIGURAS_LISTA.map(f => `<option value="${f.id}" ${!propia && f.id === (actual || 'carton_lleno') ? 'selected' : ''}>${esc(f.nombre)}</option>`).join('')}
+        <option value="personalizada" ${propia ? 'selected' : ''}>✏️ Dibujar mi propia figura…</option></select>
+    </label>
+    <div data-fig-editor ${propia ? '' : 'hidden'} style="margin-top:10px">
+      <p class="muted" style="margin:0 0 6px">Toca las casillas que hay que completar para ganar. La del centro (★) es libre y ya cuenta como marcada. Gana la tabla que tenga marcadas <strong>todas</strong> las casillas dibujadas.</p>
+      <div class="editor-figura">${Array.from({ length: 25 }, (_, i) => i === 12
+        ? '<span class="libre">★</span>' : `<button type="button" data-casilla="${i}" aria-pressed="false"></button>`).join('')}</div>
+      <div class="actions" style="margin-top:8px">${Object.keys(PRESETS_FIGURA).map(n => `<button type="button" class="ghost" data-preset="${esc(n)}">${esc(n)}</button>`).join('')}</div>
+      <p class="muted" data-fig-cuenta style="margin:6px 0 0"></p>
+    </div>
+  </div>`;
+}
+
+function conectarSelectorFigura(raiz) {
+  const sel = raiz.querySelector('[data-fig-select]');
+  const editor = raiz.querySelector('[data-fig-editor]');
+  const botones = [...raiz.querySelectorAll('[data-casilla]')];
+  const cuenta = raiz.querySelector('[data-fig-cuenta]');
+  const pintar = () => {
+    const n = botones.filter(b => b.getAttribute('aria-pressed') === 'true').length;
+    cuenta.textContent = n ? `${n} casilla${n === 1 ? '' : 's'} marcada${n === 1 ? '' : 's'}.` : 'Todavía no has marcado ninguna casilla.';
+  };
+  const poner = lista => { const on = new Set(lista); botones.forEach(b => b.setAttribute('aria-pressed', on.has(Number(b.dataset.casilla)) ? 'true' : 'false')); pintar(); };
+  sel.addEventListener('change', () => { editor.hidden = sel.value !== 'personalizada'; });
+  botones.forEach(b => b.addEventListener('click', () => { b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') === 'true' ? 'false' : 'true'); pintar(); }));
+  raiz.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => poner(PRESETS_FIGURA[b.dataset.preset])));
+  const ini = raiz.dataset.inicial;
+  if (ini) { try { poner(JSON.parse(ini)); } catch { /* sin precarga */ } }
+  pintar();
+}
+
+// Lo que se manda al servidor: { figura } o { figura: 'personalizada', casillas }.
+function valorFigura(raiz) {
+  const figura = raiz.querySelector('[data-fig-select]').value;
+  if (figura !== 'personalizada') return { figura };
+  return { figura, casillas: [...raiz.querySelectorAll('[data-casilla][aria-pressed="true"]')].map(b => Number(b.dataset.casilla)) };
+}
+
 function tarjetaPremio(p) {
   const hayEntregas = p.ganadores.some(g => g.entregado);
   const clasePill = p.estado === 'entregado' ? 'verificado' : p.ganadores.length ? 'por_verificar' : '';
@@ -976,7 +1041,19 @@ function tarjetaPremio(p) {
     : '';
   return `<article class="card">
     <div class="row"><strong>${esc(p.ronda)}</strong><span class="pill ${clasePill}">${esc(p.estado)}</span></div>
-    <p class="muted">${esc(p.premio)} · ${dinero(p.monto)} · ${esc(p.figuraNombre)}</p>
+    <div class="row" style="align-items:center;gap:12px">${miniFigura(p.figuraCasillas)}<p class="muted" style="margin:0">${esc(p.premio)} · ${dinero(p.monto)} · ${esc(p.figuraNombre)}</p></div>
+    ${!p.ganadores.some(g => g.entregado) ? `<details style="margin-top:8px"><summary>Editar o eliminar esta ronda</summary>
+      <form data-editar-premio="${p.id}" class="card" style="margin-top:8px">
+        <div class="grid">
+          <label>Ronda <input name="ronda" required maxlength="80" value="${esc(p.ronda)}"></label>
+          <label>Premio <input name="premio" required maxlength="120" value="${esc(p.premio)}"></label>
+          <label>Monto <input name="monto" type="number" min="0" step="0.01" value="${p.monto}"></label>
+        </div>
+        ${!p.ganadores.length && p.rondaEstado !== 'cerrada' ? selectorFigura(p.figura, p.figuraCasillas)
+          : '<p class="muted">La figura ya no se puede cambiar porque esta ronda tiene balotas o ganadoras.</p>'}
+        <div class="actions"><button type="submit">Guardar cambios</button>
+          <button type="button" class="ghost danger" data-eliminar-premio="${p.id}" data-nombre="${esc(p.ronda)}">Eliminar ronda</button></div>
+      </form></details>` : ''}
     ${aviso}
     ${p.ganadores.map(g => tarjetaGanadora(p, g)).join('')}
     ${registrar}
@@ -985,6 +1062,7 @@ function tarjetaPremio(p) {
 
 async function renderPremios() {
   const [premios, { figuras }] = await Promise.all([api('GET', '/admin/premios'), api('GET', '/admin/sorteo')]);
+  FIGURAS_LISTA = figuras;
   $('vista').innerHTML = `
     <h2>Nueva ronda</h2>
     <form id="form-premio" class="card">
@@ -992,17 +1070,36 @@ async function renderPremios() {
         <label>Ronda <input name="ronda" required maxlength="80" placeholder="Línea, Cartón lleno…"></label>
         <label>Premio <input name="premio" required maxlength="120"></label>
         <label>Monto <input name="monto" type="number" min="0" step="0.01" value="0"></label>
-        <label>Figura que gana <select name="figura">${figuras.map(f => `<option value="${f.id}" ${f.id === 'carton_lleno' ? 'selected' : ''}>${esc(f.nombre)}</option>`).join('')}</select></label>
       </div>
+      ${selectorFigura('carton_lleno')}
       <div class="actions"><button type="submit">Crear ronda</button></div>
     </form>
     <h2>Rondas</h2>
     ${premios.map(tarjetaPremio).join('') || '<p class="muted">Aún no hay rondas.</p>'}`;
 
+  conectarSelectorFigura($('form-premio'));
+  $('vista').querySelectorAll('form[data-editar-premio]').forEach(f => {
+    if (f.querySelector('[data-fig-sel]')) conectarSelectorFigura(f);
+    f.addEventListener('submit', async e => {
+      e.preventDefault();
+      try {
+        await api('PUT', `/admin/premios/${f.dataset.editarPremio}`, {
+          ronda: f.ronda.value, premio: f.premio.value, monto: Number(f.monto.value),
+          ...(f.querySelector('[data-fig-sel]') ? valorFigura(f) : {}),
+        });
+        msg('Ronda actualizada.');
+        mostrar('premios');
+      } catch (err) { msg(err.message, true); }
+    });
+  });
+  $('vista').querySelectorAll('[data-eliminar-premio]').forEach(b => b.addEventListener('click', () => {
+    if (!confirm(`¿Eliminar la ronda "${b.dataset.nombre}"?\n\nSe borran también sus balotas y sus ganadoras. Esta acción no se puede deshacer.`)) return;
+    accion(async () => { await api('DELETE', `/admin/premios/${b.dataset.eliminarPremio}`); mostrar('premios'); }, 'Ronda eliminada.');
+  }));
   $('form-premio').addEventListener('submit', async e => {
     e.preventDefault();
     try {
-      await api('POST', '/admin/premios', { ronda: e.target.ronda.value, premio: e.target.premio.value, monto: Number(e.target.monto.value), figura: e.target.figura.value });
+      await api('POST', '/admin/premios', { ronda: e.target.ronda.value, premio: e.target.premio.value, monto: Number(e.target.monto.value), ...valorFigura(e.target) });
       msg('Ronda creada.');
       mostrar('premios');
     } catch (err) { msg(err.message, true); }
@@ -1045,29 +1142,48 @@ function conectarReiniciarSorteo() {
   });
 }
 
+// Tablas vendidas que ya cumplen la figura o están a 3 balotas o menos, calculado por el servidor con las balotas cantadas.
+function monitorTablas(candidatas) {
+  const nuevas = candidatas.filter(c => c.faltan === 0 && !c.yaRegistrada);
+  const fila = c => `<div class="kv"><span><strong>Tabla ${esc(c.serial)}</strong> · ${esc(c.nombre)} · ${esc(c.telefono)}
+      ${c.faltan ? `<br><span class="muted">Le ${c.faltan === 1 ? 'falta la balota' : 'faltan las balotas'}: ${c.numerosFaltan.map(n => `<strong>${LETRA_DE(n)}-${n}</strong>`).join(', ')}</span>`
+        : c.yaRegistrada ? '<br><span class="muted">Ya registrada como ganadora.</span>'
+          : c.conUltima ? '<br><span class="muted">Se completó con la última balota.</span>'
+            : '<br><span class="muted">⚠ Ya estaba completa antes de la última balota.</span>'}</span>
+    <span>${c.faltan === 0 && !c.yaRegistrada ? `<button type="button" class="grande" data-verificar="${esc(c.serial)}">Verificar</button>` : ''}</span></div>`;
+  const grupo = (n, titulo) => {
+    const lista = candidatas.filter(c => c.faltan === n);
+    return lista.length ? `<h4 style="margin:12px 0 4px">${titulo} (${lista.length})</h4>${lista.map(fila).join('')}` : '';
+  };
+  return `<div class="card">
+    <h3 style="margin-top:0">Tablas que van ganando</h3>
+    ${nuevas.length ? `<div class="ojo" style="margin:0 0 8px">🎉 ${nuevas.length === 1 ? 'Hay 1 tabla que ya cumple la figura' : `Hay ${nuevas.length} tablas que ya cumplen la figura`}. Escucha si cantan Bingo y verifícalas.</div>` : ''}
+    ${candidatas.length ? grupo(0, 'Ya cumplen la figura') + grupo(1, 'A 1 balota') + grupo(2, 'A 2 balotas') + grupo(3, 'A 3 balotas')
+      : '<p class="muted" style="margin:0">Todavía ninguna tabla está a 3 balotas o menos de cumplir la figura. Se actualiza cada vez que marcas una balota.</p>'}
+  </div>`;
+}
+const LETRA_DE = n => ['B', 'I', 'N', 'G', 'O'][Math.min(4, Math.floor((n - 1) / 15))];
+
 async function renderSorteo() {
   const [estado, premios] = await Promise.all([api('GET', '/admin/sorteo'), api('GET', '/admin/premios')]);
   const { ronda, balotas } = estado;
+  const candidatas = estado.candidatas || [];
   const LETRAS = ['B', 'I', 'N', 'G', 'O'];
 
   if (!ronda) {
-    const disponibles = premios.filter(p => !p.serial);
+    const estadoRonda = p => p.rondaEstado === 'cerrada' || p.ganadores.length ? 'Ya tiene ganadora' : p.rondaEstado === 'en_juego' ? 'En juego' : 'Pendiente';
     $('vista').innerHTML = `
       <h2>Sorteo</h2>
-      ${disponibles.length ? `
-      <form id="form-iniciar" class="card">
-        <label>Ronda que se va a jugar
-          <select name="ronda">${disponibles.map(p => `<option value="${p.id}">${esc(p.ronda)} — ${esc(p.premio)} (${esc(p.figuraNombre)})</option>`).join('')}</select>
-        </label>
-        <div class="actions"><button type="submit" class="grande">Iniciar ronda</button></div>
-      </form>` : '<p class="muted">No hay rondas pendientes. Crea una en la pestaña Premios.</p>'}
+      ${premios.length ? '<p class="muted">Elige la ronda que se va a jugar. Luego irás marcando las balotas que van saliendo y, cuando alguien cante Bingo, anotas su tabla para verificarla.</p>' : '<p class="muted">No hay rondas. Crea una en la pestaña Premios.</p>'}
+      ${premios.map(p => `<article class="card">
+        <div class="row" style="align-items:center;gap:12px">${miniFigura(p.figuraCasillas)}
+          <span style="flex:1"><strong>${esc(p.ronda)}</strong> · ${esc(p.premio)} · ${dinero(p.monto)}<br><span class="muted">${esc(p.figuraNombre)} · ${estadoRonda(p)}</span></span>
+          ${p.rondaEstado === 'cerrada' || p.ganadores.length ? '' : `<button type="button" class="grande" data-jugar="${p.id}">Jugar esta ronda</button>`}</div>
+      </article>`).join('')}
       ${tarjetaReiniciarSorteo()}`;
     conectarReiniciarSorteo();
-    const f = $('form-iniciar');
-    if (f) f.addEventListener('submit', async e => {
-      e.preventDefault();
-      try { await api('POST', `/admin/premios/${f.ronda.value}/iniciar`); mostrar('sorteo'); } catch (err) { msg(err.message, true); }
-    });
+    $('vista').querySelectorAll('[data-jugar]').forEach(btn => btn.addEventListener('click', () =>
+      accion(async () => { await api('POST', `/admin/premios/${btn.dataset.jugar}/iniciar`); mostrar('sorteo'); }, null)));
     return;
   }
 
@@ -1080,13 +1196,14 @@ async function renderSorteo() {
   $('vista').innerHTML = `
     <div class="row"><h2 style="margin:0">${esc(ronda.ronda)} · ${esc(ronda.premio)}</h2>
       <span class="pill por_verificar">en juego</span></div>
-    <p class="muted">Figura: <strong>${esc(ronda.figuraNombre)}</strong> · Balotas cantadas: ${balotas.length} de 75</p>
+    <div class="row" style="align-items:center;gap:12px">${miniFigura(ronda.figuraCasillas)}<p class="muted" style="margin:0">Figura: <strong>${esc(ronda.figuraNombre)}</strong> · Balotas cantadas: ${balotas.length} de 75</p></div>
+    ${monitorTablas(candidatas)}
     <div class="card">
       <p style="font-size:1.4rem;margin:0 0 10px">Última balota: <strong>${ultima ? `${LETRAS[Math.floor((ultima - 1) / 15)]}-${ultima}` : '—'}</strong></p>
       <div class="balotas">${LETRAS.map(fila).join('')}</div>
       <div class="actions">
         <button type="button" class="ghost" id="deshacer" ${ultima ? '' : 'disabled'}>Deshacer última balota</button>
-        <button type="button" class="ghost" id="pausar">Pausar ronda</button>
+        <button type="button" class="ghost" id="pausar">Pausar y cambiar de ronda</button>
       </div>
     </div>
     ${ronda.ganadores.length ? `
@@ -1117,21 +1234,29 @@ async function renderSorteo() {
   const cerrar = $('cerrar-ronda');
   if (cerrar) cerrar.addEventListener('click', () => accion(async () => {
     await api('POST', `/admin/premios/${ronda.id}/cerrar`);
-    msg('Ronda cerrada. Registra la entrega de cada premio en la pestaña Premios.');
-    mostrar('premios');
+    mostrar('sorteo');
+    msg('Ronda cerrada. Elige la siguiente ronda. La entrega del premio la registras en la pestaña Premios.');
   }, null));
 
+  $('vista').querySelectorAll('[data-verificar]').forEach(b => b.addEventListener('click', () => {
+    const f = $('form-verificar');
+    f.serial.value = b.dataset.verificar;
+    f.requestSubmit();
+    f.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }));
   $('form-verificar').addEventListener('submit', async e => {
     e.preventDefault();
     try {
       const v = await api('POST', `/admin/premios/${ronda.id}/verificar-tabla`, { serial: e.target.serial.value });
       const cuadricula = v.numeros ? `<div class="tabla-bingo">${LETRAS.map(l => `<strong>${l}</strong>`).join('')}${
-        v.numeros.map((n, i) => `<span class="${v.marcadas[i] ? 'marcada' : ''}">${n === 0 ? '★' : n}</span>`).join('')}</div>` : '';
+        v.numeros.map((n, i) => `<span class="${v.marcadas[i] ? 'marcada' : ''}${v.figuraCasillas && v.figuraCasillas.includes(i) && i !== 12 ? ' en-figura' : ''}">${n === 0 ? '★' : n}</span>`).join('')}</div>` : '';
       $('resultado').innerHTML = `
         <article class="card">
           <div class="row"><strong>Tabla ${esc(v.serial)}</strong>
             <span class="pill ${v.cumple ? 'verificado' : 'rechazado'}">${v.cumple ? 'GANADORA' : 'no gana'}</span></div>
+          <p class="muted" style="margin:0">Se revisó contra la ronda en juego: <strong>${esc(v.ronda)}</strong> · ${esc(v.figuraNombre)} · ${balotas.length} balota(s) cantadas.</p>
           <p>${v.cumple && !v.aTiempo ? '⚠ ' : ''}${esc(v.motivo)}</p>
+          ${!v.cumple && v.numerosFaltan && v.numerosFaltan.length ? `<p class="muted">Le ${v.numerosFaltan.length === 1 ? 'falta la balota' : 'faltan las balotas'}: ${v.numerosFaltan.map(n => `<strong>${LETRA_DE(n)}-${n}</strong>`).join(', ')}</p>` : ''}
           ${v.comprador ? `<p class="muted">${esc(v.comprador.nombre)} · ${esc(v.comprador.telefono)} · ${esc(v.comprador.codigo)}</p>` : ''}
           ${cuadricula}
           ${v.cumple && !v.yaRegistrada ? `<div class="actions">
@@ -1142,8 +1267,8 @@ async function renderSorteo() {
       const a = $('asignar');
       if (a) a.addEventListener('click', () => accion(async () => {
         await api('PUT', `/admin/premios/${ronda.id}/ganador`, { serial: v.serial });
-        msg('Premio asignado. Registra la entrega en la pestaña Premios.');
-        mostrar('premios');
+        mostrar('sorteo');
+        msg('¡Premio asignado! Elige la siguiente ronda. La entrega del premio la registras en la pestaña Premios.');
       }, null));
       const g = $('agregar');
       if (g) g.addEventListener('click', () => accion(async () => {
@@ -1317,6 +1442,7 @@ function renderManual() {
 async function renderGastos() {
   const gastos = await api('GET', '/admin/gastos');
   const total = gastos.reduce((s, g) => s + g.monto, 0);
+  const dePremios = gastos.filter(g => g.premio).reduce((s, g) => s + g.monto, 0);
   $('vista').innerHTML = `
     <h2>Registrar gasto</h2>
     <form id="form-gasto" class="card">
@@ -1331,9 +1457,10 @@ async function renderGastos() {
       <div class="actions"><button type="submit">Registrar</button></div>
     </form>
     <h2>Gastos (${dinero(total)})</h2>
+    ${dePremios ? `<p class="muted">Incluye ${dinero(dePremios)} de premios entregados, que se registran solos al entregar cada premio. En el balance esos premios se cuentan una sola vez, en "Premios pagados".</p>` : ''}
     <div class="card">
       ${gastos.map(g => `<div class="kv"><span>${esc(g.fecha)} · ${esc(g.concepto)} <span class="muted">(${esc(g.categoria)})</span></span>
-        <span><strong>${dinero(g.monto)}</strong> <button type="button" class="danger" data-gasto-borrar="${g.id}">Borrar</button></span></div>`).join('') || '<p class="muted">Sin gastos.</p>'}
+        <span><strong>${dinero(g.monto)}</strong> ${g.premio ? '<span class="pill verificado">premio</span>' : `<button type="button" class="danger" data-gasto-borrar="${g.id}">Borrar</button>`}</span></div>`).join('') || '<p class="muted">Sin gastos.</p>'}
     </div>`;
 
   $('form-gasto').addEventListener('submit', async e => {
@@ -1636,7 +1763,7 @@ async function renderTransacciones() {
       <td>${esc(formaPago(c.metodos))}</td>
       <td class="num">${esDonacion(c) ? '<span class="tx-chulo" title="Donación, sin tablas">✔ <span class="muted">donación</span></span>' : (c.tablasAprobadas ?? c.cantidad)}</td>
       <td>${esc(c.fechaPago || '')}</td>
-      <td><span class="pill ${esc(c.estado)}">${esc(c.estado === 'donacion' ? 'donación' : c.estado.replace('_', ' '))}</span>
+      <td><span class="pill ${esc(c.estado)}">${esc(c.estado === 'donacion' ? 'donación' : c.estado === 'rechazada' ? 'anulada' : c.estado.replace('_', ' '))}</span>
         ${c.pagosPendientes > 0 && c.estado !== 'por_verificar' ? `<br><span class="pill por_verificar" title="Tiene pagos sin verificar">${c.pagosPendientes} pago(s) por verificar</span>` : ''}</td>
       <td><button type="button" class="ghost tx-ojo" data-tx-ver="${c.id}" aria-expanded="false"
         aria-label="Ver el detalle de ${esc(c.nombre)}" title="Ver el detalle">${ICONO_OJO}</button></td>
@@ -1739,6 +1866,7 @@ function detalleTx(d, operadoras = []) {
     ${d.pagos.map(p => `<div class="kv" style="flex-direction:column;align-items:flex-start"><div class="row" style="width:100%"><span>${esc(p.fechaPago)} · ${esc(p.metodo)}${p.referencia ? ' · ' + esc(p.referencia) : ''}</span>
       <span>${esc(dinero(p.montoReportado))}${p.montoVerificado != null ? ` (verificado ${esc(dinero(p.montoVerificado))})` : ''}
       <span class="pill ${esc(p.estado)}">${esc(p.estado.replace('_', ' '))}</span></span></div>
+      ${p.motivo ? `<span class="muted">Causa: ${esc(p.motivo)}</span>` : ''}
       ${botonAnularPago(p, d, operadoras)}
       </div>`).join('') || '<p class="muted">Sin pagos.</p>'}
     ${d.estado !== 'rechazada' ? formPagoManual(d.id, operadoras) : ''}
@@ -1762,7 +1890,8 @@ $('vista').addEventListener('click', e => {
 const REPORTES_BINGO = [['compras', 'Compras'], ['pagos', 'Pagos'], ['deudas', 'Deudas'], ['sobrantes', 'Sobrantes'], ['tablas', 'Tablas vendidas'], ['premios', 'Premios'], ['gastos', 'Gastos']];
 
 async function renderBingos() {
-  const { actual, historico } = await api('GET', '/admin/bingos');
+  const [{ actual, historico }, resumen, premios] = await Promise.all([api('GET', '/admin/bingos'), api('GET', '/admin/resumen'), api('GET', '/admin/premios')]);
+  const ev = resumen.evento;
   const din = (n, m) => `${m ? m + ' ' : ''}${Number(n || 0).toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' })}`;
   const tarjeta = b => {
     const m = b.config?.moneda;
@@ -1785,8 +1914,28 @@ async function renderBingos() {
   };
   $('vista').innerHTML = `
     <div class="card">
-      <div class="row"><strong>${esc(actual.nombre)}</strong><span class="pill verificada">activo</span></div>
-      <p class="muted">Desde ${esc(fecha(actual.iniciadoEn))}. Cada Bingo tiene su propia invitación y datos de pago (pestaña Configuración).</p>
+      <div class="row"><strong style="font-size:1.2rem">${esc(actual.nombre)}</strong><span class="pill verificada">activo</span></div>
+      <p class="muted">Desde ${esc(fecha(actual.iniciadoEn))}. Cada Bingo tiene sus propias rondas, invitación y datos de pago.</p>
+      <div class="kv"><span>Fecha del sorteo</span><strong>${esc(ev.fechaSorteo || 'Sin definir')}</strong></div>
+      <div class="kv"><span>Precio de la tabla</span><strong>${ev.precioTabla > 0 ? esc(din(ev.precioTabla, ev.moneda)) : 'Sin definir (ventas cerradas)'}</strong></div>
+      <div class="kv"><span>Tablas</span><strong>${resumen.tablas.vendidas} vendidas · ${resumen.tablas.disponibles} disponibles · ${resumen.tablas.total} en total</strong></div>
+      <div class="kv"><span>Pago</span><strong>${esc([ev.banco, ev.tipoCuenta, ev.numeroCuenta, ev.titularCuenta].filter(Boolean).join(' · ') || 'Sin cuenta configurada')}</strong></div>
+      <div class="kv"><span>Exige pago completo</span><strong>${ev.exigirPagoCompleto ? 'Sí' : 'No'}</strong></div>
+      <div class="kv"><span>Envío automático de tablas</span><strong>${ev.envioAutomatico ? 'Activado' : 'Apagado (se envía a mano)'}</strong></div>
+      <div class="kv"><span>Enlace de conexión (Zoom)</span><strong>${esc(ev.enlaceConexion ? ev.enlaceConexion.split('\n')[0] : 'Sin definir')}</strong></div>
+      <div class="kv"><span>Operadoras</span><strong>${esc((ev.operadores || []).join(', ') || 'Sin lista')}</strong></div>
+      <div class="kv"><span>Imagen de invitación</span><strong>${esc({ predeterminada: 'La predeterminada', propia: 'Propia', ninguna: 'Sin imagen' }[ev.pieza] || '')}</strong></div>
+      <div class="actions">
+        <button type="button" data-ir="config">Modificar condiciones del Bingo</button>
+        <button type="button" class="ghost" data-ir="premios">Rondas, premios y figuras</button>
+        <button type="button" class="ghost" data-ir="sorteo">Ir al sorteo</button>
+      </div>
+    </div>
+    <h2>Rondas y premios (${premios.length})</h2>
+    <div class="card">
+      ${premios.map(p => `<div class="row" style="align-items:center;gap:12px;padding:6px 0">${miniFigura(p.figuraCasillas)}
+        <span style="flex:1"><strong>${esc(p.ronda)}</strong> · ${esc(p.premio)} · ${dinero(p.monto)}<br><span class="muted">${esc(p.figuraNombre)} · ${esc(p.estado)}</span></span></div>`).join('') || '<p class="muted">Todavía no hay rondas. Créalas en "Rondas, premios y figuras".</p>'}
+      <div class="actions"><button type="button" class="ghost" data-ir="premios">Crear, editar o eliminar rondas</button></div>
     </div>
     <h2>Reiniciar Bingo</h2>
     <form id="form-reiniciar" class="card">
@@ -1803,6 +1952,7 @@ async function renderBingos() {
     <h2>Histórico (${historico.length})</h2>
     ${historico.map(tarjeta).join('') || '<p class="muted">Todavía no hay Bingos cerrados.</p>'}`;
 
+  $('vista').querySelectorAll('[data-ir]').forEach(b => b.addEventListener('click', () => { msg(''); mostrar(b.dataset.ir); }));
   $('form-reiniciar').addEventListener('submit', async e => {
     e.preventDefault();
     const f = e.target;

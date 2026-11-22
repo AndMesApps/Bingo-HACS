@@ -329,6 +329,8 @@ ALTER TABLE evento ADD COLUMN IF NOT EXISTS texto_mensaje TEXT NOT NULL DEFAULT 
 -- Operadoras del aplicativo (una por línea) y quién aprobó cada pago.
 ALTER TABLE evento ADD COLUMN IF NOT EXISTS operadores TEXT NOT NULL DEFAULT E'Claudia\nOlga\nAura\nCarmen\nAlicia\nDiana';
 ALTER TABLE pagos ADD COLUMN IF NOT EXISTS verificado_por TEXT NOT NULL DEFAULT '';
+-- Causa por la que se rechazó o anuló un pago.
+ALTER TABLE pagos ADD COLUMN IF NOT EXISTS motivo TEXT NOT NULL DEFAULT '';
 
 -- ---------- Reparto de las tablas de una compra entre varias personas ----------
 -- Reparto que el comprador pidió en el formulario (JSON: [{nombre, telefono, cantidad}]; '' = sin reparto).
@@ -353,3 +355,17 @@ ALTER TABLE tablas_historial ADD COLUMN IF NOT EXISTS entrega_id INTEGER REFEREN
 
 ALTER TABLE compras ADD COLUMN IF NOT EXISTS sobrante_donar NUMERIC(12,2) NOT NULL DEFAULT 0;
 UPDATE compras SET sobrante_donar = sobrante_monto WHERE sobrante_estado = 'donado' AND sobrante_donar = 0;
+
+-- ---------- Premios entregados registrados como gasto ----------
+-- Cada premio entregado genera un gasto (categoría "Premios") ligado a su ganadora. Esos gastos se ven en Gastos pero
+-- no se restan dos veces en el balance: los totales de gastos los excluyen y el premio se cuenta en "premios pagados".
+ALTER TABLE gastos ADD COLUMN IF NOT EXISTS premio_ganador_id INTEGER;
+CREATE UNIQUE INDEX IF NOT EXISTS gastos_premio_ganador_uq ON gastos (premio_ganador_id) WHERE premio_ganador_id IS NOT NULL;
+-- Premios que ya estaban entregados antes de esta función.
+INSERT INTO gastos (fecha, concepto, categoria, monto, creado_en, bingo_id, premio_ganador_id)
+  SELECT COALESCE(NULLIF(SUBSTR(g.entregado_en, 1, 10), ''), SUBSTR(p.creado_en, 1, 10)),
+         'Premio ' || p.ronda || ': ' || p.premio || ' (tabla ' || g.serial || ')', 'Premios', g.monto,
+         COALESCE(g.entregado_en, p.creado_en), p.bingo_id, g.id
+  FROM premio_ganadores g JOIN premios p ON p.id = g.premio_id
+  WHERE g.entregado = true AND g.monto > 0
+    AND NOT EXISTS (SELECT 1 FROM gastos x WHERE x.premio_ganador_id = g.id);

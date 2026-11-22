@@ -228,3 +228,14 @@ table.informe tfoot td { font-weight: 700; border-top: 2px solid var(--line); }
 .tx-wrap { overflow-x: scroll; scrollbar-width: thin; }
 .tx-wrap::-webkit-scrollbar { height: 10px; }
 .tx-wrap::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 8px; }
+
+/* Figuras del sorteo: vista pequeña y editor de 5x5 */
+.mini-figura { display: grid; grid-template-columns: repeat(5, 10px); gap: 2px; flex: none; }
+.mini-figura span { width: 10px; height: 10px; border: 1px solid var(--line); border-radius: 2px; }
+.mini-figura span.on { background: var(--accent); border-color: var(--accent); }
+.mini-figura span.libre { background: #C9A24B; border-color: #C9A24B; }
+.editor-figura { display: grid; grid-template-columns: repeat(5, 48px); gap: 6px; }
+.editor-figura button, .editor-figura span { width: 48px; height: 48px; border-radius: 8px; border: 1px solid var(--line); background: transparent; padding: 0; display: flex; align-items: center; justify-content: center; }
+.editor-figura button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
+.editor-figura span.libre { background: #C9A24B; color: #fff; font-size: 1.3rem; }
+.tabla-bingo span.en-figura { box-shadow: inset 0 0 0 2px #C9A24B; }
