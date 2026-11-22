@@ -78,7 +78,7 @@
         <label><input type="radio" name="metodo" value="Efectivo"> Efectivo</label>
       </div>
       <div class="grid" style="margin-top:14px">
-        <label>Valor pagado <input name="montoPagado" type="number" min="1" step="any" required inputmode="decimal"></label>
+        <label>Valor pagado <input name="montoPagado" type="text" class="moneda" required></label>
         <label>Fecha del pago <input name="fechaPago" type="date" required></label>
         <label class="full" id="campo-ref"><span>Referencia o número de la consignación <span class="opc">(opcional)</span></span>
           <input name="referencia" maxlength="60"></label>
@@ -136,7 +136,7 @@
           <label><input type="radio" name="sobranteDestino" value="mixto"> Dono una parte y me devuelven el resto</label>
         </div>
         <label id="campo-sobrante-donar" style="margin-top:12px" hidden>¿Cuánto donas a las Hermanas?
-          <input name="sobranteDonar" type="number" min="0.01" step="any" inputmode="decimal" placeholder="Ej. 20000">
+          <input name="sobranteDonar" type="text" class="moneda" placeholder="Ej. 20.000">
           <span class="muted" id="sobrante-resto"></span>
         </label>
         <label id="campo-sobrante-nota" style="margin-top:12px" hidden>¿Cómo te lo devolvemos? (cuenta, llave, efectivo…)
@@ -170,6 +170,7 @@
   </details>
 </main>
 
+<script src="moneda.js"></script>
 <script type="module">
   import { upload } from 'https://cdn.jsdelivr.net/npm/@vercel/blob@2.8.2/dist/client.js/+esm';
   const EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'application/pdf': 'pdf' };
@@ -181,7 +182,7 @@
 </script>
 <script>
 const $ = id => document.getElementById(id);
-const dinero = (n, moneda) => `${moneda ? moneda + ' ' : ''}${Number(n).toLocaleString('es', { maximumFractionDigits: 2, useGrouping: 'always' })}`;
+const dinero = (n, moneda) => `${moneda ? moneda + ' ' : ''}${Number(n).toLocaleString('es', { maximumFractionDigits: 0, useGrouping: 'always' })}`;
 const ETIQUETAS = {
   por_verificar: 'Pago en verificación',
   verificada: 'Pago verificado. Pronto te enviaremos las tablas.',
@@ -353,7 +354,7 @@ function agregarFilaExtra() {
   fila.innerHTML = `
     <p style="margin:0 0 8px"><strong>Otro pago</strong></p>
     <div class="grid">
-      <label>Valor pagado <input data-c="monto" type="number" min="1" step="any" required inputmode="decimal"></label>
+      <label>Valor pagado <input data-c="monto" type="text" class="moneda" required></label>
       <label>Fecha del pago <input data-c="fecha" type="date" required></label>
       <label class="full" data-ref><span>Referencia o número de la consignación <span class="opc">(opcional)</span></span>
         <input data-c="ref" maxlength="60"></label>
@@ -578,6 +579,7 @@ $('form').addEventListener('submit', async e => {
       });
     }
     const cuerpo = Object.fromEntries([...new FormData(f)].filter(([k]) => k !== 'comprobantes'));
+    for (const k of ['montoPagado', 'sobranteDonar']) if (k in cuerpo) cuerpo[k] = f[k].value;
     cuerpo.comprobantes = comprobantes;
     // «Dono una parte y me devuelven el resto» viaja como devolución con la parte donada.
     if (cuerpo.sobranteDestino === 'mixto') cuerpo.sobranteDestino = 'devolucion';

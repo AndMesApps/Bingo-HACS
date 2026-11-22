@@ -57,7 +57,7 @@ function agregarHoja(libro, logoId, columnas, filas, opciones) {
   const n = columnas.length;
   const moneda = opciones.moneda ? String(opciones.moneda).trim() : '';
   const todoEntero = filas.every(f => columnas.every((c, i) => c.tipo !== 'dinero' || Number.isInteger(Number(f[i] || 0))));
-  const fmtDinero = `${moneda ? `"${moneda.replace(/"/g, '')}" ` : ''}#,##0${todoEntero ? '' : '.00'}`;
+  const fmtDinero = `${moneda ? `"${moneda.replace(/"/g, '')}" ` : ''}#,##0`;
   const fmt = tipo => (tipo === 'dinero' ? fmtDinero : FORMATO[tipo]);
   const borde = { style: 'thin', color: { argb: COLOR.borde } };
   const bordes = { top: borde, left: borde, bottom: borde, right: borde };

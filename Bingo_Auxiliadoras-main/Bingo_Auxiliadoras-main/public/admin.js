@@ -4,7 +4,7 @@ let moneda = '';
 let vistaActual = 'resumen';
 let filtroCompras = 'por_verificar';
 
-const dinero = n => `${moneda ? moneda + ' ' : ''}${Number(n || 0).toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' })}`;
+const dinero = n => `${moneda ? moneda + ' ' : ''}${Number(n || 0).toLocaleString('es', { maximumFractionDigits: 0, useGrouping: 'always' })}`;
 const fecha = s => s ? String(s).slice(0, 16).replace('T', ' ') : '';
 
 async function api(metodo, url, cuerpo) {
@@ -344,7 +344,7 @@ function panelEnvio(c) {
       <p class="muted" data-sobrante-txt style="margin:0"></p>
       <div data-sobrante-split hidden style="margin-top:8px;display:none">
         <div class="row" style="justify-content:flex-start;align-items:flex-end;gap:14px">
-          <label style="flex:0 1 200px">Donar a las Hermanas <input name="donarSobrante" type="number" min="0" step="any" inputmode="decimal"></label>
+          <label style="flex:0 1 200px">Donar a las Hermanas <input name="donarSobrante" type="text" class="moneda"></label>
           <span data-sobrante-devolver></span>
         </div>
         <p class="muted" style="margin:6px 0 0">Si el comprador pidió devolución, lo que no se done queda «por devolver» en la pestaña Sobrantes.</p>
@@ -473,7 +473,7 @@ function controlesVerificarPago(p, precioUnitario, operadoras) {
   return `
         <div class="row" style="width:100%;margin-top:6px">
           <label style="flex:1 1 160px">Monto recibido
-            <input type="number" min="0.01" step="0.01" value="${p.montoReportado}" data-monto="${p.id}" data-precio="${precioUnitario}">
+            <input type="text" class="moneda" value="${p.montoReportado}" data-monto="${p.id}" data-precio="${precioUnitario}">
             <span class="muted" data-calc="${p.id}">Equivale a ${Math.floor(p.montoReportado / precioUnitario + 1e-9)} tabla(s)</span>
           </label>
           ${selectorOperadora(operadoras)}
@@ -504,7 +504,7 @@ function botonAnularPago(p, d, operadoras) {
 function formPagoManual(compraId, operadoras) {
   return `
     <form class="row" data-pago-manual="${compraId}" style="margin-top:10px">
-      <label style="flex:1 1 120px">Monto <input name="monto" type="number" min="0.01" step="0.01" required></label>
+      <label style="flex:1 1 120px">Monto <input name="monto" type="text" class="moneda" required></label>
       <label style="flex:1 1 120px">Método
         <select name="metodo"><option>Efectivo</option><option>Consignación</option><option>Transferencia</option></select>
       </label>
@@ -1047,7 +1047,7 @@ function tarjetaPremio(p) {
         <div class="grid">
           <label>Ronda <input name="ronda" required maxlength="80" value="${esc(p.ronda)}"></label>
           <label>Premio <input name="premio" required maxlength="120" value="${esc(p.premio)}"></label>
-          <label>Monto <input name="monto" type="number" min="0" step="0.01" value="${p.monto}"></label>
+          <label>Monto <input name="monto" type="text" class="moneda" value="${p.monto}"></label>
         </div>
         ${!p.ganadores.length && p.rondaEstado !== 'cerrada' ? selectorFigura(p.figura, p.figuraCasillas)
           : '<p class="muted">La figura ya no se puede cambiar porque esta ronda tiene balotas o ganadoras.</p>'}
@@ -1069,7 +1069,7 @@ async function renderPremios() {
       <div class="grid">
         <label>Ronda <input name="ronda" required maxlength="80" placeholder="Línea, Cartón lleno…"></label>
         <label>Premio <input name="premio" required maxlength="120"></label>
-        <label>Monto <input name="monto" type="number" min="0" step="0.01" value="0"></label>
+        <label>Monto <input name="monto" type="text" class="moneda" value="0"></label>
       </div>
       ${selectorFigura('carton_lleno')}
       <div class="actions"><button type="submit">Crear ronda</button></div>
@@ -1448,7 +1448,7 @@ async function renderGastos() {
     <form id="form-gasto" class="card">
       <div class="grid">
         <label>Concepto <input name="concepto" required maxlength="120"></label>
-        <label>Monto <input name="monto" type="number" min="0.01" step="0.01" required></label>
+        <label>Monto <input name="monto" type="text" class="moneda" required></label>
         <label>Categoría
           <select name="categoria"><option>Logística</option><option>Impresión</option><option>Publicidad</option><option>Premios</option><option>Otros</option></select>
         </label>
@@ -1489,7 +1489,7 @@ async function renderConfig() {
         <h2 style="margin-top:0">Evento</h2>
         <div class="grid">
           <label>Nombre del evento <input name="nombre" value="${esc(e.nombre)}" maxlength="120"></label>
-          <label>Precio por tabla <input name="precioTabla" type="number" min="0" step="any" value="${e.precioTabla}" required></label>
+          <label>Precio por tabla <input name="precioTabla" type="text" class="moneda" value="${e.precioTabla}" required></label>
           <label>Moneda (símbolo o texto) <input name="moneda" value="${esc(e.moneda)}" maxlength="10" placeholder="$, COP"></label>
           <label>Fecha del sorteo <input name="fechaSorteo" type="date" value="${esc(e.fechaSorteo)}"></label>
           <label class="full">Datos para la conexión (reunión virtual) <span class="opc">(opcional)</span>
@@ -1892,7 +1892,7 @@ const REPORTES_BINGO = [['compras', 'Compras'], ['pagos', 'Pagos'], ['deudas', '
 async function renderBingos() {
   const [{ actual, historico }, resumen, premios] = await Promise.all([api('GET', '/admin/bingos'), api('GET', '/admin/resumen'), api('GET', '/admin/premios')]);
   const ev = resumen.evento;
-  const din = (n, m) => `${m ? m + ' ' : ''}${Number(n || 0).toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' })}`;
+  const din = (n, m) => `${m ? m + ' ' : ''}${Number(n || 0).toLocaleString('es', { maximumFractionDigits: 0, useGrouping: 'always' })}`;
   const tarjeta = b => {
     const m = b.config?.moneda;
     const r = b.resumen;
