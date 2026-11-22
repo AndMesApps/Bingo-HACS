@@ -329,6 +329,9 @@ ALTER TABLE evento ADD COLUMN IF NOT EXISTS texto_mensaje TEXT NOT NULL DEFAULT 
 -- Operadoras del aplicativo (una por línea) y quién aprobó cada pago.
 ALTER TABLE evento ADD COLUMN IF NOT EXISTS operadores TEXT NOT NULL DEFAULT E'Claudia\nOlga\nAura\nCarmen\nAlicia\nDiana';
 ALTER TABLE pagos ADD COLUMN IF NOT EXISTS verificado_por TEXT NOT NULL DEFAULT '';
+-- Entidad financiera de origen y número del comprobante (informe de aportes).
+ALTER TABLE pagos ADD COLUMN IF NOT EXISTS entidad TEXT NOT NULL DEFAULT '';
+ALTER TABLE pagos ADD COLUMN IF NOT EXISTS num_comprobante TEXT NOT NULL DEFAULT '';
 -- Causa por la que se rechazó o anuló un pago.
 ALTER TABLE pagos ADD COLUMN IF NOT EXISTS motivo TEXT NOT NULL DEFAULT '';
 

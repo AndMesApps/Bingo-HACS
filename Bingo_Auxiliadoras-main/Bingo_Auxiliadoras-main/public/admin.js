@@ -60,6 +60,7 @@ const VISTAS = {
   gastos: { titulo: 'Gastos', render: renderGastos },
   config: { titulo: 'Configuración', render: renderConfig },
   informes: { titulo: 'Informes', render: renderInformes },
+  aportes: { titulo: 'Aportes', render: renderAportes },
   reportes: { titulo: 'Reportes', render: renderReportes },
   bingos: { titulo: 'Bingo', render: renderBingos },
   bitacora: { titulo: 'Bitácora', render: renderBitacora },
@@ -1985,3 +1986,52 @@ async function renderBitacora() {
     mostrarLogin();
   }
 })();
+
+
+// ---------- Informe de aportes ----------
+// Una fila por pago: quién aportó, cuánto, en qué concepto (tablas o donación), entidad de origen y número de comprobante.
+// Los campos de entidad y comprobante se editan aquí mismo y se guardan al salir de la casilla.
+const ENTIDADES = ['Nequi', 'Bancolombia', 'Daviplata', 'Davivienda', 'Banco de Bogotá', 'BBVA', 'Banco Popular', 'Banco Agrario', 'Corresponsal Bancolombia', 'Efectivo'];
+let soloFaltantes = false;
+
+async function renderAportes() {
+  const [{ aportes, totales }, { actual }] = await Promise.all([api('GET', '/admin/informes/aportes'), api('GET', '/admin/bingos')]);
+  const faltan = a => !a.efectivo && (!a.entidad || !a.numeroComprobante);
+  const lista = soloFaltantes ? aportes.filter(faltan) : aportes;
+  const concepto = a => (a.concepto === 'donacion' ? 'Donación' : `${a.tablas} tabla(s)${a.pagosDeLaCompra > 1 ? ' (pago parcial)' : ''}`);
+  const filas = lista.map((a, i) => `
+    <tr data-pago="${a.pagoId}">
+      <td class="num">${i + 1}</td>
+      <td>${esc(a.nombre)}${a.estado === 'por_verificar' ? ' <span class="muted no-print">(por verificar)</span>' : ''}</td>
+      <td class="num">${esc(dinero(a.valor))}</td>
+      <td>${esc(concepto(a))}</td>
+      <td>${a.efectivo ? 'Efectivo' : `<input data-campo="entidad" list="lista-entidades" value="${esc(a.entidad)}" placeholder="Entidad">`}</td>
+      <td><input data-campo="numeroComprobante" value="${esc(a.numeroComprobante)}" placeholder="N° comprobante"></td>
+    </tr>`).join('');
+  $('vista').innerHTML = `
+    <div class="card">
+      <div class="row no-print" style="align-items:center">
+        <h2 style="margin:0">Informe de aportes</h2>
+        <div class="actions">
+          <label class="muted" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="solo-faltantes" ${soloFaltantes ? 'checked' : ''}> Solo con datos por completar (${aportes.filter(faltan).length})</label>
+          <button type="button" id="imprimir-aportes">Imprimir / guardar PDF</button>
+        </div>
+      </div>
+      <h2 class="solo-impresion" style="margin:0 0 4px">Informe de aportes — ${esc(actual.nombre)}</h2>
+      <p class="muted">Generado el ${esc(new Date().toLocaleDateString('es-CO'))} · ${totales.registros} aporte(s) · Total ${esc(dinero(totales.valor))} · Donaciones ${esc(dinero(totales.donaciones))}</p>
+      <datalist id="lista-entidades">${ENTIDADES.map(e => `<option value="${esc(e)}">`).join('')}</datalist>
+      <div class="tabla-scroll"><table class="informe aportes">
+        <thead><tr><th>#</th><th>Nombres y apellidos</th><th>Valor</th><th>Concepto</th><th>Entidad / efectivo</th><th>N° comprobante</th></tr></thead>
+        <tbody>${filas || '<tr><td colspan="6" class="muted">No hay aportes para mostrar.</td></tr>'}</tbody>
+        <tfoot><tr><td></td><td>Total</td><td class="num">${esc(dinero(totales.valor))}</td><td colspan="3"></td></tr></tfoot>
+      </table></div>
+    </div>`;
+  $('imprimir-aportes').addEventListener('click', () => window.print());
+  $('solo-faltantes').addEventListener('change', e => { soloFaltantes = e.target.checked; renderAportes(); });
+  $('vista').querySelectorAll('tr[data-pago] input').forEach(inp => inp.addEventListener('change', async () => {
+    try {
+      await api('PUT', `/admin/pagos/${inp.closest('tr').dataset.pago}/datos-comprobante`, { [inp.dataset.campo]: inp.value });
+      inp.classList.add('guardado'); setTimeout(() => inp.classList.remove('guardado'), 1200);
+    } catch (err) { msg(err.message, true); }
+  }));
+}

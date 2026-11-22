@@ -74,6 +74,8 @@ const CANALES = ['whatsapp', 'correo', 'fisica'];
 // Cambio de esquema de "premio entregado = gasto". Es el mismo de src/esquema.sql; se aplica solo, una vez por instancia,
 // por si la base de producción todavía no se migró (es idempotente y no cambia datos existentes).
 const MIGRACION_GASTOS_PREMIOS = `
+  ALTER TABLE pagos ADD COLUMN IF NOT EXISTS entidad TEXT NOT NULL DEFAULT '';
+  ALTER TABLE pagos ADD COLUMN IF NOT EXISTS num_comprobante TEXT NOT NULL DEFAULT '';
   ALTER TABLE pagos ADD COLUMN IF NOT EXISTS motivo TEXT NOT NULL DEFAULT '';
   ALTER TABLE gastos ADD COLUMN IF NOT EXISTS premio_ganador_id INTEGER;
   CREATE UNIQUE INDEX IF NOT EXISTS gastos_premio_ganador_uq ON gastos (premio_ganador_id) WHERE premio_ganador_id IS NOT NULL;
@@ -379,6 +381,8 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
       verificadoEn: p.verificado_en,
       verificadoPor: p.verificado_por ?? '',
       motivo: p.motivo ?? '',
+      entidad: p.entidad ?? '',
+      numeroComprobante: p.num_comprobante ?? '',
     };
   }
 
@@ -712,6 +716,77 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     });
     await enviarSiCorresponde(p.compra_id, baseUrl);
     return detalleCompra(p.compra_id);
+  }
+
+  // Corrige el valor reportado de un pago (p. ej. se digitó 20 en vez de 20.000). No toca el monto verificado.
+  async function corregirMontoReportado(pagoId, monto) {
+    const p = await uno('SELECT * FROM pagos WHERE id = $1', [pagoId]);
+    if (!p) throw new ErrorApp('Pago no encontrado.', 404);
+    const m = Number(monto);
+    if (!Number.isFinite(m) || m <= 0) throw new ErrorApp('El valor reportado debe ser mayor que 0.');
+    const c = await uno('SELECT codigo FROM compras WHERE id = $1', [p.compra_id]);
+    await tx(async t => {
+      await t('UPDATE pagos SET monto_reportado = $1::numeric WHERE id = $2', [m, pagoId]);
+      await bitacora('valor reportado corregido', `${c.codigo}: ${num(p.monto_reportado)} → ${m}`, t);
+    });
+    return detalleCompra(p.compra_id);
+  }
+
+  // Cambia los comprobantes de un pago por uno nuevo (p. ej. se subió la imagen equivocada). El archivo ya está en Storage
+  // y lo valida la capa HTTP. Opcionalmente corrige la referencia. No toca montos ni estados.
+  async function reemplazarComprobantePago(pagoId, { ruta, nombre, tipo, referencia } = {}) {
+    const p = await uno('SELECT * FROM pagos WHERE id = $1', [pagoId]);
+    if (!p) throw new ErrorApp('Pago no encontrado.', 404);
+    const c = await uno('SELECT codigo FROM compras WHERE id = $1', [p.compra_id]);
+    const ref = String(referencia ?? '').trim().slice(0, 60);
+    await tx(async t => {
+      const quitados = await t('DELETE FROM comprobantes WHERE pago_id = $1 RETURNING nombre', [pagoId]);
+      await t('INSERT INTO comprobantes (pago_id, ruta, nombre, tipo) VALUES ($1, $2, $3, $4)', [pagoId, ruta, String(nombre).slice(0, 120), tipo]);
+      if (ref) await t('UPDATE pagos SET referencia = $1 WHERE id = $2', [ref, pagoId]);
+      await bitacora('comprobante reemplazado', `${c.codigo}: ${quitados.map(x => x.nombre).join(', ') || 'sin comprobante'} → ${nombre}${ref ? ` · ref. ${ref}` : ''}`, t);
+    });
+    return detalleCompra(p.compra_id);
+  }
+
+  // Entidad financiera de origen y número del comprobante de un pago (para el informe de aportes).
+  async function guardarDatosComprobante(pagoId, { entidad, numeroComprobante } = {}) {
+    const p = await uno('SELECT * FROM pagos WHERE id = $1', [pagoId]);
+    if (!p) throw new ErrorApp('Pago no encontrado.', 404);
+    const ent = entidad === undefined ? p.entidad : String(entidad ?? '').trim().slice(0, 80);
+    const num_ = numeroComprobante === undefined ? p.num_comprobante : String(numeroComprobante ?? '').trim().slice(0, 60);
+    await q('UPDATE pagos SET entidad = $1, num_comprobante = $2 WHERE id = $3', [ent, num_, pagoId]);
+    return { id: Number(pagoId), entidad: ent, numeroComprobante: num_ };
+  }
+
+  // Informe de aportes: una fila por pago no rechazado, con quién aportó, cuánto, en qué concepto y desde qué entidad.
+  async function informeAportes({ bingoId } = {}) {
+    const filas = await q(`
+      SELECT p.id, p.monto_reportado, p.monto_verificado, p.metodo, p.estado, p.entidad, p.num_comprobante, p.fecha_pago,
+             c.id AS compra_id, c.codigo, c.nombre, c.cantidad, c.estado AS compra_estado,
+             (SELECT COUNT(*)::int FROM pagos x WHERE x.compra_id = c.id AND x.estado <> 'rechazado') AS n_pagos
+      FROM pagos p JOIN compras c ON c.id = p.compra_id
+      WHERE p.estado <> 'rechazado' AND c.estado <> 'rechazada' AND c.bingo_id = ${DE_BINGO(1)}
+      ORDER BY lower(c.nombre), p.id`, [bingoId ?? null]);
+    const aportes = filas.map(f => {
+      const donacion = f.compra_estado === 'donacion' || !(f.cantidad > 0);
+      const efectivo = String(f.metodo).toLowerCase() === 'efectivo';
+      return {
+        pagoId: f.id, compraId: f.compra_id, codigo: f.codigo, nombre: f.nombre,
+        valor: num(f.monto_verificado ?? f.monto_reportado),
+        concepto: donacion ? 'donacion' : 'tablas', tablas: donacion ? 0 : f.cantidad, pagosDeLaCompra: f.n_pagos,
+        efectivo, entidad: efectivo ? 'Efectivo' : (f.entidad || ''), numeroComprobante: f.num_comprobante || '',
+        fechaPago: f.fecha_pago, estado: f.estado,
+      };
+    });
+    const suma = a => redondear(a.reduce((t, x) => t + x.valor, 0));
+    return {
+      aportes,
+      totales: {
+        valor: suma(aportes), registros: aportes.length,
+        tablas: aportes.filter(x => x.concepto === 'tablas').reduce((t, x) => t + (x.pagosDeLaCompra > 1 ? 0 : x.tablas), 0),
+        donaciones: suma(aportes.filter(x => x.concepto === 'donacion')),
+      },
+    };
   }
 
   // Escribe o corrige la causa de un pago ya rechazado o anulado.
@@ -1886,7 +1961,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     evento, actualizarEvento, piezaInvitacion,
     tablasDisponibles, tablasLibresParaVender, generarTablas, importarTablas, listarTablas,
     crearCompra, estadoPublico, detalleCompra, listarCompras,
-    reiniciarSorteo, operadorDe, registrarPagoManual, verificarPago, rechazarPago, anotarMotivoPago, revertirVerificacion, convertirDonacion,
+    reiniciarSorteo, operadorDe, registrarPagoManual, verificarPago, rechazarPago, anotarMotivoPago, corregirMontoReportado, reemplazarComprobantePago, guardarDatosComprobante, informeAportes, revertirVerificacion, convertirDonacion,
     enviarTablas, reenviar, enlaceWhatsapp, mensajeSuelto, enlaceCorreo, marcarEnviadoManual, entregaFisica, entregaPublica, rechazarCompra,
     gestionarSobrante, listarSobrantes, datosSelloEntrega,
     comprobanteDe,

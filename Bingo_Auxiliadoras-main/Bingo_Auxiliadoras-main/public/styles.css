@@ -239,3 +239,14 @@ table.informe tfoot td { font-weight: 700; border-top: 2px solid var(--line); }
 .editor-figura button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
 .editor-figura span.libre { background: #C9A24B; color: #fff; font-size: 1.3rem; }
 .tabla-bingo span.en-figura { box-shadow: inset 0 0 0 2px #C9A24B; }
+
+/* Informe de aportes */
+table.aportes input { width: 100%; min-width: 120px; padding: 4px 6px; font: inherit; }
+table.aportes input.guardado { outline: 2px solid var(--ok); }
+.solo-impresion { display: none; }
+@media print {
+  .solo-impresion { display: block; }
+  table.aportes input { border: 0; background: transparent; padding: 0; min-width: 0; color: #000; }
+  table.aportes input::placeholder { color: transparent; }
+  table.aportes tr { break-inside: avoid; }
+}

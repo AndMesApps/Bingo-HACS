@@ -67,6 +67,18 @@ module.exports = async (req, res) => {
 
       { metodo: 'POST', patron: /^\/pagos\/(\d+)\/verificar$/, handler: admin(async (p, req, res) => res.json(await servicios.verificarPago(id(p), req.body?.montoVerificado, { baseUrl: baseUrl(req), operador: await servicios.operadorDe(req.body?.operador) }))) },
       { metodo: 'POST', patron: /^\/pagos\/(\d+)\/revertir$/, handler: admin(async (p, req, res) => res.json(await servicios.revertirVerificacion(id(p), { operador: await servicios.operadorDe(req.body?.operador) }))) },
+      {
+        metodo: 'PUT', patron: /^\/pagos\/(\d+)\/comprobante$/,
+        handler: admin(async (p, req, res) => {
+          const b = req.body || {};
+          if (!storage.rutaValida(b.ruta) || !(await storage.existe(b.ruta))) throw new ErrorApp('El comprobante no se subió correctamente.');
+          if (!storage.tipoPermitido(b.tipo)) throw new ErrorApp('Tipo de comprobante no permitido.');
+          res.json(await servicios.reemplazarComprobantePago(id(p), b));
+        }),
+      },
+      { metodo: 'GET', patron: /^\/informes\/aportes$/, handler: admin(async (_p, req, res) => res.json(await servicios.informeAportes({ bingoId: req.query.bingo }))) },
+      { metodo: 'PUT', patron: /^\/pagos\/(\d+)\/datos-comprobante$/, handler: admin(async (p, req, res) => res.json(await servicios.guardarDatosComprobante(id(p), req.body || {}))) },
+      { metodo: 'PUT', patron: /^\/pagos\/(\d+)\/reportado$/, handler: admin(async (p, req, res) => res.json(await servicios.corregirMontoReportado(id(p), req.body?.monto))) },
       { metodo: 'PUT', patron: /^\/pagos\/(\d+)\/motivo$/, handler: admin(async (p, req, res) => res.json(await servicios.anotarMotivoPago(id(p), req.body?.motivo))) },
       { metodo: 'POST', patron: /^\/pagos\/(\d+)\/rechazar$/, handler: admin(async (p, req, res) => res.json(await servicios.rechazarPago(id(p), { baseUrl: baseUrl(req), operador: await servicios.operadorDe(req.body?.operador), motivo: req.body?.motivo }))) },
 

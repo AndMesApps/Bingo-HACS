@@ -1983,3 +1983,43 @@ test('se puede escribir la causa de un pago ya anulado', async () => {
   const d = await s.anotarMotivoPago(pago.id, 'Registro doble');
   assert.equal(d.pagos[0].motivo, 'Registro doble');
 });
+
+test('se puede corregir el valor reportado de un pago', async () => {
+  const s = await nuevo();
+  await tablas(s, 3);
+  await s.actualizarEvento({ precioTabla: 20000 });
+  const c = await s.crearCompra(datos(1, { montoPagado: 20000 }), comprobante());
+  const pago = (await s.detalleCompra(c.id)).pagos[0];
+  await assert.rejects(s.corregirMontoReportado(pago.id, 0), /mayor que 0/);
+  const d = await s.corregirMontoReportado(pago.id, 40000);
+  assert.equal(d.pagos[0].montoReportado, 40000);
+});
+
+test('se puede reemplazar el comprobante de un pago', async () => {
+  const s = await nuevo();
+  await tablas(s, 3);
+  await s.actualizarEvento({ precioTabla: 20000 });
+  const c = await s.crearCompra(datos(1, { montoPagado: 20000 }), comprobante());
+  const pago = (await s.detalleCompra(c.id)).pagos[0];
+  const d = await s.reemplazarComprobantePago(pago.id, { ruta: 'comprobantes/nuevo.jpg', nombre: 'nuevo.jpg', tipo: 'image/jpeg', referencia: 'M123' });
+  assert.equal(d.pagos[0].comprobantes.length, 1);
+  assert.equal(d.pagos[0].comprobantes[0].nombre, 'nuevo.jpg');
+  assert.equal(d.pagos[0].referencia, 'M123');
+});
+
+test('informe de aportes: una fila por pago con entidad y número de comprobante editables', async () => {
+  const s = await nuevo();
+  await tablas(s, 5);
+  await s.actualizarEvento({ precioTabla: 20000 });
+  const c = await s.crearCompra(datos(2, { montoPagado: 40000 }), comprobante());
+  const pago = (await s.detalleCompra(c.id)).pagos[0];
+  await s.verificarPago(pago.id, 40000);
+  await s.guardarDatosComprobante(pago.id, { entidad: 'Nequi', numeroComprobante: 'M123' });
+  const r = await s.informeAportes();
+  assert.equal(r.aportes.length, 1);
+  assert.equal(r.aportes[0].valor, 40000);
+  assert.equal(r.aportes[0].tablas, 2);
+  assert.equal(r.aportes[0].entidad, 'Nequi');
+  assert.equal(r.aportes[0].numeroComprobante, 'M123');
+  assert.equal(r.totales.valor, 40000);
+});
