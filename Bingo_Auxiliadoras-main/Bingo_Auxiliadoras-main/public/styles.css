@@ -257,12 +257,13 @@ label.en-linea { flex-direction: row; align-items: center; gap: 8px; }
 label.en-linea select { width: auto; padding: 7px 10px; }
 label.en-linea input { width: auto; accent-color: var(--azul); padding: 0; }
 .ajustes { border-top: 1px solid var(--line); padding-top: 12px; gap: 18px; }
+.tabs.quien { justify-content: center; align-items: center; margin: 14px 0 0; }
 .aviso-canto { margin: 0 0 14px; text-align: center; font-weight: 700; font-size: 1.1rem; }
 
 /* En pantalla completa (para proyectar o compartir en Zoom) solo se ven la balotera y el tablero: ningún dato de compradores. */
 #vista:fullscreen { background: var(--bg); overflow: auto; padding: 14px 24px; }
 #vista:fullscreen > :not(.row, .escenario, .tablero), #vista:fullscreen > form { display: none; }
-#vista:fullscreen .tablero .actions, #vista:fullscreen .ajustes { display: none; }
+#vista:fullscreen .tablero .actions, #vista:fullscreen .ajustes, #vista:fullscreen .quien { display: none; }
 /* en pantallas bajitas todo se aprieta para que quepan la balotera y el tablero completo */
 @media (max-height: 900px) {
   #vista:fullscreen { padding: 6px 16px; }

@@ -1211,16 +1211,20 @@ function escenario(balotas) {
         ${balotas.length > 1 ? `<p class="anteriores"><span class="muted">Anteriores:</span> ${balotas.slice(-6, -1).reverse().map(n => `<span>${nombreBalota(n)}</span>`).join('')}</p>` : ''}
       </div>
     </div>
+    <div class="tabs quien" role="group" aria-label="Quién canta la balota">
+      <span class="muted">¿Quién canta la balota?</span>
+      <button type="button" data-voz="si" aria-selected="${op.voz}">🔊 La voz de la aplicación</button>
+      <button type="button" data-voz="no" aria-selected="${!op.voz}">🙋 Una persona (aquí solo se muestra)</button>
+    </div>
     <div class="actions centro">
       <button type="button" class="grande sacar" id="sacar" ${balotas.length >= 75 ? 'disabled' : ''}>🎱 Sacar balota</button>
       <button type="button" class="ghost" id="auto" aria-pressed="${canto.auto}" ${balotas.length >= 75 ? 'disabled' : ''}>${canto.auto ? '⏸ Detener automático' : '▶ Cantar automático'}</button>
       <label class="en-linea">cada <select id="intervalo">${[4, 6, 8, 12, 20].map(s => `<option value="${s}" ${s === canto.intervalo ? 'selected' : ''}>${s} segundos</option>`).join('')}</select></label>
-      <button type="button" class="ghost" id="repetir" ${ultima ? '' : 'disabled'}>🔁 Repetir</button>
+      <button type="button" class="ghost" id="repetir" ${ultima ? '' : 'disabled'} ${op.voz ? '' : 'hidden'}>🔁 Repetir</button>
       <button type="button" class="ghost" id="pantalla">⛶ Pantalla completa</button>
     </div>
     <div class="actions centro ajustes">
       <label class="en-linea"><input type="checkbox" data-sonido="efectos" ${op.efectos ? 'checked' : ''}> Sonidos</label>
-      <label class="en-linea"><input type="checkbox" data-sonido="voz" ${op.voz ? 'checked' : ''}> Voz que canta</label>
       <label class="en-linea">Al salir la balota <select data-sonido="golpe">${[['ambos', 'Bombo y platillo'], ['platillo', 'Platillazo'], ['bombo', 'Bombo']].map(([v, t]) => `<option value="${v}" ${v === op.golpe ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
       <label class="en-linea">Volumen <input type="range" data-sonido="volumen" min="0" max="1" step="0.05" value="${op.volumen}"></label>
     </div>
@@ -1289,6 +1293,11 @@ function conectarEscenario(ronda, ultima) {
   });
   $('intervalo').addEventListener('change', e => { canto.intervalo = Number(e.target.value); recordar('sorteo-intervalo', canto.intervalo); });
   $('repetir').addEventListener('click', () => { Balotera.activar(); Balotera.cantar(LETRA_DE(ultima), ultima); });
+  $('vista').querySelectorAll('[data-voz]').forEach(b => b.addEventListener('click', () => {
+    Balotera.ajustar('voz', b.dataset.voz === 'si');
+    $('vista').querySelectorAll('[data-voz]').forEach(x => x.setAttribute('aria-selected', x === b));
+    $('repetir').hidden = !Balotera.opciones.voz;
+  }));
   $('pantalla').addEventListener('click', () => {
     if (document.fullscreenElement) return document.exitFullscreen();
     if (!$('vista').requestFullscreen) return msg('Este navegador no permite la pantalla completa.', true);

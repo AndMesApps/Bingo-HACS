@@ -1,8 +1,10 @@
 // Sonidos del Bingo y voz que canta las balotas. Los sonidos se fabrican en el navegador (Web Audio):
 // no hay archivos de audio que descargar ni derechos de autor.
 const Balotera = (() => {
-  const CLAVE = 'sorteo-sonido';
-  const opciones = { efectos: true, voz: true, golpe: 'ambos', volumen: 0.8 };
+  const CLAVE = 'sorteo-sonido-2';
+  // Cuánto se amplifican los efectos con el control de volumen al máximo (el compresor evita que se distorsione).
+  const AMPLIFICACION = 4;
+  const opciones = { efectos: true, voz: true, golpe: 'ambos', volumen: 1 };
   try { Object.assign(opciones, JSON.parse(localStorage.getItem(CLAVE) || '{}')); } catch { /* valores por defecto */ }
 
   let ctx = null;
@@ -16,20 +18,28 @@ const Balotera = (() => {
     if (!ctx) {
       ctx = new Audio();
       const limitador = ctx.createDynamicsCompressor();
-      limitador.connect(ctx.destination);
+      limitador.threshold.value = -12;
+      limitador.knee.value = 6;
+      limitador.ratio.value = 20;
+      limitador.attack.value = 0.002;
+      limitador.release.value = 0.15;
+      // recorte suave al final: sube la sensación de volumen sin chasquidos
+      const tope = ctx.createWaveShaper();
+      tope.curve = Float32Array.from({ length: 1025 }, (_, i) => Math.tanh(2 * (i / 512 - 1)) / Math.tanh(2));
+      limitador.connect(tope).connect(ctx.destination);
       salida = ctx.createGain();
       salida.connect(limitador);
       ruidoBase = ctx.createBuffer(1, ctx.sampleRate * 3, ctx.sampleRate);
       const datos = ruidoBase.getChannelData(0);
       for (let i = 0; i < datos.length; i++) datos[i] = Math.random() * 2 - 1;
     }
-    salida.gain.value = opciones.volumen;
+    salida.gain.value = opciones.volumen * AMPLIFICACION;
     if (ctx.state === 'suspended') ctx.resume();
   }
 
   function ajustar(clave, valor) {
     opciones[clave] = valor;
-    if (salida) salida.gain.value = opciones.volumen;
+    if (salida) salida.gain.value = opciones.volumen * AMPLIFICACION;
     if (clave === 'voz' && !valor) window.speechSynthesis?.cancel();
     try { localStorage.setItem(CLAVE, JSON.stringify(opciones)); } catch { /* sin almacenamiento */ }
   }
