@@ -114,6 +114,7 @@ module.exports = async (req, res) => {
       { metodo: 'POST', patron: /^\/premios\/(\d+)\/iniciar$/, handler: admin(async (p, _req, res) => res.json(await servicios.iniciarRonda(id(p)))) },
       { metodo: 'POST', patron: /^\/premios\/(\d+)\/pausar$/, handler: admin(async (p, _req, res) => res.json(await servicios.pausarRonda(id(p)))) },
       { metodo: 'POST', patron: /^\/premios\/(\d+)\/balotas$/, handler: admin(async (p, req, res) => res.json(await servicios.cantarBalota(id(p), req.body?.numero))) },
+      { metodo: 'POST', patron: /^\/premios\/(\d+)\/balotas\/sacar$/, handler: admin(async (p, _req, res) => res.json(await servicios.sacarBalota(id(p)))) },
       { metodo: 'DELETE', patron: /^\/premios\/(\d+)\/balotas\/(\d+)$/, handler: admin(async (p, _req, res) => res.json(await servicios.deshacerBalota(Number(p[0]), p[1]))) },
       { metodo: 'POST', patron: /^\/premios\/(\d+)\/verificar-tabla$/, handler: admin(async (p, req, res) => res.json(await servicios.verificarTabla(id(p), req.body?.serial))) },
       { metodo: 'POST', patron: /^\/premios\/(\d+)\/cerrar$/, handler: admin(async (p, _req, res) => res.json(await servicios.cerrarRonda(id(p)))) },

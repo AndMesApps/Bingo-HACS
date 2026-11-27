@@ -1112,6 +1112,21 @@ test('sorteo: deshacer balota, una sola ronda en juego, tabla no vendida no gana
   await s.iniciarRonda(p2.id);
 });
 
+test('sorteo: sacar balota al azar no repite y se acaba en 75', async () => {
+  const s = await nuevo();
+  const { p } = await ronda(s, 'linea');
+  await assert.rejects(() => s.sacarBalota(p.id), /no está en juego/);
+  await s.iniciarRonda(p.id);
+  await s.cantarBalota(p.id, 7);
+  let r;
+  for (let i = 0; i < 74; i++) {
+    r = await s.sacarBalota(p.id);
+    assert.equal(r.balotas.at(-1), r.sacada);
+  }
+  assert.deepEqual([...r.balotas].sort((a, b) => a - b), Array.from({ length: 75 }, (_, i) => i + 1));
+  await assert.rejects(() => s.sacarBalota(p.id), /75 balotas/);
+});
+
 test('premio: la entrega registra quién recibió', async () => {
   const s = await nuevo();
   const { p, serial } = await ronda(s, 'carton_lleno');

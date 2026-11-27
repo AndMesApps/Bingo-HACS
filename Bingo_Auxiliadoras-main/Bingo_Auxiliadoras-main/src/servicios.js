@@ -1579,6 +1579,21 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     return estadoSorteo();
   }
 
+  // Modo "cantar desde la aplicación": saca al azar una de las balotas que faltan en la ronda y la deja marcada.
+  // Si otra pantalla sacó la misma al mismo tiempo, se vuelve a sortear entre las restantes.
+  async function sacarBalota(premioId) {
+    await enJuego(premioId);
+    for (let intento = 0; intento < 5; intento++) {
+      const cantadas = new Set(await balotasDe(premioId));
+      const quedan = Array.from({ length: 75 }, (_, i) => i + 1).filter(n => !cantadas.has(n));
+      if (!quedan.length) throw new ErrorApp('Ya salieron las 75 balotas de esta ronda.', 409);
+      const numero = quedan[crypto.randomInt(quedan.length)];
+      const r = await q('INSERT INTO balotas (premio_id, numero, cantada_en) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING id', [premioId, numero, ahora()]);
+      if (r.length) return { ...(await estadoSorteo()), sacada: numero };
+    }
+    throw new ErrorApp('No se pudo sacar la balota. Inténtalo de nuevo.', 409);
+  }
+
   async function deshacerBalota(premioId, valor) {
     const numero = numeroBalota(valor);
     await enJuego(premioId);
@@ -1969,7 +1984,7 @@ function crearServicios({ db, whatsapp, correo = crearCorreo({}) }) {
     gestionarSobrante, listarSobrantes, datosSelloEntrega,
     comprobanteDe,
     listarPremios, crearPremio, cambiarFigura, editarPremio, eliminarPremio, asignarGanador, cerrarRonda, quitarGanadora, quitarGanador, entregarPremio, pagarPremio,
-    estadoSorteo, iniciarRonda, pausarRonda, cantarBalota, deshacerBalota, verificarTabla,
+    estadoSorteo, iniciarRonda, pausarRonda, cantarBalota, sacarBalota, deshacerBalota, verificarTabla,
     mensajeActual, vistaPreviaMensaje,
     listarGastos, crearGasto, eliminarGasto,
     resumen, informes, bitacoraLista, reporte, listarBingos, reiniciarBingo,

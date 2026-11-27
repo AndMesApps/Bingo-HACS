@@ -208,6 +208,72 @@ button.grande { width: 100%; padding: 14px 18px; font-size: 1.05rem; background:
 .tabla-bingo span { padding: 8px 0; border: 1px solid var(--line); border-radius: 6px; }
 .tabla-bingo span.marcada { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+/* Cantar el Bingo desde la aplicación: balotera, balota grande y controles */
+.tabs.modos button { flex: 1 1 260px; }
+.balotas.solo-ver .balota { cursor: default; }
+.escena { display: flex; align-items: center; justify-content: center; gap: 40px; flex-wrap: wrap; }
+.jaula {
+  position: relative; width: 210px; height: 210px; border-radius: 50%; overflow: hidden; flex: none;
+  border: 6px solid var(--dorado);
+  background: repeating-linear-gradient(90deg, transparent 0 22px, color-mix(in srgb, var(--dorado) 35%, transparent) 22px 24px), var(--azul-claro);
+}
+.jaula span {
+  position: absolute; width: 26px; height: 26px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff 0 18%, hsl(calc(var(--i) * 67) 70% 50%) 55%);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .3);
+}
+.jaula.girando span { animation: revolver .5s linear infinite; animation-delay: calc(var(--i) * -73ms); }
+.jaula.girando span:nth-child(3n) { animation-duration: .67s; animation-direction: reverse; }
+.jaula.girando span:nth-child(3n+1) { animation-duration: .41s; }
+@keyframes revolver {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(38px, -78px); }
+  50% { transform: translate(-12px, -125px); }
+  75% { transform: translate(-44px, -52px); }
+}
+.salida { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 220px; }
+.bola-grande {
+  --color: var(--azul);
+  width: 190px; height: 190px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 35% 28%, color-mix(in srgb, var(--color) 45%, #fff), var(--color) 55%, color-mix(in srgb, var(--color) 65%, #000));
+  box-shadow: 0 12px 28px rgba(0, 0, 0, .3); color: #12303f;
+}
+.bola-grande small, .bola-grande strong { background: #fff; width: 124px; text-align: center; font-family: Georgia, serif; font-weight: 800; }
+.bola-grande small { font-size: 1.6rem; line-height: 1; border-radius: 62px 62px 0 0; padding-top: 14px; }
+.bola-grande strong { font-size: 4rem; line-height: 1; border-radius: 0 0 62px 62px; padding-bottom: 16px; }
+.bola-grande.vacia strong { border-radius: 50%; height: 124px; line-height: 124px; padding: 0; }
+.bola-grande.letra-B { --color: #1d5fb8; }
+.bola-grande.letra-I { --color: #c0392b; }
+.bola-grande.letra-N { --color: #6b4aa0; }
+.bola-grande.letra-G { --color: #23794a; }
+.bola-grande.letra-O { --color: #c27c0e; }
+.bola-grande.salta { animation: salta .7s cubic-bezier(.2, 1.4, .4, 1); }
+@keyframes salta { from { transform: translateY(-30px) scale(.2) rotate(-200deg); opacity: 0; } to { transform: none; opacity: 1; } }
+.anteriores { margin: 0; display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; align-items: center; }
+.anteriores span:not(.muted) { border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px; font-weight: 600; font-size: .85rem; }
+.actions.centro { justify-content: center; }
+.escenario button.grande.sacar { width: auto; min-width: 220px; }
+label.en-linea { flex-direction: row; align-items: center; gap: 8px; }
+label.en-linea select { width: auto; padding: 7px 10px; }
+label.en-linea input { width: auto; accent-color: var(--azul); padding: 0; }
+.ajustes { border-top: 1px solid var(--line); padding-top: 12px; gap: 18px; }
+.aviso-canto { margin: 0 0 14px; text-align: center; font-weight: 700; font-size: 1.1rem; }
+
+/* En pantalla completa (para proyectar o compartir en Zoom) solo se ven la balotera y el tablero: ningún dato de compradores. */
+#vista:fullscreen { background: var(--bg); overflow: auto; padding: 14px 24px; }
+#vista:fullscreen > :not(.row, .escenario, .tablero), #vista:fullscreen > form { display: none; }
+#vista:fullscreen .tablero .actions, #vista:fullscreen .ajustes { display: none; }
+/* en pantallas bajitas todo se aprieta para que quepan la balotera y el tablero completo */
+@media (max-height: 900px) {
+  #vista:fullscreen { padding: 6px 16px; }
+  #vista:fullscreen .card { padding: 8px 14px; margin-bottom: 6px; }
+  #vista:fullscreen .jaula, #vista:fullscreen .bola-grande { zoom: .68; }
+  #vista:fullscreen .mini-figura { display: none; }
+  #vista:fullscreen .actions { margin-top: 6px; }
+  #vista:fullscreen .balota { min-height: 30px; padding: 2px 0; }
+  #vista:fullscreen .balotas { gap: 3px; }
+}
+
 /* Informes */
 .informe-seccion { margin: 18px 0; }
 .tabla-scroll { overflow-x: auto; }

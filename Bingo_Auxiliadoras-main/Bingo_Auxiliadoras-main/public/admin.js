@@ -44,6 +44,7 @@ async function accion(fn, ok) {
 }
 
 function mostrarLogin() {
+  detenerCanto();
   $('panel').hidden = true;
   $('salir').hidden = true;
   $('login').hidden = false;
@@ -74,6 +75,7 @@ function dibujarTabs() {
 
 async function mostrar(nombre) {
   vistaActual = nombre;
+  if (nombre !== 'sorteo') detenerCanto();
   dibujarTabs();
   try {
     await VISTAS[nombre].render();
@@ -1135,6 +1137,7 @@ function tarjetaReiniciarSorteo() {
 function conectarReiniciarSorteo() {
   $('reiniciar-sorteo').addEventListener('click', async () => {
     if (!confirm('¿Reiniciar el sorteo?\n\nSe borran las balotas cantadas, las tablas ganadoras y las entregas de premios. Las compras y las tablas vendidas no se tocan.')) return;
+    detenerCanto();
     try {
       const r = await api('POST', '/admin/sorteo/reiniciar', { confirmar: true });
       msg(`Sorteo reiniciado (${r.balotas} balota(s) y ${r.ganadoras} ganadora(s) borradas).`);
@@ -1165,6 +1168,139 @@ function monitorTablas(candidatas) {
 }
 const LETRA_DE = n => ['B', 'I', 'N', 'G', 'O'][Math.min(4, Math.floor((n - 1) / 15))];
 
+// Dos formas de jugar la ronda: 'marcar' (las balotas salen en otro aplicativo y aquí se tocan) o 'cantar' (salen de aquí).
+const recordar = (k, v) => { try { localStorage.setItem(k, v); } catch { /* sin almacenamiento */ } };
+const recordado = (k, def) => { try { return localStorage.getItem(k) ?? def; } catch { return def; } };
+const canto = {
+  modo: recordado('sorteo-modo', 'marcar'),
+  intervalo: Number(recordado('sorteo-intervalo', '8')),
+  auto: false, ocupado: false, temporizador: null, turno: 0, aviso: '',
+};
+
+// Apaga el canto automático (y la espera pendiente). La balota que ya esté rodando termina de salir.
+function detenerAuto() {
+  canto.auto = false;
+  canto.turno++;
+  clearTimeout(canto.temporizador);
+  const b = $('auto');
+  if (b) { b.textContent = '▶ Cantar automático'; b.setAttribute('aria-pressed', 'false'); }
+}
+function detenerCanto() {
+  detenerAuto();
+  canto.aviso = '';
+  Balotera.callar();
+}
+
+const nombreBalota = n => `${LETRA_DE(n)}-${n}`;
+
+// Posición de las bolitas amontonadas en el fondo de la balotera (filas de abajo hacia arriba).
+const BOLITAS = [4, 6, 7, 5].flatMap((cuantas, fila) =>
+  Array.from({ length: cuantas }, (_, k) => ({ x: 99 - (cuantas * 26) / 2 + k * 26, y: 164 - fila * 23 })));
+
+function escenario(balotas) {
+  const ultima = balotas[balotas.length - 1];
+  const op = Balotera.opciones;
+  return `<div class="card escenario">
+    ${canto.aviso ? `<div class="ojo aviso-canto">${esc(canto.aviso)}</div>` : ''}
+    <div class="escena">
+      <div class="jaula" id="jaula" aria-hidden="true">${BOLITAS.map((b, i) => `<span style="--i:${i};left:${b.x}px;top:${b.y}px"></span>`).join('')}</div>
+      <div class="salida">
+        <div class="bola-grande${ultima ? ` letra-${LETRA_DE(ultima)}` : ' vacia'}" id="bola" role="status" aria-live="assertive">
+          ${ultima ? `<small>${LETRA_DE(ultima)}</small><strong>${ultima}</strong>` : '<strong>?</strong>'}</div>
+        <p class="muted" style="margin:0">Balotas cantadas: ${balotas.length} de 75</p>
+        ${balotas.length > 1 ? `<p class="anteriores"><span class="muted">Anteriores:</span> ${balotas.slice(-6, -1).reverse().map(n => `<span>${nombreBalota(n)}</span>`).join('')}</p>` : ''}
+      </div>
+    </div>
+    <div class="actions centro">
+      <button type="button" class="grande sacar" id="sacar" ${balotas.length >= 75 ? 'disabled' : ''}>🎱 Sacar balota</button>
+      <button type="button" class="ghost" id="auto" aria-pressed="${canto.auto}" ${balotas.length >= 75 ? 'disabled' : ''}>${canto.auto ? '⏸ Detener automático' : '▶ Cantar automático'}</button>
+      <label class="en-linea">cada <select id="intervalo">${[4, 6, 8, 12, 20].map(s => `<option value="${s}" ${s === canto.intervalo ? 'selected' : ''}>${s} segundos</option>`).join('')}</select></label>
+      <button type="button" class="ghost" id="repetir" ${ultima ? '' : 'disabled'}>🔁 Repetir</button>
+      <button type="button" class="ghost" id="pantalla">⛶ Pantalla completa</button>
+    </div>
+    <div class="actions centro ajustes">
+      <label class="en-linea"><input type="checkbox" data-sonido="efectos" ${op.efectos ? 'checked' : ''}> Sonidos</label>
+      <label class="en-linea"><input type="checkbox" data-sonido="voz" ${op.voz ? 'checked' : ''}> Voz que canta</label>
+      <label class="en-linea">Al salir la balota <select data-sonido="golpe">${[['ambos', 'Bombo y platillo'], ['platillo', 'Platillazo'], ['bombo', 'Bombo']].map(([v, t]) => `<option value="${v}" ${v === op.golpe ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label class="en-linea">Volumen <input type="range" data-sonido="volumen" min="0" max="1" step="0.05" value="${op.volumen}"></label>
+    </div>
+  </div>`;
+}
+
+// Mientras la balotera rueda no se puede sacar otra, deshacer, pausar ni cambiar de modo.
+function bloquearSorteo() {
+  $('vista').querySelectorAll('#sacar, #repetir, #deshacer, #pausar, [data-modo]').forEach(b => { b.disabled = true; });
+  $('jaula')?.classList.add('girando');
+  if ($('bola')) { $('bola').className = 'bola-grande vacia'; $('bola').innerHTML = '<strong>…</strong>'; }
+}
+
+// Un turno completo: la balotera rueda, sale la balota con su golpe, se marca en el tablero y se canta.
+async function sacarBalota(ronda) {
+  if (canto.ocupado) return;
+  canto.ocupado = true;
+  canto.aviso = '';
+  clearTimeout(canto.temporizador);
+  Balotera.activar();
+  Balotera.callar();
+  bloquearSorteo();
+  const parar = Balotera.rodar();
+  let estado;
+  try {
+    [estado] = await Promise.all([
+      api('POST', `/admin/premios/${ronda.id}/balotas/sacar`),
+      new Promise(ok => setTimeout(ok, 2600)),
+    ]);
+  } catch (err) {
+    parar();
+    canto.ocupado = false;
+    detenerAuto();
+    if (vistaActual === 'sorteo' && !$('panel').hidden) { await mostrar('sorteo'); msg(err.message, true); }
+    return;
+  }
+  parar();
+  canto.ocupado = false;
+  if (vistaActual !== 'sorteo' || $('panel').hidden) return;
+  Balotera.golpe();
+  // Si esta balota completó alguna tabla, el automático se detiene para escuchar quién canta Bingo.
+  if ((estado.candidatas || []).some(c => c.faltan === 0 && c.conUltima && !c.yaRegistrada)) {
+    detenerAuto();
+    canto.aviso = '🎉 Con esta balota alguien puede tener Bingo. Escucha quién canta y verifica su tabla.';
+  }
+  await mostrar('sorteo');
+  $('bola')?.classList.add('salta');
+  const turno = canto.turno;
+  await Balotera.cantar(LETRA_DE(estado.sacada), estado.sacada);
+  // La espera del automático empieza a contar cuando terminó de cantarse esta balota.
+  if (estado.balotas.length >= 75) return detenerAuto();
+  if (canto.auto && !canto.ocupado && canto.turno === turno && vistaActual === 'sorteo') {
+    clearTimeout(canto.temporizador);
+    canto.temporizador = setTimeout(() => sacarBalota(ronda), canto.intervalo * 1000);
+  }
+}
+
+function conectarEscenario(ronda, ultima) {
+  $('sacar').addEventListener('click', () => sacarBalota(ronda));
+  $('auto').addEventListener('click', () => {
+    if (canto.auto) return detenerAuto();
+    canto.auto = true;
+    $('auto').textContent = '⏸ Detener automático';
+    $('auto').setAttribute('aria-pressed', 'true');
+    sacarBalota(ronda);
+  });
+  $('intervalo').addEventListener('change', e => { canto.intervalo = Number(e.target.value); recordar('sorteo-intervalo', canto.intervalo); });
+  $('repetir').addEventListener('click', () => { Balotera.activar(); Balotera.cantar(LETRA_DE(ultima), ultima); });
+  $('pantalla').addEventListener('click', () => {
+    if (document.fullscreenElement) return document.exitFullscreen();
+    if (!$('vista').requestFullscreen) return msg('Este navegador no permite la pantalla completa.', true);
+    $('vista').requestFullscreen().catch(() => msg('No se pudo abrir la pantalla completa.', true));
+  });
+  $('vista').querySelectorAll('[data-sonido]').forEach(c => c.addEventListener('input', () => {
+    const k = c.dataset.sonido;
+    Balotera.ajustar(k, c.type === 'checkbox' ? c.checked : k === 'volumen' ? Number(c.value) : c.value);
+    if (k === 'golpe') { Balotera.activar(); Balotera.golpe(); }
+  }));
+}
+
 async function renderSorteo() {
   const [estado, premios] = await Promise.all([api('GET', '/admin/sorteo'), api('GET', '/admin/premios')]);
   const { ronda, balotas } = estado;
@@ -1172,10 +1308,11 @@ async function renderSorteo() {
   const LETRAS = ['B', 'I', 'N', 'G', 'O'];
 
   if (!ronda) {
+    detenerCanto();
     const estadoRonda = p => p.rondaEstado === 'cerrada' || p.ganadores.length ? 'Ya tiene ganadora' : p.rondaEstado === 'en_juego' ? 'En juego' : 'Pendiente';
     $('vista').innerHTML = `
       <h2>Sorteo</h2>
-      ${premios.length ? '<p class="muted">Elige la ronda que se va a jugar. Luego irás marcando las balotas que van saliendo y, cuando alguien cante Bingo, anotas su tabla para verificarla.</p>' : '<p class="muted">No hay rondas. Crea una en la pestaña Premios.</p>'}
+      ${premios.length ? '<p class="muted">Elige la ronda que se va a jugar. Podrás cantar el Bingo desde aquí o marcar las balotas que salgan en otro aplicativo y, cuando alguien cante Bingo, anotas su tabla para verificarla.</p>' : '<p class="muted">No hay rondas. Crea una en la pestaña Premios.</p>'}
       ${premios.map(p => `<article class="card">
         <div class="row" style="align-items:center;gap:12px">${miniFigura(p.figuraCasillas)}
           <span style="flex:1"><strong>${esc(p.ronda)}</strong> · ${esc(p.premio)} · ${dinero(p.monto)}<br><span class="muted">${esc(p.figuraNombre)} · ${estadoRonda(p)}</span></span>
@@ -1190,23 +1327,29 @@ async function renderSorteo() {
 
   const cantadas = new Set(balotas);
   const ultima = balotas[balotas.length - 1];
+  const cantando = canto.modo === 'cantar';
   const fila = (letra, i) => `<div class="balotas-fila"><strong class="balotas-letra">${letra}</strong>${
     Array.from({ length: 15 }, (_, k) => i * 15 + k + 1).map(n =>
-      `<button type="button" class="balota${cantadas.has(n) ? ' cantada' : ''}${n === ultima ? ' ultima' : ''}" data-balota="${n}" ${cantadas.has(n) ? 'disabled' : ''}>${n}</button>`).join('')}</div>`;
+      `<button type="button" class="balota${cantadas.has(n) ? ' cantada' : ''}${n === ultima ? ' ultima' : ''}" data-balota="${n}" ${cantadas.has(n) || cantando ? 'disabled' : ''}>${n}</button>`).join('')}</div>`;
 
   $('vista').innerHTML = `
     <div class="row"><h2 style="margin:0">${esc(ronda.ronda)} · ${esc(ronda.premio)}</h2>
       <span class="pill por_verificar">en juego</span></div>
     <div class="row" style="align-items:center;gap:12px">${miniFigura(ronda.figuraCasillas)}<p class="muted" style="margin:0">Figura: <strong>${esc(ronda.figuraNombre)}</strong> · Balotas cantadas: ${balotas.length} de 75</p></div>
-    ${monitorTablas(candidatas)}
-    <div class="card">
-      <p style="font-size:1.4rem;margin:0 0 10px">Última balota: <strong>${ultima ? `${LETRAS[Math.floor((ultima - 1) / 15)]}-${ultima}` : '—'}</strong></p>
-      <div class="balotas">${LETRAS.map(fila).join('')}</div>
+    <div class="tabs modos" role="group" aria-label="Forma de jugar">
+      <button type="button" data-modo="marcar" aria-selected="${!cantando}">✋ Marcar balotas (se juegan en otro aplicativo)</button>
+      <button type="button" data-modo="cantar" aria-selected="${cantando}">🎤 Cantar el Bingo desde aquí</button>
+    </div>
+    ${cantando ? escenario(balotas) : monitorTablas(candidatas)}
+    <div class="card tablero">
+      ${cantando ? '' : `<p style="font-size:1.4rem;margin:0 0 10px">Última balota: <strong>${ultima ? nombreBalota(ultima) : '—'}</strong></p>`}
+      <div class="balotas${cantando ? ' solo-ver' : ''}">${LETRAS.map(fila).join('')}</div>
       <div class="actions">
         <button type="button" class="ghost" id="deshacer" ${ultima ? '' : 'disabled'}>Deshacer última balota</button>
         <button type="button" class="ghost" id="pausar">Pausar y cambiar de ronda</button>
       </div>
     </div>
+    ${cantando ? monitorTablas(candidatas) : ''}
     ${ronda.ganadores.length ? `
     <div class="card">
       <h3 style="margin-top:0">Tablas ganadoras de esta ronda (${ronda.ganadores.length})</h3>
@@ -1224,12 +1367,22 @@ async function renderSorteo() {
     <div id="resultado"></div>
     ${tarjetaReiniciarSorteo()}`;
   conectarReiniciarSorteo();
+  if (cantando) conectarEscenario(ronda, ultima);
+  // Si la pantalla se redibujó mientras la balotera rodaba, sigue bloqueada hasta que salga la balota.
+  if (canto.ocupado) bloquearSorteo();
+  $('vista').querySelectorAll('[data-modo]').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.modo === canto.modo) return;
+    detenerCanto();
+    canto.modo = b.dataset.modo;
+    recordar('sorteo-modo', canto.modo);
+    mostrar('sorteo');
+  }));
 
   $('vista').querySelectorAll('[data-balota]').forEach(b => b.addEventListener('click', async () => {
     try { await api('POST', `/admin/premios/${ronda.id}/balotas`, { numero: Number(b.dataset.balota) }); mostrar('sorteo'); } catch (err) { msg(err.message, true); }
   }));
-  $('deshacer').addEventListener('click', () => accion(async () => { await api('DELETE', `/admin/premios/${ronda.id}/balotas/${ultima}`); mostrar('sorteo'); }, 'Balota deshecha.'));
-  $('pausar').addEventListener('click', () => accion(async () => { await api('POST', `/admin/premios/${ronda.id}/pausar`); mostrar('sorteo'); }, 'Ronda en pausa.'));
+  $('deshacer').addEventListener('click', () => accion(async () => { detenerCanto(); await api('DELETE', `/admin/premios/${ronda.id}/balotas/${ultima}`); mostrar('sorteo'); }, 'Balota deshecha.'));
+  $('pausar').addEventListener('click', () => accion(async () => { detenerCanto(); await api('POST', `/admin/premios/${ronda.id}/pausar`); mostrar('sorteo'); }, 'Ronda en pausa.'));
   $('vista').querySelectorAll('[data-quitar-ganadora]').forEach(b => b.addEventListener('click', () =>
     accion(async () => { await api('DELETE', `/admin/premios/ganadores/${b.dataset.quitarGanadora}`); mostrar('sorteo'); }, 'Ganadora quitada.')));
   const cerrar = $('cerrar-ronda');
@@ -1245,8 +1398,12 @@ async function renderSorteo() {
     f.requestSubmit();
     f.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }));
+  // Al revisar una tabla se detiene el automático, para que la pantalla no cambie mientras se verifica.
+  $('form-verificar').addEventListener('focusin', detenerAuto);
   $('form-verificar').addEventListener('submit', async e => {
     e.preventDefault();
+    detenerAuto();
+    if (canto.ocupado) return msg('Espera a que salga la balota y vuelve a verificar.', true);
     try {
       const v = await api('POST', `/admin/premios/${ronda.id}/verificar-tabla`, { serial: e.target.serial.value });
       const cuadricula = v.numeros ? `<div class="tabla-bingo">${LETRAS.map(l => `<strong>${l}</strong>`).join('')}${
